@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import SignalCard, { Signal } from '@/app/components/SignalCard'
-import { TrendingUp, TrendingDown, Zap, Filter } from 'lucide-react'
+import { TrendingUp, TrendingDown, Zap, Filter, CheckCheck, RefreshCw, Loader2 } from 'lucide-react'
 
 type Snapshot = {
   ticker: string
@@ -40,6 +40,29 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
   const critical = signals.filter(s => s.severity >= 9).length
   const todaySignals = signals.filter(s => new Date(s.created_at).toDateString() === new Date().toDateString()).length
 
+  const [refreshing, setRefreshing] = useState(false)
+  const refresh = async () => {
+    setRefreshing(true)
+    try { await fetch('/api/refresh', { method: 'POST' }) } catch {}
+    // Re-fetch latest signals
+    try {
+      const r = await fetch('/api/signals?limit=50')
+      if (r.ok) setSignals(await r.json())
+    } catch {}
+    setRefreshing(false)
+  }
+
+  const markAllRead = async () => {
+    const unreadIds = signals.filter(s => !s.read).map(s => s.id)
+    if (!unreadIds.length) return
+    setSignals(prev => prev.map(s => ({ ...s, read: true })))
+    await fetch('/api/signals', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: unreadIds, read: true }),
+    })
+  }
+
   return (
     <div className="flex flex-col gap-6">
       {/* Header */}
@@ -48,12 +71,24 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
           <h1 className="text-2xl font-bold text-white tracking-tight">Signal Feed</h1>
           <p className="text-sm text-slate-500 mt-0.5">{todaySignals} signals today · {unread} unread</p>
         </div>
-        {critical > 0 && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <Zap className="w-4 h-4 text-red-400" />
-            <span className="text-sm font-bold text-red-400">{critical} critical</span>
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {critical > 0 && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
+              <Zap className="w-4 h-4 text-red-400" />
+              <span className="text-sm font-bold text-red-400">{critical} critical</span>
+            </div>
+          )}
+          {unread > 0 && (
+            <button onClick={markAllRead} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5" style={{ transition: 'color 0.15s, background 0.15s' }}>
+              <CheckCheck className="w-3.5 h-3.5" />
+              Mark all read
+            </button>
+          )}
+          <button onClick={refresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
+            {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            {refreshing ? 'Scanning...' : 'Force scan'}
+          </button>
+        </div>
       </div>
 
       {/* Ticker tape */}
