@@ -21,11 +21,19 @@ from market_hours import is_market_hours
 
 log = logging.getLogger("prediction_worker")
 
-GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
-GROQ_BACKUP_KEY = os.environ.get("GROQ_BACKUP_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
+
+def _groq_keys() -> list[str]:
+    keys = []
+    seen = set()
+    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
+        k = os.environ.get(name, "").strip()
+        if k and k not in seen:
+            keys.append(k)
+            seen.add(k)
+    return keys
 
 # Only predict for portfolio tickers (positions you hold)
 def get_portfolio_tickers() -> list[str]:
@@ -90,8 +98,8 @@ def _avg_daily_range_pct(bars: list[dict]) -> float:
 
 
 async def _call_groq(prompt: str) -> str | None:
-    """Call Groq API, falling back to backup key on error."""
-    for key in filter(None, [GROQ_KEY, GROQ_BACKUP_KEY]):
+    """Call Groq API, rotating through all available keys on 429/error."""
+    for key in _groq_keys():
         try:
             async with httpx.AsyncClient(timeout=30) as client:
                 r = await client.post(
@@ -279,7 +287,7 @@ def _is_after_close_et() -> bool:
 
 
 async def run_once() -> dict:
-    if not GROQ_KEY and not GROQ_BACKUP_KEY:
+    if not _groq_keys():
         return {"status": "skipped", "reason": "no GROQ_API_KEY"}
 
     # After close — fill actual prices

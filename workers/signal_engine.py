@@ -21,15 +21,14 @@ GROQ_MODEL = "llama-3.3-70b-versatile"
 
 
 def _load_groq_keys() -> list[str]:
-    """Load all GROQ keys — GROQ_API_KEY plus GROQ_API_KEY_2, _3, _4, _5."""
+    """Load all GROQ keys — primary, backup, then GROQ_API_KEY_2 through _5."""
     keys = []
-    primary = os.environ.get("GROQ_API_KEY", "").strip()
-    if primary:
-        keys.append(primary)
-    for i in range(2, 6):
-        k = os.environ.get(f"GROQ_API_KEY_{i}", "").strip()
-        if k:
+    seen = set()
+    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
+        k = os.environ.get(name, "").strip()
+        if k and k not in seen:
             keys.append(k)
+            seen.add(k)
     return keys
 
 

@@ -22,6 +22,15 @@ REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "StockBot/1.0 (personal 
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
+
+def _groq_keys() -> list[str]:
+    keys = []
+    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"]:
+        k = os.environ.get(name, "").strip()
+        if k:
+            keys.append(k)
+    return keys
+
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
 
 SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options", "pennystocks"]
@@ -136,8 +145,9 @@ async def groq_morning_brief(
     top_tickers: list[dict],
     date_str: str,
 ) -> str | None:
-    if not GROQ_API_KEY:
-        log.warning("No GROQ_API_KEY — skipping morning brief synthesis")
+    keys = _groq_keys()
+    if not keys:
+        log.warning("No GROQ keys — skipping morning brief synthesis")
         return None
 
     ticker_lines = []
@@ -170,23 +180,25 @@ For each ticker, write ONE sentence explaining: what retail traders are saying a
         ],
     }
 
-    try:
-        r = await client.post(
-            GROQ_URL,
-            headers={"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"},
-            json=payload,
-            timeout=25,
-        )
-        if r.status_code == 429:
-            log.warning("Groq rate limited for morning brief")
-            return None
-        if r.status_code != 200:
-            log.warning(f"Groq error {r.status_code}: {r.text[:200]}")
-            return None
-        return r.json()["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        log.error(f"Groq morning brief error: {e}")
-        return None
+    for key in keys:
+        try:
+            r = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=25,
+            )
+            if r.status_code == 429:
+                log.warning("Groq rate limited — trying next key")
+                continue
+            if r.status_code != 200:
+                log.warning(f"Groq error {r.status_code}: {r.text[:200]}")
+                continue
+            return r.json()["choices"][0]["message"]["content"].strip()
+        except Exception as e:
+            log.error(f"Groq morning brief error with key: {e}")
+            continue
+    return None
 
 
 # ─── Core scan logic ─────────────────────────────────────────────────────────
