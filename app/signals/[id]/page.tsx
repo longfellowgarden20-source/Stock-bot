@@ -4,7 +4,7 @@ import AppShell from '@/app/components/AppShell'
 import Link from 'next/link'
 import { ArrowLeft, Zap } from 'lucide-react'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 30
 
 export default async function SignalDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params

@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/app/components/AppShell'
 import WatchlistClient from './WatchlistClient'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 30
 
 export default async function WatchlistPage() {
   const supabase = createClient(
