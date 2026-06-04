@@ -7,6 +7,7 @@ import SignalCard, { Signal, getTypeMeta } from '@/app/components/SignalCard'
 import PushToggle from '@/app/components/PushToggle'
 import KeyboardShortcutsHelp from '@/app/components/KeyboardShortcutsHelp'
 import QuickAddTicker from '@/app/components/QuickAddTicker'
+import TickerSentiment from '@/app/components/TickerSentiment'
 import { useToast } from '@/app/components/Toaster'
 import { useLocalStorage } from '@/app/hooks/useLocalStorage'
 import { useKeyboardShortcuts } from '@/app/hooks/useKeyboardShortcuts'
@@ -408,7 +409,9 @@ export default function DashboardClient({
   })
 
   return (
-    <div className="flex flex-col gap-4 md:gap-6">
+    <div className="flex flex-col xl:flex-row gap-4 md:gap-6 items-start">
+      {/* Main signal feed column */}
+      <div className="flex flex-col gap-4 md:gap-6 flex-1 min-w-0">
       {helpOpen && <KeyboardShortcutsHelp onClose={() => setHelpOpen(false)} />}
       <QuickAddTicker open={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
 
@@ -739,6 +742,12 @@ export default function DashboardClient({
             />
           ))
         )}
+      </div>
+      </div>{/* end main column */}
+
+      {/* Right sidebar — Reddit Sentiment panel */}
+      <div className="w-full xl:w-80 xl:shrink-0 pb-8 xl:pb-0 xl:sticky xl:top-4">
+        <TickerSentiment />
       </div>
     </div>
   )
