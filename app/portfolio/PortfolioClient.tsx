@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
+import Link from 'next/link'
 import { Plus, Trash2, TrendingUp, TrendingDown, Loader2, Calculator, X, LayoutGrid, List } from 'lucide-react'
 
 type Position = {
@@ -218,11 +219,12 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
           const isUp = pnl >= 0
 
           return (
-            <div key={pos.id} className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
-              <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isUp ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
+            <div key={pos.id} className="relative flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
+              <Link href={`/portfolio/${pos.ticker}`} className="absolute inset-0 rounded-2xl z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60" aria-label={`View ${pos.ticker} detail`} />
+              <div className={`relative z-10 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isUp ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                 {isUp ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
               </div>
-              <div className="flex-1 min-w-0">
+              <div className="relative z-10 flex-1 min-w-0">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-bold text-white font-mono">{pos.ticker}</span>
                   {snap?.change_pct != null && (
@@ -236,13 +238,17 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
                 </p>
                 {pos.notes && <p className="text-xs text-slate-600 mt-0.5">{pos.notes}</p>}
               </div>
-              <div className="text-right shrink-0">
+              <div className="relative z-10 text-right shrink-0">
                 <p className="text-sm font-bold text-white tabular">${value.toFixed(2)}</p>
                 <p className={`text-xs font-semibold tabular ${isUp ? 'text-green-400' : 'text-red-400'}`}>
                   {isUp ? '+' : ''}${pnl.toFixed(2)} ({isUp ? '+' : ''}{pnlPct.toFixed(2)}%)
                 </p>
               </div>
-              <button onClick={() => remove(pos.id)} className="p-2 text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
+              <button
+                onClick={(e) => { e.stopPropagation(); remove(pos.id) }}
+                className="relative z-10 p-2 text-slate-600 hover:text-red-400 shrink-0"
+                style={{ transition: 'color 0.15s' }}
+              >
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>
@@ -297,9 +303,11 @@ function HeatMapView({
           const isMedium = value >= 5000 && value < 10000
 
           return (
-            <div
+            <Link
               key={pos.id}
-              className={`relative border rounded-xl p-3 flex flex-col justify-between overflow-hidden ${colorClasses} ${spanClasses}`}
+              href={`/portfolio/${pos.ticker}`}
+              className={`relative border rounded-xl p-3 flex flex-col justify-between overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60 ${colorClasses} ${spanClasses}`}
+              style={{ transitionProperty: 'filter', transitionDuration: '0.15s' }}
             >
               <div>
                 <p className={`font-mono font-bold text-white leading-none ${isLarge ? 'text-2xl' : isMedium ? 'text-xl' : 'text-base'}`}>
@@ -323,7 +331,7 @@ function HeatMapView({
                   <p className="text-xs text-slate-600">No data</p>
                 )}
               </div>
-            </div>
+            </Link>
           )
         })}
       </div>
