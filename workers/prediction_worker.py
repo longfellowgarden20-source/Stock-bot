@@ -101,7 +101,7 @@ async def _call_groq(prompt: str) -> str | None:
 
 
 async def predict_ticker(client: httpx.AsyncClient, ticker: str) -> dict | None:
-    """Build EOD prediction for one ticker. Returns the prediction row or None."""
+    """Build EOD prediction for one ticker, injecting past lessons to improve accuracy."""
     today_str = date.today().isoformat()
 
     # Dedup — only one prediction per ticker per day
@@ -113,9 +113,21 @@ async def predict_ticker(client: httpx.AsyncClient, ticker: str) -> dict | None:
     except Exception as e:
         log.debug(f"Dedup check failed for {ticker}: {e}")
 
-    snapshot = await fetch_snapshot(client, ticker)
-    bars = await fetch_daily_bars(client, ticker, days=30)
-    signals = await fetch_recent_signals(ticker, hours=24)
+    # Fetch all context concurrently
+    snapshot_task = fetch_snapshot(client, ticker)
+    bars_task = fetch_daily_bars(client, ticker, days=30)
+    signals_task = fetch_recent_signals(ticker, hours=24)
+    lessons_task = fetch_lessons(ticker, limit=8)
+
+    snapshot, bars, signals, lessons = await asyncio.gather(
+        snapshot_task, bars_task, signals_task, lessons_task,
+        return_exceptions=True,
+    )
+    # Handle any gather exceptions gracefully
+    if isinstance(snapshot, Exception): snapshot = None
+    if isinstance(bars, Exception): bars = []
+    if isinstance(signals, Exception): signals = []
+    if isinstance(lessons, Exception): lessons = []
 
     open_price = snapshot.get("price") if snapshot else None
     if not open_price and bars:
@@ -127,10 +139,8 @@ async def predict_ticker(client: httpx.AsyncClient, ticker: str) -> dict | None:
     avg_range = _avg_daily_range_pct(bars)
     change_pct = snapshot.get("change_pct") if snapshot else None
 
-    # Build signal summary for Groq
-    signal_lines = []
-    for s in signals:
-        signal_lines.append(f"- [{s['signal_type']} sev={s['severity']}] {s['title']}")
+    # Build signal summary
+    signal_lines = [f"- [{s['signal_type']} sev={s['severity']}] {s['title']}" for s in signals]
     signal_summary = "\n".join(signal_lines) if signal_lines else "No recent signals."
 
     # Build price context
@@ -147,12 +157,26 @@ async def predict_ticker(client: httpx.AsyncClient, ticker: str) -> dict | None:
             price_context += f". 20-day avg: ${avg20:.2f}"
     price_context += f". Avg daily range: {avg_range:.1f}%"
 
+    # Build lessons block — this is the key improvement over vanilla predictions
+    lessons_block = ""
+    if lessons:
+        lesson_lines = []
+        correct_count = sum(1 for l in lessons if l.get("in_range") and l.get("bias") == l.get("actual_bias"))
+        lesson_lines.append(f"Your last {len(lessons)} predictions for {ticker}: {correct_count}/{len(lessons)} correct.")
+        for l in lessons:
+            status = "✓ CORRECT" if (l.get("in_range") and l.get("bias") == l.get("actual_bias")) else "✗ WRONG"
+            lesson_lines.append(f"- {l['date']} [{status}] predicted {l.get('bias')}, actual {l.get('actual_bias')}, confidence {l.get('confidence_pct')}%")
+            if l.get("lesson") and "Correct prediction" not in l["lesson"]:
+                lesson_lines.append(f"  Lesson: {l['lesson'][:200]}")
+        lessons_block = "\nYour past prediction history and self-critiques for this ticker:\n" + "\n".join(lesson_lines)
+
     prompt = f"""You are a professional equity analyst. Predict the end-of-day closing price for {ticker} today ({today_str}).
 
 {price_context}
 
 Recent signals (last 24h):
 {signal_summary}
+{lessons_block}
 
 Respond ONLY with valid JSON in this exact format:
 {{
@@ -171,7 +195,8 @@ Rules:
 - confidence_pct reflects signal strength — 30 = very uncertain, 85 = strong conviction
 - key_factors: 3 specific reasons driving your prediction
 - analysis: plain English, trader-focused, no fluff
-- Base the range on typical daily volatility ({avg_range:.1f}% avg range) unless signals suggest an outlier move"""
+- Base the range on typical daily volatility ({avg_range:.1f}% avg range) unless signals suggest an outlier move
+- Use your past lessons to avoid repeating the same mistakes — if you were consistently wrong on this ticker, adjust confidence accordingly"""
 
     raw = await _call_groq(prompt)
     if not raw:
@@ -218,28 +243,162 @@ Rules:
     return None
 
 
+async def fetch_lessons(ticker: str, limit: int = 8) -> list[dict]:
+    """Fetch recent lessons for this ticker to inject into the prediction prompt."""
+    try:
+        res = (
+            supabase().table("prediction_lessons")
+            .select("date,bias,actual_bias,in_range,lesson,confidence_pct")
+            .eq("ticker", ticker.upper())
+            .order("date", desc=True)
+            .limit(limit)
+            .execute()
+        )
+        return res.data or []
+    except Exception as e:
+        log.debug(f"Lessons fetch failed for {ticker}: {e}")
+        return []
+
+
+def _actual_bias(open_price: float, actual_close: float) -> str:
+    """Determine actual direction from open to close."""
+    if actual_close > open_price * 1.005:
+        return "bullish"
+    if actual_close < open_price * 0.995:
+        return "bearish"
+    return "neutral"
+
+
+async def generate_lesson(pred: dict, actual_close: float) -> str | None:
+    """Ask Groq to self-critique a wrong/low-confidence prediction."""
+    ticker = pred["ticker"]
+    predicted_low = float(pred.get("predicted_low") or 0)
+    predicted_high = float(pred.get("predicted_high") or 0)
+    bias = pred.get("bias", "neutral")
+    actual_bias = _actual_bias(float(pred.get("open_price") or actual_close), actual_close)
+    in_range = predicted_low <= actual_close <= predicted_high if predicted_low and predicted_high else False
+    key_factors = pred.get("key_factors") or []
+
+    # Only generate lessons for wrong predictions — saves Groq calls
+    bias_wrong = bias != actual_bias
+    range_missed = not in_range
+    if not bias_wrong and not range_missed:
+        return "Correct prediction — bias and range both accurate."
+
+    factors_str = "\n".join(f"- {f}" for f in key_factors) if key_factors else "No factors recorded."
+
+    prompt = f"""You are reviewing your own stock prediction for {ticker} to learn from your mistake.
+
+Your prediction:
+- Bias: {bias}
+- Predicted range: ${predicted_low:.2f}–${predicted_high:.2f}
+- Key factors you cited:
+{factors_str}
+
+What actually happened:
+- Actual close: ${actual_close:.2f}
+- Actual direction: {actual_bias}
+- Was actual price in your predicted range? {"Yes" if in_range else "No"}
+- Bias correct? {"Yes" if not bias_wrong else "No"}
+
+Write a 2-3 sentence self-critique:
+1. What did you get wrong and why?
+2. What signal or factor did you miss or overweight?
+3. What should you watch for next time with {ticker}?
+
+Be specific. No generic statements. Focus on what would actually improve the next prediction."""
+
+    return await _call_groq(prompt)
+
+
 async def fill_actual_closes() -> None:
-    """At close (after 4pm ET), fill in actual_close for today's predictions."""
+    """At close (after 4pm ET): fill actual_close, compute accuracy, generate lessons."""
     today_str = date.today().isoformat()
     try:
-        pending = supabase().table("eod_predictions").select("*").eq("date", today_str).is_("actual_close", "null").execute()
+        pending = (
+            supabase().table("eod_predictions")
+            .select("*")
+            .eq("date", today_str)
+            .is_("actual_close", "null")
+            .execute()
+        )
         if not pending.data:
             return
+
         for row in pending.data:
             ticker = row["ticker"]
-            snapshot = supabase().table("snapshots").select("price").eq("ticker", ticker).order("created_at", desc=True).limit(1).execute()
+            snapshot = (
+                supabase().table("snapshots")
+                .select("price")
+                .eq("ticker", ticker)
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
             if not snapshot.data:
                 continue
+
             actual = float(snapshot.data[0]["price"])
             open_p = float(row["open_price"]) if row["open_price"] else actual
+            # error_pct: how far actual close moved from open (market reality, not prediction quality)
             error_pct = ((actual - open_p) / open_p * 100) if open_p > 0 else None
+
+            # Determine if prediction was correct
+            pred_low = float(row.get("predicted_low") or 0)
+            pred_high = float(row.get("predicted_high") or 0)
+            in_range = pred_low <= actual <= pred_high if pred_low and pred_high else False
+            actual_b = _actual_bias(open_p, actual)
+
+            # Update the prediction row
             supabase().table("eod_predictions").update({
                 "actual_close": round(actual, 4),
                 "error_pct": round(error_pct, 2) if error_pct is not None else None,
             }).eq("id", row["id"]).execute()
-            log.info(f"Filled actual close for {ticker}: ${actual:.2f} (predicted ${row['predicted_low']:.2f}–${row['predicted_high']:.2f})")
+
+            log.info(f"Filled actual close for {ticker}: ${actual:.2f} predicted ${pred_low:.2f}–${pred_high:.2f} {'✓' if in_range else '✗'}")
+
+            # Generate and store a lesson — always, but lesson text differs for right vs wrong
+            await _store_lesson(row, actual, in_range, actual_b)
+            await asyncio.sleep(2)  # rate-limit Groq lesson calls
+
     except Exception as e:
         log.error(f"fill_actual_closes failed: {e}")
+
+
+async def _store_lesson(pred: dict, actual_close: float, in_range: bool, actual_bias: str) -> None:
+    """Generate Groq lesson and write to prediction_lessons table."""
+    ticker = pred["ticker"]
+    today_str = pred["date"]
+
+    # Dedup — don't re-generate if lesson already exists
+    try:
+        existing = supabase().table("prediction_lessons").select("id").eq("ticker", ticker).eq("date", today_str).limit(1).execute()
+        if existing.data:
+            return
+    except Exception:
+        pass
+
+    lesson_text = await generate_lesson(pred, actual_close)
+    if not lesson_text:
+        lesson_text = "Lesson generation failed — no Groq response."
+
+    try:
+        supabase().table("prediction_lessons").insert({
+            "ticker": ticker.upper(),
+            "date": today_str,
+            "bias": pred.get("bias"),
+            "actual_bias": actual_bias,
+            "in_range": in_range,
+            "predicted_low": pred.get("predicted_low"),
+            "predicted_high": pred.get("predicted_high"),
+            "actual_close": round(actual_close, 4),
+            "confidence_pct": pred.get("confidence_pct"),
+            "lesson": lesson_text[:1000],
+            "key_factors": pred.get("key_factors"),
+        }).execute()
+        log.info(f"Lesson stored for {ticker} ({today_str}): {'correct' if in_range and pred.get('bias') == actual_bias else 'wrong'}")
+    except Exception as e:
+        log.error(f"Failed to store lesson for {ticker}: {e}")
 
 
 def _is_market_open_et() -> bool:
@@ -273,10 +432,10 @@ async def run_once() -> dict:
     if not _load_keys(["GROQ_BACKUP_API_KEY"]):
         return {"status": "skipped", "reason": "no GROQ keys available"}
 
-    # After close — fill actual prices
+    # After close — fill actual prices and generate lessons
     if _is_after_close_et():
         await fill_actual_closes()
-        return {"status": "ok", "action": "filled_actuals"}
+        return {"status": "ok", "action": "filled_actuals_and_lessons"}
 
     # Only generate predictions near open (9:15–10am ET)
     if not _is_market_open_et():

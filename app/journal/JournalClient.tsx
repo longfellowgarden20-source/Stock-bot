@@ -58,6 +58,21 @@ export type CoachingNote = {
   win_rate: number | null
 }
 
+export type PredictionLesson = {
+  id: string
+  ticker: string
+  date: string
+  bias: string | null
+  actual_bias: string | null
+  in_range: boolean | null
+  predicted_low: number | null
+  predicted_high: number | null
+  actual_close: number | null
+  confidence_pct: number | null
+  lesson: string | null
+  key_factors: string[] | null
+}
+
 export type BriefSignal = {
   id: string
   ticker: string
@@ -1453,7 +1468,36 @@ function PredictionCard({ pred }: { pred: EodPrediction }) {
   )
 }
 
-function PredictionBrief({ predictions, today }: { predictions: EodPrediction[]; today: string }) {
+function LessonCard({ lesson }: { lesson: PredictionLesson }) {
+  const correct = lesson.in_range && lesson.bias === lesson.actual_bias
+  const biasCorrect = lesson.bias === lesson.actual_bias
+  return (
+    <div className={`border rounded-2xl p-4 flex flex-col gap-2 ${correct ? 'border-[#22c55e]/20 bg-[#22c55e]/5' : 'border-[#ef4444]/20 bg-[#ef4444]/5'}`}>
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="font-bold text-sm text-white font-mono">{lesson.ticker}</span>
+        <span className="text-xs text-slate-500">{lesson.date}</span>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${correct ? 'bg-[#22c55e]/10 border-[#22c55e]/20 text-[#22c55e]' : 'bg-[#ef4444]/10 border-[#ef4444]/20 text-[#ef4444]'}`}>
+          {correct ? '✓ Correct' : '✗ Wrong'}
+        </span>
+        <span className="text-xs text-slate-500 ml-auto">
+          predicted <span className={biasCorrect ? 'text-[#22c55e]' : 'text-[#ef4444]'}>{lesson.bias}</span>
+          {' → '}actual <span className="text-white">{lesson.actual_bias}</span>
+        </span>
+      </div>
+      {lesson.predicted_low != null && lesson.actual_close != null && (
+        <p className="text-xs text-slate-500 tabular-nums">
+          Range ${lesson.predicted_low?.toFixed(2)}–${lesson.predicted_high?.toFixed(2)} · Actual ${lesson.actual_close.toFixed(2)}
+          {lesson.in_range ? <span className="text-[#22c55e] ml-1">in range</span> : <span className="text-[#ef4444] ml-1">missed range</span>}
+        </p>
+      )}
+      {lesson.lesson && lesson.lesson !== 'Correct prediction — bias and range both accurate.' && (
+        <p className="text-xs text-slate-300 leading-relaxed border-t border-white/5 pt-2 mt-1">{lesson.lesson}</p>
+      )}
+    </div>
+  )
+}
+
+function PredictionBrief({ predictions, lessons, today }: { predictions: EodPrediction[]; lessons: PredictionLesson[]; today: string }) {
   const todayPreds = predictions.filter(p => p.date === today)
   const pastPreds = predictions.filter(p => p.date !== today && p.actual_close != null)
 
@@ -1516,11 +1560,27 @@ function PredictionBrief({ predictions, today }: { predictions: EodPrediction[];
         </div>
       )}
 
+      {/* Lessons — Groq's self-critiques */}
+      {lessons.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+              <Brain className="w-3 h-3 text-purple-400" /> Groq Learning Log
+            </h3>
+            <span className="text-xs text-slate-600">
+              {lessons.filter(l => l.in_range && l.bias === l.actual_bias).length}/{lessons.length} correct in last 7d
+            </span>
+          </div>
+          <p className="text-xs text-slate-600">Groq reviews each prediction at market close and writes a self-critique when wrong. These lessons are automatically injected into tomorrow&apos;s predictions.</p>
+          {lessons.slice(0, 15).map(l => <LessonCard key={l.id} lesson={l} />)}
+        </div>
+      )}
+
       <div className="bg-white/2 border border-white/8 rounded-2xl p-4 text-xs text-slate-500 leading-relaxed">
-        <span className="text-slate-400 font-medium">How it works: </span>
-        At market open, Groq analyzes your last 24h signals, price momentum, and volatility to predict
-        a likely close range. After 4pm ET, actual close prices are filled in automatically so you can
-        track model accuracy over time. Not financial advice — use for situational awareness only.
+        <span className="text-slate-400 font-medium">Learning loop: </span>
+        At market open, Groq predicts close price using signals + its own past mistakes for this ticker.
+        After 4pm ET, actual prices fill in, Groq reviews what it got wrong, and writes a lesson.
+        Each morning the new lessons feed back into the next prediction — improving over time.
       </div>
     </div>
   )
@@ -1533,12 +1593,14 @@ export default function JournalClient({
   latestCoachingNote,
   predictions,
   briefs,
+  lessons,
   today,
 }: {
   initialTrades: Trade[]
   latestCoachingNote: CoachingNote | null
   predictions: EodPrediction[]
   briefs: BriefSignal[]
+  lessons: PredictionLesson[]
   today: string
 }) {
   const [activeTab, setActiveTab] = useState<TabName>('Today\'s Entry')
@@ -1609,7 +1671,7 @@ export default function JournalClient({
         <CalendarTab trades={trades} />
       )}
       {activeTab === 'Predictions' && (
-        <PredictionBrief predictions={predictions} today={today} />
+        <PredictionBrief predictions={predictions} lessons={lessons} today={today} />
       )}
       {activeTab === 'Briefs' && (
         <MorningBriefs briefs={briefs} />
