@@ -16,7 +16,7 @@ export default function AdminClient({
   initialHealth: Record<string, unknown>
   configured: boolean
 }) {
-  const [health] = useState<Record<string, unknown>>(initialHealth)
+  const [health, setHealth] = useState<Record<string, unknown>>(initialHealth)
   const [statuses, setStatuses] = useState<Record<string, WorkerStatus>>({})
   const [triggerResults, setTriggerResults] = useState<Record<string, string>>({})
   const [triggeringAll, setTriggeringAll] = useState(false)
@@ -59,14 +59,25 @@ export default function AdminClient({
     })
   }, [])
 
+  const refreshHealth = useCallback(async () => {
+    try {
+      const r = await fetch('/api/refresh')
+      if (r.ok) {
+        const data = await r.json()
+        if (data.health) setHealth(data.health)
+      }
+    } catch { /* offline */ }
+  }, [setHealth])
+
   const triggerAll = useCallback(async () => {
     setTriggeringAll(true)
     try {
       await fetch('/api/refresh', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) })
       setLastRefresh(new Date())
+      await refreshHealth()
     } catch { /* offline */ }
     setTriggeringAll(false)
-  }, [])
+  }, [refreshHealth])
 
   const WORKER_LABELS: Record<string, { label: string; interval: string }> = {
     price:     { label: 'Price Worker',     interval: '5 min' },

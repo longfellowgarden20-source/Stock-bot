@@ -39,7 +39,12 @@ export async function POST(req: NextRequest) {
   await Promise.all(targets.map(async (w) => {
     try {
       const r = await fetch(`${workerUrl}/trigger/${w}`, { method: 'POST' })
-      results[w] = r.ok ? await r.json() : { error: `status ${r.status}` }
+      if (!r.ok) { results[w] = { error: `status ${r.status}` }; return }
+      try {
+        results[w] = await r.json()
+      } catch {
+        results[w] = { status: 'ok' }
+      }
     } catch (e) {
       results[w] = { error: e instanceof Error ? e.message : 'fetch failed' }
     }

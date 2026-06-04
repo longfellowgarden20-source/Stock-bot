@@ -232,6 +232,8 @@ async def daily_recap() -> dict:
     today = now_et().date()
     if _recap_last_date == today:
         return {"status": "skipped", "reason": "already ran today"}
+    # Mark immediately so a retry in the same 5-min window doesn't double-fire
+    _recap_last_date = today
 
     # Fetch all signals from the last 10 hours (covers the full trading day)
     since = (datetime.now(timezone.utc) - timedelta(hours=10)).isoformat()
@@ -326,7 +328,6 @@ No bullet points. Direct sentences. Trader-focused."""
             "date": today.isoformat(),
         },
     )
-    _recap_last_date = today
     log.info(f"Daily recap written for {date_str}, tickers: {tickers_covered}")
     return {"status": "ok", "tickers": tickers_covered}
 

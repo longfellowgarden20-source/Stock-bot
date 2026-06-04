@@ -16,14 +16,19 @@ export default function RRCalculator() {
     const s = parseFloat(stop)
     if (!e || !t || !s || e <= 0 || t <= 0 || s <= 0) return null
     if (e === s) return null
+    const isLong = t > e
+    const isShort = t < e
+    // Detect invalid setup: stop on wrong side of entry
+    const invalidSetup = (isLong && s >= e) || (isShort && s <= e)
+    if (invalidSetup) return { invalid: true, ratio: 0, reward: 0, risk: 0 }
     const reward = Math.abs(t - e)
     const risk = Math.abs(e - s)
     if (risk === 0) return null
     const ratio = reward / risk
-    return { ratio, reward, risk }
+    return { ratio, reward, risk, invalid: false }
   }, [entry, target, stop])
 
-  const badge = result
+  const badge = result && !result.invalid
     ? result.ratio >= 2
       ? { label: `${result.ratio.toFixed(2)}:1`, cls: 'bg-green-500/20 text-green-400 border-green-500/30' }
       : result.ratio >= 1
@@ -75,7 +80,11 @@ export default function RRCalculator() {
           />
         </div>
       </div>
-      {badge ? (
+      {result?.invalid ? (
+        <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
+          <span className="text-xs text-red-400 font-semibold">Invalid setup — stop loss is on the wrong side of entry</span>
+        </div>
+      ) : badge ? (
         <div className="flex items-center gap-3 flex-wrap">
           <span className={`px-4 py-1.5 rounded-full text-sm font-bold border ${badge.cls}`}>
             R:R {badge.label}

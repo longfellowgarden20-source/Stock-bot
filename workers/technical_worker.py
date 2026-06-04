@@ -197,17 +197,20 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
     if len(bars) < 50:
         return
 
-    closes = [b["c"] for b in bars if b.get("c") is not None]
-    highs = [b["h"] for b in bars if b.get("h") is not None]
-    lows = [b["l"] for b in bars if b.get("l") is not None]
-    opens = [b["o"] for b in bars if b.get("o") is not None]
+    # Filter bars that have all required fields to keep arrays in sync
+    complete_bars = [b for b in bars if b.get("c") is not None and b.get("h") is not None and b.get("l") is not None and b.get("o") is not None]
+    closes = [b["c"] for b in complete_bars]
+    highs = [b["h"] for b in complete_bars]
+    lows = [b["l"] for b in complete_bars]
+    opens = [b["o"] for b in complete_bars]
     if len(closes) < 50:
         return
 
     price = closes[-1]
 
     # --- Gap detection (compare today's open vs yesterday's close) ---
-    if len(opens) >= 1 and len(closes) >= 2:
+    # Both from complete_bars so indices are guaranteed in sync
+    if len(complete_bars) >= 2:
         today_open = opens[-1]
         yesterday_close = closes[-2]
         if yesterday_close > 0:
