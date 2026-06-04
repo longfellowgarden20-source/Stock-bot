@@ -31,8 +31,6 @@ def _groq_keys() -> list[str]:
             seen.add(k)
     return keys
 
-GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
-
 SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options", "pennystocks"]
 
 # Common false positives to filter — words that look like tickers but aren't

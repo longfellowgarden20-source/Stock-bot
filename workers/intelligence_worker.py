@@ -287,9 +287,9 @@ def _dedup_headline(title: str) -> bool:
 async def run_once() -> dict:
     global _last_run_headlines
 
-    keys = _groq_keys()
-    if not keys:
-        return {"status": "skipped", "reason": "no GROQ_API_KEY"}
+    from groq_pool import _load_keys
+    if not _load_keys(["GROQ_API_KEY_2"]):
+        return {"status": "skipped", "reason": "no GROQ keys available"}
 
     log.info("Intelligence worker scanning feeds...")
 

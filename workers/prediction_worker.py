@@ -269,8 +269,9 @@ def _is_after_close_et() -> bool:
 
 
 async def run_once() -> dict:
-    if not _groq_keys():
-        return {"status": "skipped", "reason": "no GROQ_API_KEY"}
+    from groq_pool import _load_keys
+    if not _load_keys(["GROQ_BACKUP_API_KEY"]):
+        return {"status": "skipped", "reason": "no GROQ keys available"}
 
     # After close — fill actual prices
     if _is_after_close_et():
