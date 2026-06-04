@@ -159,7 +159,12 @@ Output format: 2-3 short paragraphs. No headers, no bullet points. Direct senten
                 log.warning(f"Groq {r.status_code} on key ending ...{key[-6:]}: {r.text[:200]}")
                 _rotator.advance()
                 return None
-            content = r.json()["choices"][0]["message"]["content"].strip()
+            try:
+                content = r.json()["choices"][0]["message"]["content"].strip()
+            except (KeyError, IndexError, TypeError) as parse_err:
+                log.warning(f"Groq malformed response for {ticker}: {parse_err}")
+                _rotator.advance()
+                return None
             _rotator.advance()
             return {"synthesis": content, "score": total_score}
         except Exception as e:
@@ -214,6 +219,15 @@ async def run_once() -> dict:
                 },
             )
             convergences += 1
+
+    # Daily recap at 4:15–4:20 PM ET, weekdays only — runs inside run_once so main.py loop picks it up
+    et = now_et()
+    if is_weekday() and et.hour == 16 and 15 <= et.minute < 20:
+        try:
+            recap_result = await daily_recap()
+            log.info(f"Daily recap: {recap_result}")
+        except Exception as recap_err:
+            log.error(f"Daily recap error: {recap_err}")
 
     return {"status": "ok", "convergences": convergences, "tickers_analyzed": len(groups)}
 
@@ -307,7 +321,11 @@ No bullet points. Direct sentences. Trader-focused."""
         if r.status_code != 200:
             log.warning(f"Groq daily recap {r.status_code}: {r.text[:200]}")
             return {"status": "error", "reason": f"Groq {r.status_code}"}
-        content = r.json()["choices"][0]["message"]["content"].strip()
+        try:
+            content = r.json()["choices"][0]["message"]["content"].strip()
+        except (KeyError, IndexError, TypeError) as parse_err:
+            log.warning(f"Groq malformed daily recap response: {parse_err}")
+            return {"status": "error", "reason": "malformed response"}
         _rotator.advance()
     except Exception as e:
         log.error(f"Daily recap Groq error: {e}")

@@ -289,10 +289,9 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
                 _mark(ticker, "gap_up_large")
                 _mark(ticker, "gap_up")
                 gap_sev = 5.5
-                if gap_pct >= 5.0:
-                    gap_sev += 1.0
-                if gap_pct >= 3.0:
-                    gap_sev += 0.5
+                gap_sev += 1.0  # always >= 5.0 in this branch
+                if gap_pct >= 7.0:
+                    gap_sev += 0.5  # extra bump for very large gaps
                 if vol_spike_day:
                     gap_sev += 0.5
                 gap_sev = round(min(gap_sev, 10.0), 1)
@@ -320,10 +319,9 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
                 _mark(ticker, "gap_down_large")
                 _mark(ticker, "gap_down")
                 gap_sev = 5.5
-                if abs(gap_pct) >= 5.0:
-                    gap_sev += 1.0
-                if abs(gap_pct) >= 3.0:
-                    gap_sev += 0.5
+                gap_sev += 1.0  # always >= 5.0 in this branch
+                if abs(gap_pct) >= 7.0:
+                    gap_sev += 0.5  # extra bump for very large gaps
                 if vol_spike_day:
                     gap_sev += 0.5
                 gap_sev = round(min(gap_sev, 10.0), 1)
