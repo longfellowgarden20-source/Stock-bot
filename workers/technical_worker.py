@@ -192,6 +192,58 @@ async def fetch_spy_bars(client: httpx.AsyncClient, days: int = 10) -> list[dict
     return await fetch_daily_bars(client, "SPY", days=days)
 
 
+async def fetch_weekly_bars(client: httpx.AsyncClient, ticker: str, weeks: int = 52) -> list[dict]:
+    """Polygon weekly aggregates. Returns chronological ascending list."""
+    if not POLYGON_KEY:
+        return []
+    today = date.today()
+    start = (today - timedelta(weeks=weeks)).isoformat()
+    end = today.isoformat()
+    url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/1/week/{start}/{end}"
+    try:
+        r = await client.get(url, params={"apiKey": POLYGON_KEY, "limit": 100, "sort": "asc"}, timeout=15)
+        if r.status_code != 200:
+            return []
+        return r.json().get("results", []) or []
+    except Exception as e:
+        log.error(f"Weekly bars fetch failed for {ticker}: {e}")
+        return []
+
+
+async def check_rsi_confluence(client: httpx.AsyncClient, ticker: str, daily_closes: list[float]) -> None:
+    """Check RSI confluence across daily and weekly timeframes."""
+    daily_rsi = rsi(daily_closes, 14)
+    if daily_rsi is None:
+        return
+
+    weekly_bars = await fetch_weekly_bars(client, ticker, weeks=52)
+    if len(weekly_bars) < 15:
+        return
+    weekly_closes = [b["c"] for b in weekly_bars if b.get("c") is not None]
+    if len(weekly_closes) < 15:
+        return
+    weekly_rsi = rsi(weekly_closes, 14)
+    if weekly_rsi is None:
+        return
+
+    if daily_rsi < 35 and weekly_rsi < 40 and not _on_cooldown(ticker, "rsi_confluence"):
+        _mark(ticker, "rsi_confluence")
+        insert_signal(
+            ticker, "technical", 8,
+            f"{ticker} RSI oversold on daily + weekly",
+            f"Daily RSI {daily_rsi:.1f} and weekly RSI {weekly_rsi:.1f} are both in oversold territory. Multi-timeframe RSI confluence is a high-conviction mean-reversion setup. Watch for a volume-backed reversal candle.",
+            {"indicator": "rsi_confluence", "daily_rsi": round(daily_rsi, 1), "weekly_rsi": round(weekly_rsi, 1), "direction": "oversold"},
+        )
+    elif daily_rsi > 65 and weekly_rsi > 60 and not _on_cooldown(ticker, "rsi_confluence"):
+        _mark(ticker, "rsi_confluence")
+        insert_signal(
+            ticker, "technical", 7,
+            f"{ticker} RSI overbought on daily + weekly",
+            f"Daily RSI {daily_rsi:.1f} and weekly RSI {weekly_rsi:.1f} are both elevated. Multi-timeframe RSI overbought confluence — distribution risk increases. Consider tightening stops.",
+            {"indicator": "rsi_confluence", "daily_rsi": round(daily_rsi, 1), "weekly_rsi": round(weekly_rsi, 1), "direction": "overbought"},
+        )
+
+
 async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[dict] | None = None) -> None:
     bars = await fetch_daily_bars(client, ticker, days=365)
     if len(bars) < 50:
@@ -285,6 +337,9 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
                 f"14-day RSI at {rsi_val:.1f}, above the 70 overbought line. Price ${price:.2f}. Profit-taking risk rising.",
                 {"indicator": "rsi", "value": rsi_val, "price": price, "direction": "overbought"},
             )
+
+    # --- Multi-timeframe RSI confluence ---
+    await check_rsi_confluence(client, ticker, closes)
 
     # --- MACD crossover ---
     cross = macd_crossover(closes)

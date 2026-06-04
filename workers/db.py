@@ -67,6 +67,32 @@ def _notify_push(signal_row: dict) -> None:
     threading.Thread(target=_send_push_request, args=(signal_row,), daemon=True).start()
 
 
+def _insert_to_dlq(
+    ticker: str,
+    signal_type: str,
+    severity: int,
+    title: str,
+    body: str,
+    raw_data: dict[str, Any] | None,
+    error_message: str,
+) -> None:
+    """Write a failed signal to the dead-letter queue."""
+    try:
+        supabase().table("failed_signals").insert({
+            "ticker": ticker.upper(),
+            "signal_type": signal_type,
+            "severity": severity,
+            "title": title[:200],
+            "body": body[:1000],
+            "raw_data": raw_data,
+            "error_message": str(error_message)[:500],
+            "retry_count": 0,
+            "resolved": False,
+        }).execute()
+    except Exception as dlq_err:
+        log.error(f"DLQ insert also failed for {ticker}/{signal_type}: {dlq_err}")
+
+
 def insert_signal(
     ticker: str,
     signal_type: str,
@@ -75,7 +101,8 @@ def insert_signal(
     body: str,
     raw_data: dict[str, Any] | None = None,
 ) -> None:
-    """Insert a new signal — triggers realtime update on dashboard + push if severity high."""
+    """Insert a new signal — triggers realtime update on dashboard + push if severity high.
+    On failure, writes to dead-letter queue instead of raising."""
     sev = max(1, min(10, severity))
     payload = {
         "ticker": ticker.upper(),
@@ -91,7 +118,8 @@ def insert_signal(
         if res.data:
             _notify_push(res.data[0])
     except Exception as e:
-        log.error(f"insert_signal failed for {ticker}/{signal_type}: {e}")
+        log.error(f"insert_signal failed for {ticker}/{signal_type}: {e} — writing to DLQ")
+        _insert_to_dlq(ticker, signal_type, sev, title, body, raw_data, str(e))
 
 
 def insert_snapshot(ticker: str, price: float, volume: int | None, change_pct: float | None) -> None:
@@ -125,6 +153,59 @@ def insert_news(ticker: str, headline: str, source: str, url: str, sentiment: st
     except Exception as e:
         log.error(f"insert_news failed for {ticker}: {e}")
         return False
+
+
+def retry_failed_signals() -> int:
+    """Retry up to 20 unresolved DLQ entries. Returns count of resolved signals."""
+    from datetime import datetime, timezone
+    db = supabase()
+    try:
+        rows = (
+            db.table("failed_signals")
+            .select("*")
+            .eq("resolved", False)
+            .lt("retry_count", 5)
+            .order("created_at")
+            .limit(20)
+            .execute()
+        )
+    except Exception as e:
+        log.error(f"DLQ fetch failed: {e}")
+        return 0
+
+    resolved_count = 0
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    for row in (rows.data or []):
+        row_id = row["id"]
+        sev = max(1, min(10, row.get("severity", 5)))
+        payload = {
+            "ticker": (row.get("ticker") or "UNKNOWN").upper(),
+            "signal_type": row.get("signal_type", "convergence"),
+            "severity": sev,
+            "title": (row.get("title") or "")[:200],
+            "body": (row.get("body") or "")[:1000],
+            "raw_data": row.get("raw_data"),
+            "read": False,
+        }
+        try:
+            res = db.table("signals").insert(payload).execute()
+            if res.data:
+                _notify_push(res.data[0])
+            db.table("failed_signals").update({"resolved": True, "last_retry_at": now_iso}).eq("id", row_id).execute()
+            resolved_count += 1
+            log.info(f"DLQ resolved: {payload['ticker']}/{payload['signal_type']} (id={row_id})")
+        except Exception as e:
+            log.warning(f"DLQ retry failed for {row_id}: {e}")
+            try:
+                db.table("failed_signals").update({
+                    "retry_count": row.get("retry_count", 0) + 1,
+                    "last_retry_at": now_iso,
+                }).eq("id", row_id).execute()
+            except Exception as upd_e:
+                log.error(f"DLQ retry_count update failed for {row_id}: {upd_e}")
+
+    return resolved_count
 
 
 def recent_signals_for_ticker(ticker: str, minutes: int = 30) -> list[dict]:

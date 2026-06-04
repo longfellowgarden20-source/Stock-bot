@@ -15,7 +15,7 @@ import logging
 import httpx
 import asyncio
 from datetime import datetime, timezone, timedelta, date
-from db import get_watchlist_tickers, insert_signal
+from db import get_watchlist_tickers, insert_signal, supabase
 
 log = logging.getLogger("earnings_worker")
 
@@ -119,6 +119,126 @@ async def fetch_historical_move(client: httpx.AsyncClient, ticker: str) -> float
         return None
 
 
+UNUSUAL_WHALES_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "")
+UNUSUAL_WHALES_BASE = "https://api.unusualwhales.com"
+
+# Dedup for implied move alerts
+_implied_alerted: dict[str, float] = {}
+
+
+async def check_implied_move(client: httpx.AsyncClient, ticker: str, earnings_date: str) -> None:
+    """Compare options-implied move vs historical average move heading into earnings."""
+    if not UNUSUAL_WHALES_KEY:
+        return
+
+    dedup_key = f"{ticker}-implied-{earnings_date}"
+    if dedup_key in _implied_alerted:
+        return
+
+    # Get current price from snapshots table
+    db = supabase()
+    try:
+        snap_res = db.table("snapshots").select("price").eq("ticker", ticker.upper()).order("created_at", desc=True).limit(1).execute()
+        if not snap_res.data:
+            return
+        current_price = float(snap_res.data[0]["price"])
+        if current_price <= 0:
+            return
+    except Exception as e:
+        log.debug(f"Snapshot fetch failed for {ticker}: {e}")
+        return
+
+    # Fetch options chain from Unusual Whales
+    try:
+        r = await client.get(
+            f"{UNUSUAL_WHALES_BASE}/api/stock/{ticker.upper()}/options-chain",
+            headers={"Authorization": f"Bearer {UNUSUAL_WHALES_KEY}"},
+            timeout=15,
+        )
+        if r.status_code != 200:
+            return
+        chain_data = r.json()
+        contracts = chain_data.get("data", chain_data) if isinstance(chain_data, dict) else chain_data
+        if not contracts or not isinstance(contracts, list):
+            return
+    except Exception as e:
+        log.debug(f"Options chain fetch failed for {ticker}: {e}")
+        return
+
+    # Find ATM straddle: nearest strike to current price, nearest expiry after earnings date
+    try:
+        ed = date.fromisoformat(earnings_date)
+    except ValueError:
+        return
+
+    # Filter to contracts expiring after earnings, group by expiry+strike
+    from collections import defaultdict
+    straddle_candidates: dict[tuple, dict] = defaultdict(lambda: {"call": None, "put": None})
+
+    for contract in contracts:
+        exp_str = contract.get("expiration_date") or contract.get("expiry") or contract.get("expiration")
+        strike_raw = contract.get("strike_price") or contract.get("strike")
+        opt_type = (contract.get("option_type") or contract.get("type") or "").lower()
+        ask = contract.get("ask")
+        bid = contract.get("bid")
+        if not exp_str or strike_raw is None or not opt_type or ask is None:
+            continue
+        try:
+            exp_date = date.fromisoformat(str(exp_str)[:10])
+            strike = float(strike_raw)
+            ask_price = float(ask)
+            bid_price = float(bid) if bid is not None else ask_price
+            mid_price = (ask_price + bid_price) / 2
+        except (ValueError, TypeError):
+            continue
+
+        if exp_date <= ed:
+            continue
+        key = (exp_date, strike)
+        if opt_type in ("call", "c"):
+            straddle_candidates[key]["call"] = mid_price
+        elif opt_type in ("put", "p"):
+            straddle_candidates[key]["put"] = mid_price
+
+    # Find nearest strike to current price with both call and put
+    best_key = None
+    best_dist = float("inf")
+    for (exp_date, strike), sides in straddle_candidates.items():
+        if sides["call"] is not None and sides["put"] is not None:
+            dist = abs(strike - current_price)
+            if dist < best_dist:
+                best_dist = dist
+                best_key = (exp_date, strike)
+
+    if best_key is None:
+        return
+
+    straddle_price = straddle_candidates[best_key]["call"] + straddle_candidates[best_key]["put"]
+    implied_move_pct = (straddle_price / current_price) * 100
+
+    # Get historical average move
+    hist_move = await fetch_historical_move(client, ticker)
+    if not hist_move or hist_move <= 0:
+        return
+
+    if implied_move_pct > hist_move * 1.5:
+        _implied_alerted[dedup_key] = datetime.now(timezone.utc).timestamp()
+        insert_signal(
+            ticker, "earnings_upcoming", 7,
+            f"{ticker} options pricing {implied_move_pct:.1f}% move vs {hist_move:.1f}% historical avg — IV elevated",
+            f"The ATM straddle (strike ${best_key[1]:.2f}, exp {best_key[0]}) costs ${straddle_price:.2f}, implying a {implied_move_pct:.1f}% post-earnings move. Historical average is {hist_move:.1f}%. Options are pricing in {implied_move_pct / hist_move:.1f}x the normal move — IV is elevated ahead of earnings on {earnings_date}.",
+            {
+                "implied_move_pct": round(implied_move_pct, 2),
+                "historical_move_pct": round(hist_move, 2),
+                "straddle_price": round(straddle_price, 2),
+                "strike": best_key[1],
+                "expiry": str(best_key[0]),
+                "current_price": current_price,
+                "earnings_date": earnings_date,
+            },
+        )
+
+
 async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
     next_date = await fetch_earnings_date(client, ticker)
     if not next_date:
@@ -165,6 +285,8 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
         body,
         {"earnings_date": next_date, "days_until": days_until, "historical_move_pct": hist_move},
     )
+
+    await check_implied_move(client, ticker, next_date)
 
 
 async def run_once() -> dict:
