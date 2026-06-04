@@ -1,0 +1,896 @@
+'use client'
+
+import { useState, useMemo, useCallback } from 'react'
+import {
+  BookOpen, TrendingUp, TrendingDown, Brain, Calendar,
+  Plus, Loader2, CheckCircle, ChevronLeft, ChevronRight,
+  BarChart2, Sparkles, AlertTriangle, Star,
+} from 'lucide-react'
+
+// ─── Types ───────────────────────────────────────────────────────────────────
+
+export type Trade = {
+  id: string
+  date: string
+  ticker: string
+  direction: 'long' | 'short'
+  entry_price: number
+  exit_price: number | null
+  shares: number
+  pnl: number | null
+  pattern: string | null
+  grade: string | null
+  grade_accurate: boolean | null
+  writeup: string | null
+  mistakes: string[] | null
+  best_ops: string | null
+  created_at: string
+}
+
+export type CoachingNote = {
+  id: string
+  generated_at: string
+  period: string
+  note: string
+  tendencies: Record<string, number> | null
+  trade_count: number | null
+  win_rate: number | null
+}
+
+const GRADES = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C', 'D', 'F']
+const MISTAKE_OPTIONS = [
+  'No man\'s land',
+  'Oversize',
+  'Chased entry',
+  'Ignored stop',
+  'Wrong execution',
+  'FOMO',
+  'Revenge trade',
+  'Cut winner early',
+]
+const MOOD_OPTIONS = ['focused', 'confident', 'neutral', 'distracted', 'anxious'] as const
+
+const TAB_NAMES = ['Today\'s Entry', 'Performance', 'Tendencies', 'Calendar'] as const
+type TabName = typeof TAB_NAMES[number]
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
+
+function pnlColor(pnl: number | null) {
+  if (pnl == null) return 'text-slate-400'
+  if (pnl > 0) return 'text-[#22c55e]'
+  if (pnl < 0) return 'text-[#ef4444]'
+  return 'text-slate-400'
+}
+
+function formatPnl(pnl: number | null) {
+  if (pnl == null) return '—'
+  return (pnl >= 0 ? '+' : '') + '$' + Math.abs(pnl).toFixed(2)
+}
+
+function gradeColor(grade: string | null) {
+  if (!grade) return 'text-slate-500'
+  if (grade.startsWith('A')) return 'text-[#22c55e]'
+  if (grade.startsWith('B')) return 'text-[#0ea5e9]'
+  if (grade === 'C') return 'text-[#f59e0b]'
+  return 'text-[#ef4444]'
+}
+
+function toET(dateStr: string) {
+  const d = new Date(dateStr + 'T12:00:00')
+  return d.toLocaleDateString('en-US', { timeZone: 'America/New_York', month: 'short', day: 'numeric' })
+}
+
+// ─── Sub-components ──────────────────────────────────────────────────────────
+
+function StatCard({ label, value, sub, accent }: { label: string; value: string; sub?: string; accent?: string }) {
+  return (
+    <div className="bg-white/3 border border-white/8 rounded-2xl p-4 flex flex-col gap-1">
+      <p className="text-xs text-slate-500 uppercase tracking-wider">{label}</p>
+      <p className={`text-2xl font-bold tabular-nums ${accent ?? 'text-white'}`}>{value}</p>
+      {sub && <p className="text-xs text-slate-500">{sub}</p>}
+    </div>
+  )
+}
+
+// ─── Tab 1: Today's Entry ────────────────────────────────────────────────────
+
+function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (t: Trade) => void }) {
+  const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+
+  const [ticker, setTicker] = useState('')
+  const [direction, setDirection] = useState<'long' | 'short'>('long')
+  const [entryPrice, setEntryPrice] = useState('')
+  const [exitPrice, setExitPrice] = useState('')
+  const [shares, setShares] = useState('')
+  const [pattern, setPattern] = useState('')
+  const [grade, setGrade] = useState('')
+  const [gradeAccurate, setGradeAccurate] = useState<boolean | null>(null)
+  const [writeup, setWriteup] = useState('')
+  const [selectedMistakes, setSelectedMistakes] = useState<string[]>([])
+  const [bestOps, setBestOps] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState(false)
+
+  const todayTrades = useMemo(() => trades.filter((t) => t.date === today), [trades, today])
+
+  function toggleMistake(m: string) {
+    setSelectedMistakes((prev) =>
+      prev.includes(m) ? prev.filter((x) => x !== m) : [...prev, m]
+    )
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    if (!ticker || !entryPrice || !shares) { setError('Ticker, entry price, and shares are required.'); return }
+    setSubmitting(true)
+    setError('')
+    try {
+      const res = await fetch('/api/trades', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          date: today,
+          ticker: ticker.toUpperCase(),
+          direction,
+          entry_price: parseFloat(entryPrice),
+          exit_price: exitPrice ? parseFloat(exitPrice) : null,
+          shares: parseFloat(shares),
+          pattern: pattern || null,
+          grade: grade || null,
+          grade_accurate: gradeAccurate,
+          writeup: writeup || null,
+          mistakes: selectedMistakes.length > 0 ? selectedMistakes : null,
+          best_ops: bestOps || null,
+        }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? 'Failed'); }
+      const newTrade = await res.json() as Trade
+      onTradeAdded(newTrade)
+      setSuccess(true)
+      setTimeout(() => setSuccess(false), 3000)
+      setTicker(''); setEntryPrice(''); setExitPrice(''); setShares('')
+      setPattern(''); setGrade(''); setGradeAccurate(null); setWriteup('')
+      setSelectedMistakes([]); setBestOps('')
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Trade Log Form */}
+      <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
+        <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
+          <Plus className="w-4 h-4 text-[#0ea5e9]" /> Log a Trade
+        </h2>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          {/* Row 1: ticker + direction */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Ticker</label>
+              <input
+                className={inputCls + ' uppercase'}
+                placeholder="AAPL"
+                value={ticker}
+                onChange={(e) => setTicker(e.target.value)}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Direction</label>
+              <div className="flex gap-2">
+                {(['long', 'short'] as const).map((d) => (
+                  <button
+                    key={d}
+                    type="button"
+                    onClick={() => setDirection(d)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-medium border ${direction === d
+                      ? d === 'long'
+                        ? 'bg-[#22c55e]/15 border-[#22c55e]/30 text-[#22c55e]'
+                        : 'bg-[#ef4444]/15 border-[#ef4444]/30 text-[#ef4444]'
+                      : 'bg-white/3 border-white/10 text-slate-400 hover:text-white hover:bg-white/5'
+                      }`}
+                    style={{ transition: 'background 0.15s, color 0.15s' }}
+                  >
+                    {d === 'long' ? '▲' : '▼'} {d}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Row 2: entry, exit, shares */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Entry Price</label>
+              <input className={inputCls} type="number" step="0.0001" placeholder="0.00" value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Exit Price</label>
+              <input className={inputCls} type="number" step="0.0001" placeholder="0.00 (opt)" value={exitPrice} onChange={(e) => setExitPrice(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Shares</label>
+              <input className={inputCls} type="number" step="0.01" placeholder="100" value={shares} onChange={(e) => setShares(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Row 3: pattern + grade + grade accurate */}
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Pattern</label>
+              <input className={inputCls} placeholder="e.g. bull flag" value={pattern} onChange={(e) => setPattern(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Grade</label>
+              <select
+                className={inputCls + ' bg-[#0d1424]'}
+                value={grade}
+                onChange={(e) => setGrade(e.target.value)}
+              >
+                <option value="">— select —</option>
+                {GRADES.map((g) => <option key={g} value={g}>{g}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-slate-500 mb-1">Grade Accurate?</label>
+              <div className="flex gap-2 mt-0.5">
+                {([true, false] as const).map((v) => (
+                  <button
+                    key={String(v)}
+                    type="button"
+                    onClick={() => setGradeAccurate(gradeAccurate === v ? null : v)}
+                    className={`flex-1 py-2 rounded-xl text-xs font-medium border ${gradeAccurate === v
+                      ? v
+                        ? 'bg-[#22c55e]/15 border-[#22c55e]/30 text-[#22c55e]'
+                        : 'bg-[#ef4444]/15 border-[#ef4444]/30 text-[#ef4444]'
+                      : 'bg-white/3 border-white/10 text-slate-500 hover:text-white hover:bg-white/5'
+                      }`}
+                    style={{ transition: 'background 0.15s, color 0.15s' }}
+                  >
+                    {v ? 'Yes' : 'No'}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          {/* Writeup */}
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Writeup</label>
+            <textarea
+              className={inputCls + ' resize-none h-20'}
+              placeholder="What happened? Why did you take this trade? How did you execute?"
+              value={writeup}
+              onChange={(e) => setWriteup(e.target.value)}
+            />
+          </div>
+
+          {/* Mistakes */}
+          <div>
+            <label className="block text-xs text-slate-500 mb-2">Mistakes</label>
+            <div className="flex flex-wrap gap-2">
+              {MISTAKE_OPTIONS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => toggleMistake(m)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-medium border ${selectedMistakes.includes(m)
+                    ? 'bg-[#f59e0b]/15 border-[#f59e0b]/30 text-[#f59e0b]'
+                    : 'bg-white/3 border-white/8 text-slate-500 hover:text-white hover:bg-white/5'
+                    }`}
+                  style={{ transition: 'background 0.15s, color 0.15s' }}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Best ops */}
+          <div>
+            <label className="block text-xs text-slate-500 mb-1">Best Ops of the Day</label>
+            <textarea
+              className={inputCls + ' resize-none h-16'}
+              placeholder="What setups did you see? What was the ideal play?"
+              value={bestOps}
+              onChange={(e) => setBestOps(e.target.value)}
+            />
+          </div>
+
+          {error && <p className="text-xs text-[#ef4444]">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25 disabled:opacity-50 flex items-center justify-center gap-2"
+            style={{ transition: 'background 0.15s' }}
+          >
+            {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : success ? <CheckCircle className="w-4 h-4 text-[#22c55e]" /> : <Plus className="w-4 h-4" />}
+            {submitting ? 'Saving…' : success ? 'Saved!' : 'Log Trade'}
+          </button>
+        </form>
+      </div>
+
+      {/* Today's trades */}
+      {todayTrades.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Today&apos;s Trades</h3>
+          {todayTrades.map((t) => (
+            <TradeRow key={t.id} trade={t} />
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TradeRow({ trade }: { trade: Trade }) {
+  const [open, setOpen] = useState(false)
+  const dirIcon = trade.direction === 'long'
+    ? <TrendingUp className="w-3.5 h-3.5 text-[#22c55e]" />
+    : <TrendingDown className="w-3.5 h-3.5 text-[#ef4444]" />
+
+  return (
+    <div className="bg-white/2 border border-white/8 rounded-2xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/3 text-left"
+        style={{ transition: 'background 0.15s' }}
+      >
+        <div className="flex items-center gap-1.5 w-20">
+          {dirIcon}
+          <span className="font-bold text-sm text-white">{trade.ticker}</span>
+        </div>
+        <span className="text-xs text-slate-500 w-24">{toET(trade.date)}</span>
+        <span className="text-xs text-slate-400">in: ${Number(trade.entry_price).toFixed(2)}</span>
+        {trade.exit_price && <span className="text-xs text-slate-400">out: ${Number(trade.exit_price).toFixed(2)}</span>}
+        <span className={`ml-auto text-sm font-bold tabular-nums ${pnlColor(trade.pnl)}`}>{formatPnl(trade.pnl)}</span>
+        {trade.grade && <span className={`text-xs font-bold ml-2 ${gradeColor(trade.grade)}`}>{trade.grade}</span>}
+        <ChevronRight className={`w-4 h-4 text-slate-600 ml-2 ${open ? 'rotate-90' : ''}`} style={{ transition: 'transform 0.15s' }} />
+      </button>
+      {open && (
+        <div className="px-4 pb-4 flex flex-col gap-2 border-t border-white/5">
+          {trade.pattern && <p className="text-xs text-slate-400 mt-2"><span className="text-slate-600">Pattern:</span> {trade.pattern}</p>}
+          {trade.writeup && <p className="text-xs text-slate-400"><span className="text-slate-600">Writeup:</span> {trade.writeup}</p>}
+          {trade.mistakes && trade.mistakes.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {trade.mistakes.map((m) => (
+                <span key={m} className="px-2 py-0.5 rounded-full text-xs bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/20">{m}</span>
+              ))}
+            </div>
+          )}
+          {trade.best_ops && <p className="text-xs text-slate-400"><span className="text-slate-600">Best ops:</span> {trade.best_ops}</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Tab 2: Performance ──────────────────────────────────────────────────────
+
+function Performance({ trades }: { trades: Trade[] }) {
+  const closed = useMemo(() => trades.filter((t) => t.pnl != null), [trades])
+  const winners = useMemo(() => closed.filter((t) => (t.pnl ?? 0) > 0), [closed])
+  const winRate = closed.length > 0 ? (winners.length / closed.length) * 100 : 0
+  const totalPnl = closed.reduce((acc, t) => acc + (t.pnl ?? 0), 0)
+  const avgPnl = closed.length > 0 ? totalPnl / closed.length : 0
+  const bestTrade = closed.reduce((best, t) => (t.pnl ?? 0) > (best?.pnl ?? -Infinity) ? t : best, closed[0] ?? null)
+  const worstTrade = closed.reduce((worst, t) => (t.pnl ?? 0) < (worst?.pnl ?? Infinity) ? t : worst, closed[0] ?? null)
+
+  // By pattern
+  const byPattern = useMemo(() => {
+    const map: Record<string, { wins: number; total: number; pnl: number }> = {}
+    for (const t of closed) {
+      const key = t.pattern || 'No Pattern'
+      if (!map[key]) map[key] = { wins: 0, total: 0, pnl: 0 }
+      map[key].total++
+      map[key].pnl += t.pnl ?? 0
+      if ((t.pnl ?? 0) > 0) map[key].wins++
+    }
+    return Object.entries(map).sort((a, b) => b[1].total - a[1].total)
+  }, [closed])
+
+  // By grade bucket
+  const byGrade = useMemo(() => {
+    const buckets = [
+      { label: 'A tier', grades: ['A+', 'A', 'A-'] },
+      { label: 'B tier', grades: ['B+', 'B', 'B-'] },
+      { label: 'C/D/F', grades: ['C', 'D', 'F'] },
+    ]
+    return buckets.map(({ label, grades }) => {
+      const bucket = closed.filter((t) => t.grade && grades.includes(t.grade))
+      const wins = bucket.filter((t) => (t.pnl ?? 0) > 0).length
+      const pnl = bucket.reduce((acc, t) => acc + (t.pnl ?? 0), 0)
+      const wr = bucket.length > 0 ? (wins / bucket.length) * 100 : 0
+      return { label, total: bucket.length, wins, wr, pnl }
+    })
+  }, [closed])
+
+  // Grade accuracy
+  const gradeAccuracyCount = trades.filter((t) => t.grade_accurate === true).length
+  const gradedCount = trades.filter((t) => t.grade_accurate != null).length
+  const gradeAccuracyPct = gradedCount > 0 ? (gradeAccuracyCount / gradedCount) * 100 : null
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+        <StatCard label="Total Trades" value={String(trades.length)} sub={`${closed.length} closed`} />
+        <StatCard label="Win Rate" value={winRate > 0 ? `${winRate.toFixed(1)}%` : '—'} sub={`${winners.length}/${closed.length}`} accent={winRate >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'} />
+        <StatCard label="Total P&L" value={formatPnl(totalPnl)} accent={pnlColor(totalPnl)} />
+        <StatCard label="Avg P&L / Trade" value={avgPnl !== 0 ? formatPnl(avgPnl) : '—'} accent={pnlColor(avgPnl)} />
+        <StatCard label="Best Trade" value={bestTrade ? formatPnl(bestTrade.pnl) : '—'} sub={bestTrade?.ticker ?? ''} accent="text-[#22c55e]" />
+        <StatCard label="Worst Trade" value={worstTrade ? formatPnl(worstTrade.pnl) : '—'} sub={worstTrade?.ticker ?? ''} accent="text-[#ef4444]" />
+      </div>
+
+      {/* Grade accuracy */}
+      {gradeAccuracyPct != null && (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <Star className="w-3.5 h-3.5 text-[#f59e0b]" /> Grade Accuracy
+          </h3>
+          <div className="flex items-center gap-4">
+            <p className="text-3xl font-bold text-white tabular-nums">{gradeAccuracyPct.toFixed(1)}%</p>
+            <p className="text-sm text-slate-400">of {gradedCount} self-graded trades marked accurate</p>
+          </div>
+        </div>
+      )}
+
+      {/* By pattern */}
+      {byPattern.length > 0 && (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+            <BarChart2 className="w-3.5 h-3.5 text-[#0ea5e9]" /> P&L by Pattern
+          </h3>
+          <div className="flex flex-col gap-2">
+            {byPattern.map(([pattern, stats]) => {
+              const wr = stats.total > 0 ? (stats.wins / stats.total) * 100 : 0
+              return (
+                <div key={pattern} className="flex items-center gap-3">
+                  <span className="text-sm text-slate-300 w-36 truncate">{pattern}</span>
+                  <span className="text-xs text-slate-500 w-12 tabular-nums">{stats.total} trades</span>
+                  <span className={`text-xs tabular-nums w-16 ${wr >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{wr.toFixed(0)}% WR</span>
+                  <span className={`text-sm font-bold tabular-nums ml-auto ${pnlColor(stats.pnl)}`}>{formatPnl(stats.pnl)}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* By grade tier */}
+      <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
+        <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <Star className="w-3.5 h-3.5 text-[#22c55e]" /> P&L by Grade
+        </h3>
+        <div className="flex flex-col gap-3">
+          {byGrade.map((bucket) => (
+            <div key={bucket.label} className="flex items-center gap-3">
+              <span className={`text-sm font-semibold w-16 ${bucket.label.startsWith('A') ? 'text-[#22c55e]' : bucket.label.startsWith('B') ? 'text-[#0ea5e9]' : 'text-[#ef4444]'}`}>{bucket.label}</span>
+              <span className="text-xs text-slate-500 w-16 tabular-nums">{bucket.total} trades</span>
+              {bucket.total > 0 && <span className={`text-xs w-14 tabular-nums ${bucket.wr >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{bucket.wr.toFixed(0)}% WR</span>}
+              {bucket.total > 0 && <span className={`text-sm font-bold tabular-nums ml-auto ${pnlColor(bucket.pnl)}`}>{formatPnl(bucket.pnl)}</span>}
+              {bucket.total === 0 && <span className="text-xs text-slate-600 ml-auto">no trades</span>}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Recent trades table */}
+      <div className="bg-white/2 border border-white/8 rounded-2xl overflow-hidden">
+        <div className="px-4 py-3 border-b border-white/5">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recent Trades</h3>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-white/5">
+                {['Date', 'Ticker', 'Dir', 'Entry', 'Exit', 'P&L', 'Grade', 'Pattern'].map((h) => (
+                  <th key={h} className="px-3 py-2 text-left text-slate-600 font-medium">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {trades.slice(0, 50).map((t) => (
+                <tr key={t.id} className="border-b border-white/3 hover:bg-white/2">
+                  <td className="px-3 py-2 text-slate-500">{toET(t.date)}</td>
+                  <td className="px-3 py-2 font-bold text-white">{t.ticker}</td>
+                  <td className="px-3 py-2">
+                    {t.direction === 'long'
+                      ? <span className="text-[#22c55e]">▲ L</span>
+                      : <span className="text-[#ef4444]">▼ S</span>}
+                  </td>
+                  <td className="px-3 py-2 text-slate-400 tabular-nums">${Number(t.entry_price).toFixed(2)}</td>
+                  <td className="px-3 py-2 text-slate-400 tabular-nums">{t.exit_price ? `$${Number(t.exit_price).toFixed(2)}` : '—'}</td>
+                  <td className={`px-3 py-2 font-bold tabular-nums ${pnlColor(t.pnl)}`}>{formatPnl(t.pnl)}</td>
+                  <td className={`px-3 py-2 font-bold ${gradeColor(t.grade)}`}>{t.grade ?? '—'}</td>
+                  <td className="px-3 py-2 text-slate-500">{t.pattern ?? '—'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {trades.length === 0 && (
+            <p className="text-center py-8 text-slate-600 text-sm">No trades yet</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Tab 3: Tendencies ───────────────────────────────────────────────────────
+
+function Tendencies({ trades, latestNote, onNoteGenerated }: {
+  trades: Trade[]
+  latestNote: CoachingNote | null
+  onNoteGenerated: (note: CoachingNote) => void
+}) {
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState('')
+  const [localNote, setLocalNote] = useState<CoachingNote | null>(latestNote)
+
+  async function generate() {
+    setGenerating(true)
+    setError('')
+    try {
+      const res = await fetch('/api/coach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trades: trades.slice(0, 30) }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? 'Failed'); }
+      const note = await res.json() as CoachingNote
+      setLocalNote(note)
+      onNoteGenerated(note)
+    } catch (err) {
+      setError(String(err))
+    } finally {
+      setGenerating(false)
+    }
+  }
+
+  // Mistake frequency
+  const mistakeCounts = useMemo(() => {
+    const map: Record<string, number> = {}
+    for (const t of trades) {
+      if (Array.isArray(t.mistakes)) {
+        for (const m of t.mistakes) {
+          map[m] = (map[m] ?? 0) + 1
+        }
+      }
+    }
+    return Object.entries(map).sort((a, b) => b[1] - a[1])
+  }, [trades])
+
+  const maxMistakeCount = mistakeCounts[0]?.[1] ?? 1
+
+  // Pattern tendency cards
+  const patternTendencies = useMemo(() => {
+    const map: Record<string, { count: number; wins: number; pnl: number }> = {}
+    for (const t of trades) {
+      if (!t.pattern) continue
+      const key = t.pattern
+      if (!map[key]) map[key] = { count: 0, wins: 0, pnl: 0 }
+      map[key].count++
+      if ((t.pnl ?? 0) > 0) map[key].wins++
+      map[key].pnl += t.pnl ?? 0
+    }
+    return Object.entries(map).sort((a, b) => b[1].count - a[1].count)
+  }, [trades])
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* AI Coaching Note */}
+      <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Sparkles className="w-4 h-4 text-[#0ea5e9]" /> AI Performance Coach
+          </h2>
+          <button
+            onClick={generate}
+            disabled={generating || trades.length === 0}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 text-[#0ea5e9] hover:bg-[#0ea5e9]/20 disabled:opacity-50"
+            style={{ transition: 'background 0.15s' }}
+          >
+            {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
+            {generating ? 'Analyzing…' : 'Generate New Analysis'}
+          </button>
+        </div>
+        {error && <p className="text-xs text-[#ef4444] mb-3">{error}</p>}
+        {localNote ? (
+          <div className="flex flex-col gap-3">
+            <p className="text-xs text-slate-600">
+              Generated {new Date(localNote.generated_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} · {localNote.period} · {localNote.win_rate != null ? `${localNote.win_rate}% WR` : ''}
+            </p>
+            <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{localNote.note}</p>
+          </div>
+        ) : (
+          <div className="text-center py-8">
+            <Brain className="w-8 h-8 text-slate-700 mx-auto mb-2" />
+            <p className="text-sm text-slate-600">No analysis yet. Log some trades then generate your first coaching note.</p>
+          </div>
+        )}
+      </div>
+
+      {/* Mistake frequency */}
+      {mistakeCounts.length > 0 && (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2 mb-4">
+            <AlertTriangle className="w-4 h-4 text-[#f59e0b]" /> Mistake Frequency
+          </h2>
+          <div className="flex flex-col gap-3">
+            {mistakeCounts.map(([mistake, count]) => {
+              const pct = (count / maxMistakeCount) * 100
+              return (
+                <div key={mistake} className="flex items-center gap-3">
+                  <span className="text-xs text-slate-400 w-40 truncate">{mistake}</span>
+                  <div className="flex-1 h-2 bg-white/5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#f59e0b]/60 rounded-full"
+                      style={{ width: `${pct}%`, transition: 'width 0.3s' }}
+                    />
+                  </div>
+                  <span className="text-xs text-[#f59e0b] tabular-nums w-8 text-right">{count}×</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Pattern tendency cards */}
+      {patternTendencies.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Pattern Tendencies</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {patternTendencies.map(([pattern, stats]) => {
+              const wr = stats.count > 0 ? (stats.wins / stats.count) * 100 : 0
+              return (
+                <div key={pattern} className="bg-white/2 border border-white/8 rounded-2xl p-4 flex flex-col gap-2">
+                  <p className="text-sm font-semibold text-white">{pattern}</p>
+                  <div className="flex items-center gap-4">
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-600">Occurrences</span>
+                      <span className="text-lg font-bold text-white">{stats.count}</span>
+                    </div>
+                    <div className="flex flex-col">
+                      <span className="text-xs text-slate-600">Win Rate</span>
+                      <span className={`text-lg font-bold ${wr >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{wr.toFixed(0)}%</span>
+                    </div>
+                    <div className="flex flex-col ml-auto">
+                      <span className="text-xs text-slate-600">Total P&L</span>
+                      <span className={`text-lg font-bold tabular-nums ${pnlColor(stats.pnl)}`}>{formatPnl(stats.pnl)}</span>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {trades.length === 0 && (
+        <div className="text-center py-12 text-slate-600 text-sm">
+          Log trades to see your tendencies.
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Tab 4: Calendar ─────────────────────────────────────────────────────────
+
+function CalendarTab({ trades }: { trades: Trade[] }) {
+  const today = new Date()
+  const [year, setYear] = useState(today.getFullYear())
+  const [month, setMonth] = useState(today.getMonth())
+  const [selectedDay, setSelectedDay] = useState<string | null>(null)
+
+  // Build map: date string → { pnl: number, trades: Trade[] }
+  const dayMap = useMemo(() => {
+    const map: Record<string, { pnl: number; trades: Trade[] }> = {}
+    for (const t of trades) {
+      const key = t.date
+      if (!map[key]) map[key] = { pnl: 0, trades: [] }
+      map[key].trades.push(t)
+      map[key].pnl += t.pnl ?? 0
+    }
+    return map
+  }, [trades])
+
+  const firstDayOfMonth = new Date(year, month, 1)
+  const daysInMonth = new Date(year, month + 1, 0).getDate()
+  const startingDayOfWeek = firstDayOfMonth.getDay() // 0=Sun
+
+  const prevMonth = useCallback(() => {
+    setMonth((m) => { if (m === 0) { setYear((y) => y - 1); return 11 } return m - 1 })
+    setSelectedDay(null)
+  }, [])
+  const nextMonth = useCallback(() => {
+    setMonth((m) => { if (m === 11) { setYear((y) => y + 1); return 0 } return m + 1 })
+    setSelectedDay(null)
+  }, [])
+
+  const monthName = new Date(year, month, 1).toLocaleString('en-US', { month: 'long', year: 'numeric' })
+
+  const dayKeys = Array.from({ length: daysInMonth }, (_, i) => {
+    const d = i + 1
+    const mm = String(month + 1).padStart(2, '0')
+    const dd = String(d).padStart(2, '0')
+    return `${year}-${mm}-${dd}`
+  })
+
+  const selectedTrades = selectedDay ? (dayMap[selectedDay]?.trades ?? []) : []
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
+        {/* Header */}
+        <div className="flex items-center justify-between mb-5">
+          <button onClick={prevMonth} className="p-1.5 rounded-xl hover:bg-white/8 text-slate-400 hover:text-white" style={{ transition: 'background 0.15s, color 0.15s' }}>
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <h2 className="text-sm font-bold text-white">{monthName}</h2>
+          <button onClick={nextMonth} className="p-1.5 rounded-xl hover:bg-white/8 text-slate-400 hover:text-white" style={{ transition: 'background 0.15s, color 0.15s' }}>
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Day of week headers */}
+        <div className="grid grid-cols-7 mb-1">
+          {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+            <div key={d} className="text-center text-xs text-slate-600 py-1">{d}</div>
+          ))}
+        </div>
+
+        {/* Calendar grid */}
+        <div className="grid grid-cols-7 gap-1">
+          {/* Empty cells for days before month starts */}
+          {Array.from({ length: startingDayOfWeek }).map((_, i) => (
+            <div key={`empty-${i}`} />
+          ))}
+          {dayKeys.map((key, i) => {
+            const dayNum = i + 1
+            const data = dayMap[key]
+            const isToday = key === today.toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
+            const isSelected = key === selectedDay
+            let bgClass = 'bg-white/2 border-white/5'
+            if (data) {
+              bgClass = data.pnl > 0 ? 'bg-[#22c55e]/15 border-[#22c55e]/20' : 'bg-[#ef4444]/15 border-[#ef4444]/20'
+            }
+            if (isSelected) bgClass = 'bg-[#0ea5e9]/20 border-[#0ea5e9]/40'
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setSelectedDay(key === selectedDay ? null : key)}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-xl border text-xs font-medium ${bgClass} ${isToday ? 'ring-1 ring-[#0ea5e9]/40' : ''} ${data ? 'cursor-pointer hover:opacity-80' : 'cursor-default opacity-60'}`}
+                style={{ transition: 'opacity 0.15s' }}
+              >
+                <span className={isToday ? 'text-[#0ea5e9]' : data ? 'text-white' : 'text-slate-600'}>{dayNum}</span>
+                {data && (
+                  <span className={`text-[9px] tabular-nums ${data.pnl > 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                    {data.pnl > 0 ? '+' : ''}{data.pnl.toFixed(0)}
+                  </span>
+                )}
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Legend */}
+        <div className="flex items-center gap-4 mt-4 justify-center">
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#22c55e]/30 border border-[#22c55e]/30" /><span className="text-xs text-slate-500">Profitable</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-[#ef4444]/30 border border-[#ef4444]/30" /><span className="text-xs text-slate-500">Loss</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-3 h-3 rounded bg-white/5 border border-white/10" /><span className="text-xs text-slate-500">No trades</span></div>
+        </div>
+      </div>
+
+      {/* Selected day panel */}
+      {selectedDay && (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
+          <h3 className="text-sm font-semibold text-white mb-4">
+            {new Date(selectedDay + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
+          </h3>
+          {selectedTrades.length === 0 ? (
+            <p className="text-sm text-slate-600">No trades on this day.</p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {selectedTrades.map((t) => <TradeRow key={t.id} trade={t} />)}
+              <div className="mt-2 flex items-center justify-between pt-2 border-t border-white/5">
+                <span className="text-xs text-slate-500">{selectedTrades.length} trade{selectedTrades.length !== 1 ? 's' : ''}</span>
+                <span className={`text-sm font-bold tabular-nums ${pnlColor(dayMap[selectedDay]?.pnl ?? null)}`}>
+                  {formatPnl(dayMap[selectedDay]?.pnl ?? null)} day P&L
+                </span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Main Component ───────────────────────────────────────────────────────────
+
+export default function JournalClient({
+  initialTrades,
+  latestCoachingNote,
+}: {
+  initialTrades: Trade[]
+  latestCoachingNote: CoachingNote | null
+}) {
+  const [activeTab, setActiveTab] = useState<TabName>('Today\'s Entry')
+  const [trades, setTrades] = useState<Trade[]>(initialTrades)
+  const [coachNote, setCoachNote] = useState<CoachingNote | null>(latestCoachingNote)
+
+  const handleTradeAdded = useCallback((t: Trade) => {
+    setTrades((prev) => [t, ...prev])
+  }, [])
+
+  const handleNoteGenerated = useCallback((note: CoachingNote) => {
+    setCoachNote(note)
+  }, [])
+
+  const TAB_ICONS: Record<TabName, React.ReactNode> = {
+    'Today\'s Entry': <BookOpen className="w-4 h-4" />,
+    'Performance': <BarChart2 className="w-4 h-4" />,
+    'Tendencies': <Brain className="w-4 h-4" />,
+    'Calendar': <Calendar className="w-4 h-4" />,
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
+      {/* Page header */}
+      <div className="flex items-center gap-3">
+        <div className="w-9 h-9 rounded-xl bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 flex items-center justify-center shrink-0">
+          <BookOpen className="w-4 h-4 text-[#0ea5e9]" />
+        </div>
+        <div>
+          <h1 className="text-lg font-bold text-white">Trade Journal</h1>
+          <p className="text-xs text-slate-500">Log trades, track performance, get AI coaching</p>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white/3 border border-white/8 rounded-2xl p-1">
+        {TAB_NAMES.map((tab) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => setActiveTab(tab)}
+            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-medium ${activeTab === tab
+              ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20'
+              : 'text-slate-500 hover:text-white hover:bg-white/5'
+              }`}
+            style={{ transition: 'background 0.15s, color 0.15s' }}
+          >
+            <span className="hidden sm:flex">{TAB_ICONS[tab]}</span>
+            <span className="hidden sm:inline">{tab}</span>
+            <span className="sm:hidden">{TAB_ICONS[tab]}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Tab content */}
+      {activeTab === 'Today\'s Entry' && (
+        <TodayEntry trades={trades} onTradeAdded={handleTradeAdded} />
+      )}
+      {activeTab === 'Performance' && (
+        <Performance trades={trades} />
+      )}
+      {activeTab === 'Tendencies' && (
+        <Tendencies trades={trades} latestNote={coachNote} onNoteGenerated={handleNoteGenerated} />
+      )}
+      {activeTab === 'Calendar' && (
+        <CalendarTab trades={trades} />
+      )}
+    </div>
+  )
+}
