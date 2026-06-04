@@ -6,6 +6,7 @@ const WORKERS = [
   'price', 'news', 'sec', 'reddit', 'engine',
   'options', 'congress', 'squeeze',
   'technical', 'earnings', 'analyst', 'macro', 'darkpool', 'sector',
+  'intelligence', 'prediction',
 ] as const
 
 type Worker = typeof WORKERS[number]

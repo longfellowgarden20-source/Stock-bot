@@ -24,13 +24,12 @@ export default function AdminClient({
 
   const getWorkerStatus = useCallback((name: WorkerName): WorkerStatus => {
     if (statuses[name] === 'triggering') return 'triggering'
-    // Check health data from Railway /health endpoint
-    const h = health as Record<string, { ok?: boolean; last_run?: string; error?: string } | undefined>
-    const w = h?.[name]
-    if (!w) return 'unknown'
-    if (w.ok === true) return 'alive'
-    if (w.ok === false) return 'dead'
-    if (w.error) return 'dead'
+    // Railway /health returns { worker_status: { price: { overdue, seconds_since, ... } } }
+    const h = health as Record<string, unknown>
+    const workerStatus = (h?.worker_status ?? h) as Record<string, { overdue?: boolean; seconds_since?: number | null } | undefined>
+    const w = workerStatus?.[name]
+    if (!w || w.seconds_since == null) return 'unknown'
+    if (w.overdue === true) return 'dead'
     return 'alive'
   }, [health, statuses])
 
@@ -80,20 +79,32 @@ export default function AdminClient({
   }, [refreshHealth])
 
   const WORKER_LABELS: Record<string, { label: string; interval: string }> = {
-    price:     { label: 'Price Worker',     interval: '5 min' },
-    news:      { label: 'News Worker',      interval: '2 min' },
-    sec:       { label: 'SEC Filings',      interval: '10 min' },
-    reddit:    { label: 'Reddit Sentiment', interval: '15 min' },
-    engine:    { label: 'Signal Engine',    interval: '5 min' },
-    options:   { label: 'Options Flow',     interval: '5 min' },
-    congress:  { label: 'Congress Trades',  interval: '6 hr' },
-    squeeze:   { label: 'Short Squeeze',    interval: '1 hr' },
-    technical: { label: 'Technicals',       interval: '15 min' },
-    earnings:  { label: 'Earnings Watch',   interval: '1 hr' },
-    analyst:   { label: 'Analyst Changes',  interval: '1 hr' },
-    macro:     { label: 'Macro / VIX',      interval: '30 min' },
-    darkpool:  { label: 'Dark Pool',        interval: '5 min' },
-    sector:    { label: 'Sector Rotation',  interval: '1 hr' },
+    price:        { label: 'Price Worker',      interval: '5 min' },
+    news:         { label: 'News Worker',       interval: '2 min' },
+    sec:          { label: 'SEC Filings',       interval: '10 min' },
+    reddit:       { label: 'Reddit Sentiment',  interval: '30 min' },
+    engine:       { label: 'Signal Engine',     interval: '5 min' },
+    options:      { label: 'Options Flow',      interval: '5 min' },
+    congress:     { label: 'Congress Trades',   interval: '6 hr' },
+    squeeze:      { label: 'Short Squeeze',     interval: '1 hr' },
+    technical:    { label: 'Technicals',        interval: '15 min' },
+    earnings:     { label: 'Earnings Watch',    interval: '1 hr' },
+    analyst:      { label: 'Analyst Changes',   interval: '1 hr' },
+    macro:        { label: 'Macro / VIX',       interval: '30 min' },
+    darkpool:     { label: 'Dark Pool',         interval: '5 min' },
+    sector:       { label: 'Sector Rotation',   interval: '1 hr' },
+    intelligence: { label: 'Intelligence',      interval: '30 min' },
+    prediction:   { label: 'EOD Predictions',   interval: '30 min' },
+  }
+
+  const getLastRun = (name: WorkerName): string => {
+    const h = health as Record<string, unknown>
+    const workerStatus = (h?.worker_status ?? h) as Record<string, { seconds_since?: number | null } | undefined>
+    const sec = workerStatus?.[name]?.seconds_since
+    if (sec == null) return ''
+    if (sec < 60) return `${sec}s ago`
+    if (sec < 3600) return `${Math.floor(sec / 60)}m ago`
+    return `${Math.floor(sec / 3600)}h ago`
   }
 
   return (
@@ -160,8 +171,8 @@ export default function AdminClient({
                 <p className="text-sm font-semibold text-white">{meta.label}</p>
                 <p className="text-xs text-slate-500">
                   {status === 'triggering' ? 'Running...' :
-                   status === 'alive' ? 'Healthy' :
-                   status === 'dead' ? 'Stale / error' : 'Status unknown'
+                   status === 'alive' ? `Healthy · ${getLastRun(name)}` :
+                   status === 'dead' ? `Stale · ${getLastRun(name)}` : 'Status unknown'
                   } · every {meta.interval}
                 </p>
                 {result && (
