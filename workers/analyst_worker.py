@@ -129,27 +129,32 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
     # Recommendation trend (upgrade/downgrade waves)
     recs = await fetch_recommendation_trends(client, ticker)
     if recs and len(recs) >= 2:
-        # Most recent first in Finnhub response
         curr, prev = recs[0], recs[1]
         period = curr.get("period", "")
         dedup_key = f"rec-{ticker}-{period}"
-        if dedup_key not in _seen_ids:
+        if dedup_key in _seen_ids:
+            return
+        # Also check DB — survives restarts
+        existing = supabase().table("signals").select("id").eq("ticker", ticker.upper()).eq("signal_type", "analyst_change").contains("raw_data", {"period": period}).limit(1).execute()
+        if existing.data:
             _seen_ids.add(dedup_key)
-            kind, deltas = _detect_change(curr, prev)
-            if kind == "upgrade_wave":
-                insert_signal(
-                    ticker, "analyst_change", 7,
-                    f"{ticker} analyst upgrade wave",
-                    f"Multiple analysts upgraded {ticker} this period. Buy ratings +{deltas['buy']}, Strong Buy +{deltas['strongBuy']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
-                    {"direction": "upgrade", "current": curr, "prior": prev, "deltas": deltas},
-                )
-            elif kind == "downgrade_wave":
-                insert_signal(
-                    ticker, "analyst_change", 7,
-                    f"{ticker} analyst downgrade wave",
-                    f"Multiple analysts downgraded {ticker} this period. Sell +{deltas['sell']}, Strong Sell +{deltas['strongSell']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
-                    {"direction": "downgrade", "current": curr, "prior": prev, "deltas": deltas},
-                )
+            return
+        _seen_ids.add(dedup_key)
+        kind, deltas = _detect_change(curr, prev)
+        if kind == "upgrade_wave":
+            insert_signal(
+                ticker, "analyst_change", 7,
+                f"{ticker} analyst upgrade wave",
+                f"Multiple analysts upgraded {ticker} this period. Buy ratings +{deltas['buy']}, Strong Buy +{deltas['strongBuy']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
+                {"direction": "upgrade", "period": period, "current": curr, "prior": prev, "deltas": deltas},
+            )
+        elif kind == "downgrade_wave":
+            insert_signal(
+                ticker, "analyst_change", 7,
+                f"{ticker} analyst downgrade wave",
+                f"Multiple analysts downgraded {ticker} this period. Sell +{deltas['sell']}, Strong Sell +{deltas['strongSell']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
+                {"direction": "downgrade", "period": period, "current": curr, "prior": prev, "deltas": deltas},
+            )
 
 
 async def run_once() -> dict:
