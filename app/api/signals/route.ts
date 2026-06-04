@@ -16,11 +16,26 @@ export async function PATCH(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
-  const ticker = req.nextUrl.searchParams.get('ticker')
-  const limit = parseInt(req.nextUrl.searchParams.get('limit') ?? '50')
+  const sp = req.nextUrl.searchParams
+  const ticker = sp.get('ticker')
+  const limit = parseInt(sp.get('limit') ?? '200')
+  const from = sp.get('from')
+  const to = sp.get('to')
+  const type = sp.get('type')
+  const minSeverity = sp.get('minSeverity')
+
   const db = getSupabaseAdmin()
-  let q = db.from('signals').select('*').order('created_at', { ascending: false }).limit(limit)
+  let q = db.from('signals').select('*').order('created_at', { ascending: false }).limit(Math.min(limit, 200))
   if (ticker) q = q.eq('ticker', ticker.toUpperCase())
+  if (type && type !== 'all') q = q.eq('signal_type', type)
+  if (minSeverity) q = q.gte('severity', parseInt(minSeverity))
+  if (from) q = q.gte('created_at', new Date(from).toISOString())
+  if (to) {
+    // Include the full end day
+    const toDate = new Date(to)
+    toDate.setDate(toDate.getDate() + 1)
+    q = q.lt('created_at', toDate.toISOString())
+  }
   const { data, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json(data ?? [])

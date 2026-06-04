@@ -8,6 +8,7 @@ import PushToggle from '@/app/components/PushToggle'
 import KeyboardShortcutsHelp from '@/app/components/KeyboardShortcutsHelp'
 import QuickAddTicker from '@/app/components/QuickAddTicker'
 import TickerSentiment from '@/app/components/TickerSentiment'
+import FearGreedWidget from '@/app/components/FearGreedWidget'
 import { useToast } from '@/app/components/Toaster'
 import { useLocalStorage } from '@/app/hooks/useLocalStorage'
 import { useKeyboardShortcuts } from '@/app/hooks/useKeyboardShortcuts'
@@ -16,6 +17,7 @@ import {
   TrendingUp, TrendingDown, Zap, Filter, CheckCheck, RefreshCw, Loader2,
   Search, X, Volume2, VolumeX, Rows3, Rows4, Layers, ChevronDown,
   ArrowUpDown, Pause, Play, Pin, Keyboard, Sparkles, Download, Newspaper,
+  History, CalendarDays,
 } from 'lucide-react'
 
 type Snapshot = {
@@ -89,6 +91,17 @@ export default function DashboardClient({
 
   const [briefDismissed, setBriefDismissed] = useState(false)
 
+  // --- History mode ---
+  const [historyMode, setHistoryMode] = useState(false)
+  const [historyFrom, setHistoryFrom] = useState<string>(() => {
+    const d = new Date()
+    d.setDate(d.getDate() - 7)
+    return d.toISOString().slice(0, 10)
+  })
+  const [historyTo, setHistoryTo] = useState<string>(() => new Date().toISOString().slice(0, 10))
+  const [historySignals, setHistorySignals] = useState<Signal[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
+
   const searchRef = useRef<HTMLInputElement>(null)
   const filteredRef = useRef<HTMLDivElement>(null)
   const lastCriticalIdRef = useRef<string | null>(null)
@@ -161,9 +174,12 @@ export default function DashboardClient({
     const mutedSet = new Set(muted)
     const pinnedSet = new Set(pinned)
 
-    const list = signals
+    // In history mode, skip the time-range filter (already filtered by API date range)
+    const sourceSignals = historyMode ? historySignals : signals
+
+    const list = sourceSignals
       .filter(s => !mutedSet.has(s.ticker))
-      .filter(s => Number.isFinite(rangeMinutes) ? new Date(s.created_at).getTime() >= rangeCutoff : true)
+      .filter(s => historyMode ? true : Number.isFinite(rangeMinutes) ? new Date(s.created_at).getTime() >= rangeCutoff : true)
       .filter(s => typeFilter === 'all' ? true : s.signal_type === typeFilter)
       .filter(s => {
         if (severityFilter === 'all') return true
@@ -196,7 +212,7 @@ export default function DashboardClient({
       }
     })
     return list
-  }, [signals, search, muted, pinned, rangeMinutes, rangeCutoff, typeFilter, severityFilter, sort])
+  }, [signals, historySignals, historyMode, search, muted, pinned, rangeMinutes, rangeCutoff, typeFilter, severityFilter, sort])
 
   // --- Group by ticker (memoized) ---
   const grouped = useMemo(() => {
@@ -253,6 +269,30 @@ export default function DashboardClient({
     } catch { /* network */ }
     setRefreshing(false)
   }, [])
+
+  // --- History fetch ---
+  const fetchHistory = useCallback(async (from: string, to: string) => {
+    setHistoryLoading(true)
+    try {
+      const params = new URLSearchParams({ from, to, limit: '200' })
+      if (typeFilter !== 'all') params.set('type', typeFilter)
+      if (severityFilter !== 'all' && severityFilter !== 'medium') {
+        const minSev = severityFilter === 'critical' ? '9' : severityFilter === 'high' ? '7' : '5'
+        params.set('minSeverity', minSev)
+      } else if (severityFilter === 'medium') {
+        params.set('minSeverity', '5')
+      }
+      const r = await fetch(`/api/signals?${params.toString()}`)
+      if (r.ok) setHistorySignals(await r.json())
+    } catch { /* network */ }
+    setHistoryLoading(false)
+  }, [typeFilter, severityFilter])
+
+  useEffect(() => {
+    if (historyMode) {
+      fetchHistory(historyFrom, historyTo)
+    }
+  }, [historyMode, historyFrom, historyTo, fetchHistory])
 
   // --- CSV Export ---
   const exportCSV = useCallback(() => {
@@ -471,7 +511,17 @@ export default function DashboardClient({
             <span className="hidden sm:inline">Export CSV</span>
           </button>
 
-          <button onClick={refresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
+          <button
+            onClick={() => setHistoryMode(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border rounded-xl ${historyMode ? 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10' : 'text-slate-400 hover:text-white border-white/10 hover:bg-white/5'}`}
+            style={{ transition: 'color 0.15s, background 0.15s' }}
+            title={historyMode ? 'Exit history mode' : 'Browse historical signals'}
+          >
+            <History className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">History</span>
+          </button>
+
+          <button onClick={refresh} disabled={refreshing || historyMode} className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
             {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{refreshing ? 'Scanning…' : 'Force scan'}</span>
           </button>
@@ -486,6 +536,45 @@ export default function DashboardClient({
           </button>
         </div>
       </div>
+
+      {/* History mode date range bar */}
+      {historyMode && (
+        <div className="flex flex-wrap items-center gap-3 px-4 py-3 bg-[#f59e0b]/8 border border-[#f59e0b]/25 rounded-2xl">
+          <CalendarDays className="w-4 h-4 text-[#f59e0b] shrink-0" />
+          <span className="text-xs font-bold text-[#f59e0b]">History Mode</span>
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-slate-500 shrink-0">From</label>
+              <input
+                type="date"
+                value={historyFrom}
+                onChange={e => setHistoryFrom(e.target.value)}
+                max={historyTo}
+                className="px-2 py-1 bg-white/8 border border-white/15 rounded-lg text-xs text-white focus:outline-none focus:border-[#f59e0b]/60"
+                style={{ fontSize: 16 }}
+              />
+            </div>
+            <div className="flex items-center gap-1.5">
+              <label className="text-xs text-slate-500 shrink-0">To</label>
+              <input
+                type="date"
+                value={historyTo}
+                onChange={e => setHistoryTo(e.target.value)}
+                min={historyFrom}
+                max={new Date().toISOString().slice(0, 10)}
+                className="px-2 py-1 bg-white/8 border border-white/15 rounded-lg text-xs text-white focus:outline-none focus:border-[#f59e0b]/60"
+                style={{ fontSize: 16 }}
+              />
+            </div>
+          </div>
+          {historyLoading
+            ? <Loader2 className="w-3.5 h-3.5 text-[#f59e0b] animate-spin" />
+            : <span className="text-xs text-slate-400 ml-auto">
+                Showing {filtered.length} signal{filtered.length !== 1 ? 's' : ''} from {historyFrom} to {historyTo}
+              </span>
+          }
+        </div>
+      )}
 
       {/* Morning Brief banner */}
       {morningBrief && !briefDismissed && (
@@ -745,8 +834,9 @@ export default function DashboardClient({
       </div>
       </div>{/* end main column */}
 
-      {/* Right sidebar — Reddit Sentiment panel */}
+      {/* Right sidebar — Fear & Greed + Reddit Sentiment panels */}
       <div className="w-full xl:w-80 xl:shrink-0 pb-8 xl:pb-0 xl:sticky xl:top-4">
+        <FearGreedWidget />
         <TickerSentiment />
       </div>
     </div>

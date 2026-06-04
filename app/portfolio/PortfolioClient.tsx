@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo } from 'react'
-import { Plus, Trash2, TrendingUp, TrendingDown, Loader2, Calculator, X } from 'lucide-react'
+import { Plus, Trash2, TrendingUp, TrendingDown, Loader2, Calculator, X, LayoutGrid, List } from 'lucide-react'
 
 type Position = {
   id: string
@@ -21,6 +21,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
   const [avgCost, setAvgCost] = useState('')
   const [notes, setNotes] = useState('')
   const [adding, setAdding] = useState(false)
+  const [viewMode, setViewMode] = useState<'list' | 'heatmap'>('list')
 
   // Size calculator
   const [calcOpen, setCalcOpen] = useState(false)
@@ -84,6 +85,28 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
           <p className="text-sm text-slate-500 mt-0.5">{portfolio.length} position{portfolio.length !== 1 ? 's' : ''}</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap justify-end">
+          {portfolio.length > 0 && (
+            <div className="flex bg-white/5 border border-white/10 rounded-xl overflow-hidden">
+              <button
+                onClick={() => setViewMode('list')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'list' ? 'bg-[#0ea5e9]/15 text-[#0ea5e9]' : 'text-slate-400 hover:text-white'}`}
+                style={{ transition: 'color 0.15s, background 0.15s' }}
+                title="List view"
+              >
+                <List className="w-3.5 h-3.5" />
+                List
+              </button>
+              <button
+                onClick={() => setViewMode('heatmap')}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'heatmap' ? 'bg-[#0ea5e9]/15 text-[#0ea5e9]' : 'text-slate-400 hover:text-white'}`}
+                style={{ transition: 'color 0.15s, background 0.15s' }}
+                title="Heat Map view"
+              >
+                <LayoutGrid className="w-3.5 h-3.5" />
+                Heat Map
+              </button>
+            </div>
+          )}
           <button
             onClick={() => setCalcOpen(o => !o)}
             className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-xl ${calcOpen ? 'text-[#0ea5e9] border-[#0ea5e9]/30 bg-[#0ea5e9]/10' : 'text-slate-300 border-white/10 hover:bg-white/5 hover:text-white'}`}
@@ -176,8 +199,13 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
         </button>
       </div>
 
-      {/* Positions */}
-      <div className="flex flex-col gap-2">
+      {/* Heat Map View */}
+      {viewMode === 'heatmap' && portfolio.length > 0 && (
+        <HeatMapView portfolio={portfolio} snapshots={snapshots} />
+      )}
+
+      {/* Positions List */}
+      <div className={`flex flex-col gap-2 ${viewMode === 'heatmap' ? 'hidden' : ''}`}>
         {portfolio.length === 0 && (
           <div className="text-center py-16 text-slate-500 text-sm">No positions yet — add one above</div>
         )}
@@ -217,6 +245,84 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
               <button onClick={() => remove(pos.id)} className="p-2 text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
                 <Trash2 className="w-4 h-4" />
               </button>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function getHeatMapClasses(changePct: number | undefined): string {
+  if (changePct === undefined) return 'bg-white/4 border-white/10'
+  if (changePct > 3) return 'bg-[#22c55e]/25 border-[#22c55e]/30'
+  if (changePct > 1) return 'bg-[#22c55e]/12 border-[#22c55e]/20'
+  if (changePct > 0) return 'bg-[#22c55e]/6 border-[#22c55e]/10'
+  if (changePct > -1) return 'bg-[#ef4444]/6 border-[#ef4444]/10'
+  if (changePct > -3) return 'bg-[#ef4444]/12 border-[#ef4444]/20'
+  return 'bg-[#ef4444]/25 border-[#ef4444]/30'
+}
+
+function getHeatMapColSpan(value: number): string {
+  if (value >= 10000) return 'col-span-2 row-span-2'
+  if (value >= 5000) return 'col-span-2'
+  return ''
+}
+
+function HeatMapView({
+  portfolio,
+  snapshots,
+}: {
+  portfolio: Position[]
+  snapshots: Record<string, { price: number; change_pct: number }>
+}) {
+  const positions = portfolio.map(pos => {
+    const snap = snapshots[pos.ticker]
+    const currentPrice = snap?.price ?? pos.avg_cost
+    const value = currentPrice * pos.shares
+    const dayDollarPnl = snap?.change_pct != null
+      ? pos.shares * currentPrice * (snap.change_pct / 100)
+      : null
+    return { pos, snap, currentPrice, value, dayDollarPnl }
+  }).sort((a, b) => b.value - a.value)
+
+  return (
+    <div>
+      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2" style={{ gridAutoRows: '120px' }}>
+        {positions.map(({ pos, snap, currentPrice, value, dayDollarPnl }) => {
+          const changePct = snap?.change_pct
+          const colorClasses = getHeatMapClasses(changePct)
+          const spanClasses = getHeatMapColSpan(value)
+          const isLarge = value >= 10000
+          const isMedium = value >= 5000 && value < 10000
+
+          return (
+            <div
+              key={pos.id}
+              className={`relative border rounded-xl p-3 flex flex-col justify-between overflow-hidden ${colorClasses} ${spanClasses}`}
+            >
+              <div>
+                <p className={`font-mono font-bold text-white leading-none ${isLarge ? 'text-2xl' : isMedium ? 'text-xl' : 'text-base'}`}>
+                  {pos.ticker}
+                </p>
+                <p className="text-xs text-slate-400 mt-0.5">${currentPrice.toFixed(2)}</p>
+              </div>
+              <div>
+                {changePct != null ? (
+                  <>
+                    <p className={`font-bold tabular leading-none ${isLarge ? 'text-xl' : 'text-sm'} ${changePct >= 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                      {changePct >= 0 ? '+' : ''}{changePct.toFixed(2)}%
+                    </p>
+                    {dayDollarPnl != null && (
+                      <p className={`text-xs tabular mt-0.5 ${dayDollarPnl >= 0 ? 'text-[#22c55e]/80' : 'text-[#ef4444]/80'}`}>
+                        {dayDollarPnl >= 0 ? '+' : ''}${dayDollarPnl.toFixed(0)}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-xs text-slate-600">No data</p>
+                )}
+              </div>
             </div>
           )
         })}
