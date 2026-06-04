@@ -1,6 +1,7 @@
 """
-Reddit opportunity scanner — scrapes 5 major stock subreddits, extracts ALL ticker mentions,
-runs Groq synthesis on top 10, and inserts a morning brief convergence signal.
+Reddit opportunity scanner — scrapes 5 major stock subreddits using Reddit's public JSON API
+(no credentials required). Extracts ALL ticker mentions, runs Groq synthesis on top 10,
+and inserts a morning brief convergence signal.
 
 Schedule:
 - Every 30 min: mention counting + individual sentiment_spike for watchlist tickers
@@ -11,16 +12,13 @@ import re
 import logging
 import httpx
 import asyncio
-import base64
 from datetime import date
 from db import get_watchlist_tickers, insert_signal, supabase
 from market_hours import now_et, is_weekday
 
 log = logging.getLogger("reddit_worker")
 
-REDDIT_CLIENT_ID = os.environ.get("REDDIT_CLIENT_ID", "")
-REDDIT_CLIENT_SECRET = os.environ.get("REDDIT_CLIENT_SECRET", "")
-REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "StockBot/1.0")
+REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "StockBot/1.0 (personal trading tool)")
 
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
@@ -56,55 +54,29 @@ FALSE_POSITIVES = {
 # Ticker regex: $TICKER or standalone uppercase 1-5 chars
 TICKER_PATTERN = re.compile(r'(?:\$([A-Z]{1,5})\b|\b([A-Z]{2,5})\b)')
 
-_token: str | None = None
-_token_expiry: float = 0
 _morning_done: date | None = None
 
-
-# ─── Reddit auth ────────────────────────────────────────────────────────────
-
-async def get_token(client: httpx.AsyncClient) -> str | None:
-    global _token, _token_expiry
-    import time
-    if _token and time.time() < _token_expiry - 60:
-        return _token
-    if not REDDIT_CLIENT_ID or not REDDIT_CLIENT_SECRET:
-        return None
-    auth = base64.b64encode(f"{REDDIT_CLIENT_ID}:{REDDIT_CLIENT_SECRET}".encode()).decode()
-    try:
-        r = await client.post(
-            "https://www.reddit.com/api/v1/access_token",
-            headers={"Authorization": f"Basic {auth}", "User-Agent": REDDIT_USER_AGENT},
-            data={"grant_type": "client_credentials"},
-            timeout=10,
-        )
-        if r.status_code != 200:
-            log.warning(f"Reddit auth failed {r.status_code}: {r.text[:120]}")
-            return None
-        data = r.json()
-        _token = data["access_token"]
-        _token_expiry = time.time() + int(data.get("expires_in", 3600))
-        return _token
-    except Exception as e:
-        log.error(f"Reddit token error: {e}")
-        return None
-
+# ─── Reddit public JSON fetch (no credentials needed) ───────────────────────
 
 async def fetch_subreddit_posts(
-    client: httpx.AsyncClient, token: str, sub: str, limit: int = 100
+    client: httpx.AsyncClient, sub: str, limit: int = 100
 ) -> list[dict]:
+    """Fetch posts using Reddit's public .json endpoint — no OAuth required."""
     try:
         r = await client.get(
-            f"https://oauth.reddit.com/r/{sub}/hot",
-            headers={"Authorization": f"Bearer {token}", "User-Agent": REDDIT_USER_AGENT},
+            f"https://www.reddit.com/r/{sub}/hot.json",
+            headers={"User-Agent": REDDIT_USER_AGENT},
             params={"limit": limit},
             timeout=15,
         )
+        if r.status_code == 429:
+            log.warning(f"Reddit rate limited on /r/{sub}, backing off")
+            await asyncio.sleep(10)
+            return []
         if r.status_code != 200:
             log.warning(f"Reddit /r/{sub} returned {r.status_code}")
             return []
         posts = [c["data"] for c in r.json().get("data", {}).get("children", []) if c.get("kind") == "t3"]
-        # Tag each post with its subreddit
         for p in posts:
             p["_sub"] = sub
         return posts
@@ -220,16 +192,12 @@ For each ticker, write ONE sentence explaining: what retail traders are saying a
 # ─── Core scan logic ─────────────────────────────────────────────────────────
 
 async def scan_reddit(client: httpx.AsyncClient) -> dict:
-    """Fetch posts from all subreddits, build mention map, return structured data."""
-    token = await get_token(client)
-    if not token:
-        return {"error": "no_token"}
-
+    """Fetch posts from all subreddits using public JSON API, build mention map."""
     all_posts: list[dict] = []
     for sub in SUBREDDITS:
-        posts = await fetch_subreddit_posts(client, token, sub, 100)
+        posts = await fetch_subreddit_posts(client, sub, 100)
         all_posts.extend(posts)
-        await asyncio.sleep(0.5)  # respect Reddit rate limits
+        await asyncio.sleep(2)  # be polite — Reddit rate limits unauthenticated requests
 
     log.info(f"Reddit: fetched {len(all_posts)} posts from {len(SUBREDDITS)} subs")
     mentions = build_mention_map(all_posts)
@@ -289,9 +257,9 @@ async def morning_brief(client: httpx.AsyncClient) -> dict:
 
     log.info("Running morning Reddit brief...")
     scan = await scan_reddit(client)
-    if "error" in scan:
+    if "error" in scan or not scan.get("mentions"):
         _morning_done = None  # allow retry
-        return {"status": "skipped", "reason": scan["error"]}
+        return {"status": "skipped", "reason": scan.get("error", "no posts fetched")}
 
     mentions = scan["mentions"]
     if not mentions:
@@ -344,9 +312,6 @@ async def morning_brief(client: httpx.AsyncClient) -> dict:
 
 async def run_once() -> dict:
     """Manual trigger — always does the full morning brief scan."""
-    if not REDDIT_CLIENT_ID:
-        return {"status": "skipped", "reason": "no reddit creds"}
-
     async with httpx.AsyncClient() as client:
         scan = await scan_reddit(client)
         if "error" in scan:
@@ -383,26 +348,17 @@ async def main_loop():
                 log.info(f"Morning brief: {result}")
             else:
                 # Regular 30-min tick: mention counting + sentiment spikes (no Groq)
-                if not REDDIT_CLIENT_ID:
-                    log.debug("Reddit: no creds, skipping tick")
-                    await asyncio.sleep(1800)
-                    continue
-
                 async with httpx.AsyncClient() as client:
-                    token = await get_token(client)
-                    if token:
-                        all_posts: list[dict] = []
-                        for sub in SUBREDDITS:
-                            posts = await fetch_subreddit_posts(client, token, sub, 100)
-                            all_posts.extend(posts)
-                            await asyncio.sleep(0.5)
-                        mentions = build_mention_map(all_posts)
-                        qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
-                        watchlist = get_watchlist_tickers()
-                        spikes = emit_sentiment_spikes(qualified, watchlist)
-                        log.info(f"Reddit tick: {len(qualified)} qualified tickers, {spikes} spikes")
-                    else:
-                        log.warning("Reddit tick: could not get token")
+                    all_posts: list[dict] = []
+                    for sub in SUBREDDITS:
+                        posts = await fetch_subreddit_posts(client, sub, 100)
+                        all_posts.extend(posts)
+                        await asyncio.sleep(2)
+                    mentions = build_mention_map(all_posts)
+                    qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
+                    watchlist = get_watchlist_tickers()
+                    spikes = emit_sentiment_spikes(qualified, watchlist)
+                    log.info(f"Reddit tick: {len(qualified)} qualified tickers, {spikes} spikes")
 
         except Exception as e:
             log.error(f"Reddit loop error: {e}")
