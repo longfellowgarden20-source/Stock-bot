@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { TrendingUp, LayoutDashboard, Briefcase, Search, Bookmark, LogOut, Bell } from 'lucide-react'
+import { TrendingUp, LayoutDashboard, Briefcase, Search, Bookmark, LogOut, Bell, Settings } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const links = [
@@ -60,8 +60,16 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
           })}
         </nav>
 
-        {/* Sign out */}
-        <div className="p-3 border-t border-white/8">
+        {/* Admin + Sign out */}
+        <div className="p-3 border-t border-white/8 flex flex-col gap-1">
+          <Link
+            href="/admin"
+            className={`flex items-center gap-3 px-3 py-2 rounded-xl text-sm font-medium ${pathname.startsWith('/admin') ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
+            style={{ transition: 'background 0.15s, color 0.15s' }}
+          >
+            <Settings className="w-4 h-4 shrink-0" />
+            Admin
+          </Link>
           <button
             onClick={signOut}
             className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-slate-500 hover:text-white hover:bg-white/5"

@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Plus, Trash2, TrendingUp, TrendingDown, Loader2 } from 'lucide-react'
+import { useState, useMemo } from 'react'
+import { Plus, Trash2, TrendingUp, TrendingDown, Loader2, Calculator, X } from 'lucide-react'
 
 type Position = {
   id: string
@@ -21,6 +21,27 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
   const [avgCost, setAvgCost] = useState('')
   const [notes, setNotes] = useState('')
   const [adding, setAdding] = useState(false)
+
+  // Size calculator
+  const [calcOpen, setCalcOpen] = useState(false)
+  const [calcAccount, setCalcAccount] = useState('')
+  const [calcRisk, setCalcRisk] = useState('')
+  const [calcEntry, setCalcEntry] = useState('')
+  const [calcStop, setCalcStop] = useState('')
+
+  const calcResult = useMemo(() => {
+    const account = parseFloat(calcAccount)
+    const riskPct = parseFloat(calcRisk)
+    const entry = parseFloat(calcEntry)
+    const stop = parseFloat(calcStop)
+    if (!account || !riskPct || !entry || !stop || entry <= 0 || stop <= 0 || entry === stop) return null
+    const riskDollar = account * (riskPct / 100)
+    const riskPerShare = Math.abs(entry - stop)
+    const maxShares = Math.floor(riskDollar / riskPerShare)
+    const positionSize = maxShares * entry
+    const positionPct = (positionSize / account) * 100
+    return { riskDollar, riskPerShare, maxShares, positionSize, positionPct }
+  }, [calcAccount, calcRisk, calcEntry, calcStop])
 
   const add = async () => {
     if (!ticker.trim() || !shares || !avgCost) return
@@ -62,18 +83,78 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
           <h1 className="text-2xl font-bold text-white">Portfolio</h1>
           <p className="text-sm text-slate-500 mt-0.5">{portfolio.length} position{portfolio.length !== 1 ? 's' : ''}</p>
         </div>
-        {portfolio.length > 0 && (
-          <div className="flex flex-col items-end gap-1">
-            <p className="text-xs text-slate-500">Total P&L</p>
-            <p className={`text-2xl font-bold tabular ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
-            </p>
-            <p className={`text-xs font-semibold ${totalPnlPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%
-            </p>
-          </div>
-        )}
+        <div className="flex items-center gap-2 flex-wrap justify-end">
+          <button
+            onClick={() => setCalcOpen(o => !o)}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-xl ${calcOpen ? 'text-[#0ea5e9] border-[#0ea5e9]/30 bg-[#0ea5e9]/10' : 'text-slate-300 border-white/10 hover:bg-white/5 hover:text-white'}`}
+            style={{ transition: 'color 0.15s, background 0.15s' }}
+          >
+            <Calculator className="w-4 h-4" />
+            Size Calculator
+          </button>
+          {portfolio.length > 0 && (
+            <div className="flex flex-col items-end gap-1">
+              <p className="text-xs text-slate-500">Total P&L</p>
+              <p className={`text-2xl font-bold tabular ${totalPnl >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+              </p>
+              <p className={`text-xs font-semibold ${totalPnlPct >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                {totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%
+              </p>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* Size Calculator Panel */}
+      {calcOpen && (
+        <div className="bg-[#0ea5e9]/5 border border-[#0ea5e9]/20 rounded-2xl p-5 flex flex-col gap-4">
+          <div className="flex items-center justify-between">
+            <p className="text-sm font-bold text-[#0ea5e9] flex items-center gap-2"><Calculator className="w-4 h-4" /> Position Size Calculator</p>
+            <button onClick={() => setCalcOpen(false)} className="text-slate-500 hover:text-white" style={{ transition: 'color 0.15s' }}><X className="w-4 h-4" /></button>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Account Size ($)</label>
+              <input value={calcAccount} onChange={e => setCalcAccount(e.target.value)} placeholder="50000" type="number" className={input} style={{ fontSize: 16 }} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Risk Per Trade (%)</label>
+              <input value={calcRisk} onChange={e => setCalcRisk(e.target.value)} placeholder="1" type="number" step="0.1" className={input} style={{ fontSize: 16 }} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Entry Price ($)</label>
+              <input value={calcEntry} onChange={e => setCalcEntry(e.target.value)} placeholder="150.00" type="number" step="0.01" className={input} style={{ fontSize: 16 }} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500">Stop Loss ($)</label>
+              <input value={calcStop} onChange={e => setCalcStop(e.target.value)} placeholder="145.00" type="number" step="0.01" className={input} style={{ fontSize: 16 }} />
+            </div>
+          </div>
+          {calcResult ? (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                <p className="text-xs text-slate-500 mb-1">Max Shares</p>
+                <p className="text-lg font-bold text-white tabular">{calcResult.maxShares.toLocaleString()}</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                <p className="text-xs text-slate-500 mb-1">Max $ Risk</p>
+                <p className="text-lg font-bold text-[#f59e0b] tabular">${calcResult.riskDollar.toFixed(2)}</p>
+              </div>
+              <div className="bg-white/5 border border-white/10 rounded-xl p-3 text-center">
+                <p className="text-xs text-slate-500 mb-1">Position Size</p>
+                <p className="text-lg font-bold text-white tabular">${calcResult.positionSize.toLocaleString(undefined, { maximumFractionDigits: 0 })}</p>
+              </div>
+              <div className={`border rounded-xl p-3 text-center ${calcResult.positionPct > 25 ? 'bg-red-500/10 border-red-500/20' : calcResult.positionPct > 10 ? 'bg-yellow-500/10 border-yellow-500/20' : 'bg-green-500/10 border-green-500/20'}`}>
+                <p className="text-xs text-slate-500 mb-1">% of Account</p>
+                <p className={`text-lg font-bold tabular ${calcResult.positionPct > 25 ? 'text-red-400' : calcResult.positionPct > 10 ? 'text-yellow-400' : 'text-green-400'}`}>{calcResult.positionPct.toFixed(1)}%</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-600 text-center py-2">Fill in all four fields to see position sizing</p>
+          )}
+        </div>
+      )}
 
       {/* Add position */}
       <div className="bg-white/4 border border-white/10 rounded-2xl p-5 flex flex-col gap-4">

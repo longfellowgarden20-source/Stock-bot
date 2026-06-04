@@ -10,6 +10,21 @@ const WORKERS = [
 
 type Worker = typeof WORKERS[number]
 
+export async function GET() {
+  const workerUrl = process.env.WORKER_SERVICE_URL
+  if (!workerUrl) return NextResponse.json({ error: 'Worker service not configured', workers: [] })
+
+  let health: Record<string, unknown> = {}
+  try {
+    const r = await fetch(`${workerUrl}/health`, { next: { revalidate: 0 } })
+    if (r.ok) health = await r.json()
+  } catch {
+    // worker service unreachable
+  }
+
+  return NextResponse.json({ workers: WORKERS, health, workerUrl: workerUrl ? 'configured' : 'missing' })
+}
+
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const worker: string | undefined = body?.worker

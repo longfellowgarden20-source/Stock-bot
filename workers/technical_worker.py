@@ -187,7 +187,12 @@ def vwap_from_bars(bars: list[dict]) -> float | None:
     return (total_pv / total_v) if total_v > 0 else None
 
 
-async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
+async def fetch_spy_bars(client: httpx.AsyncClient, days: int = 10) -> list[dict]:
+    """Fetch recent SPY daily bars for relative strength comparison."""
+    return await fetch_daily_bars(client, "SPY", days=days)
+
+
+async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[dict] | None = None) -> None:
     bars = await fetch_daily_bars(client, ticker, days=365)
     if len(bars) < 50:
         return
@@ -195,10 +200,68 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
     closes = [b["c"] for b in bars if b.get("c") is not None]
     highs = [b["h"] for b in bars if b.get("h") is not None]
     lows = [b["l"] for b in bars if b.get("l") is not None]
+    opens = [b["o"] for b in bars if b.get("o") is not None]
     if len(closes) < 50:
         return
 
     price = closes[-1]
+
+    # --- Gap detection (compare today's open vs yesterday's close) ---
+    if len(opens) >= 1 and len(closes) >= 2:
+        today_open = opens[-1]
+        yesterday_close = closes[-2]
+        if yesterday_close > 0:
+            gap_pct = ((today_open - yesterday_close) / yesterday_close) * 100
+            if gap_pct >= 5.0 and not _on_cooldown(ticker, "gap_up_large"):
+                _mark(ticker, "gap_up_large")
+                _mark(ticker, "gap_up")
+                insert_signal(
+                    ticker, "technical", 8,
+                    f"{ticker} gapped up {gap_pct:.1f}% at open",
+                    f"Today's open ${today_open:.2f} is {gap_pct:.1f}% above yesterday's close ${yesterday_close:.2f}. Large gap — watch for gap fill or continuation. Current price ${price:.2f}.",
+                    {"indicator": "gap_up", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
+                )
+            elif 2.0 <= gap_pct < 5.0 and not _on_cooldown(ticker, "gap_up"):
+                _mark(ticker, "gap_up")
+                insert_signal(
+                    ticker, "technical", 6,
+                    f"{ticker} gapped up {gap_pct:.1f}% at open",
+                    f"Today's open ${today_open:.2f} is {gap_pct:.1f}% above yesterday's close ${yesterday_close:.2f}. Potential continuation or gap fill setup. Current price ${price:.2f}.",
+                    {"indicator": "gap_up", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
+                )
+            elif gap_pct <= -5.0 and not _on_cooldown(ticker, "gap_down_large"):
+                _mark(ticker, "gap_down_large")
+                _mark(ticker, "gap_down")
+                insert_signal(
+                    ticker, "technical", 8,
+                    f"{ticker} gapped down {abs(gap_pct):.1f}% at open",
+                    f"Today's open ${today_open:.2f} is {abs(gap_pct):.1f}% below yesterday's close ${yesterday_close:.2f}. Large bearish gap — watch for continued selling or gap fill bounce. Current price ${price:.2f}.",
+                    {"indicator": "gap_down", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
+                )
+            elif -5.0 < gap_pct <= -2.0 and not _on_cooldown(ticker, "gap_down"):
+                _mark(ticker, "gap_down")
+                insert_signal(
+                    ticker, "technical", 6,
+                    f"{ticker} gapped down {abs(gap_pct):.1f}% at open",
+                    f"Today's open ${today_open:.2f} is {abs(gap_pct):.1f}% below yesterday's close ${yesterday_close:.2f}. Bearish gap — check for catalyst. Current price ${price:.2f}.",
+                    {"indicator": "gap_down", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
+                )
+
+    # --- Relative strength vs SPY (market hours only) ---
+    if is_market_hours() and spy_bars and len(spy_bars) >= 2:
+        spy_closes = [b["c"] for b in spy_bars if b.get("c") is not None]
+        if len(spy_closes) >= 2 and len(closes) >= 2:
+            ticker_chg = (closes[-1] - closes[-2]) / closes[-2] * 100 if closes[-2] > 0 else 0
+            spy_chg = (spy_closes[-1] - spy_closes[-2]) / spy_closes[-2] * 100 if spy_closes[-2] > 0 else 0
+            # Ticker up on a day SPY is down >0.5%
+            if ticker_chg > 0 and spy_chg <= -0.5 and not _on_cooldown(ticker, "rs_vs_spy"):
+                _mark(ticker, "rs_vs_spy")
+                insert_signal(
+                    ticker, "technical", 6,
+                    f"{ticker} showing relative strength vs SPY",
+                    f"{ticker} is up {ticker_chg:.2f}% while SPY is down {abs(spy_chg):.2f}% today. Relative strength in a down tape — institutions may be accumulating or sector rotation into this name. Price ${price:.2f}.",
+                    {"indicator": "relative_strength", "ticker_chg_pct": round(ticker_chg, 2), "spy_chg_pct": round(spy_chg, 2), "price": price},
+                )
 
     # --- RSI ---
     rsi_val = rsi(closes, 14)
@@ -334,9 +397,12 @@ async def run_once() -> dict:
 
     processed = 0
     async with httpx.AsyncClient() as client:
+        # Fetch SPY once for relative strength comparisons
+        spy_bars = await fetch_spy_bars(client, days=10) if is_market_hours() else None
+
         for i in range(0, len(tickers), 5):
             batch = tickers[i:i + 5]
-            await asyncio.gather(*[process_ticker(client, t) for t in batch], return_exceptions=True)
+            await asyncio.gather(*[process_ticker(client, t, spy_bars) for t in batch], return_exceptions=True)
             processed += len(batch)
             await asyncio.sleep(1)
 

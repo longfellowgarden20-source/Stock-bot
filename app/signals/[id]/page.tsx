@@ -3,6 +3,7 @@ import { notFound } from 'next/navigation'
 import AppShell from '@/app/components/AppShell'
 import Link from 'next/link'
 import { ArrowLeft, Zap } from 'lucide-react'
+import RRCalculator from './RRCalculator'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,9 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
             </div>
           )}
         </div>
+
+        {/* R:R Calculator */}
+        <RRCalculator />
 
         {/* Related signals */}
         {related && related.length > 0 && (

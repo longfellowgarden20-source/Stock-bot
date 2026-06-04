@@ -14,7 +14,7 @@ import { useDocumentTitle } from '@/app/hooks/useDocumentTitle'
 import {
   TrendingUp, TrendingDown, Zap, Filter, CheckCheck, RefreshCw, Loader2,
   Search, X, Volume2, VolumeX, Rows3, Rows4, Layers, ChevronDown,
-  ArrowUpDown, Pause, Play, Pin, Keyboard, Sparkles,
+  ArrowUpDown, Pause, Play, Pin, Keyboard, Sparkles, Download,
 } from 'lucide-react'
 
 type Snapshot = {
@@ -230,6 +230,29 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
     setRefreshing(false)
   }, [])
 
+  // --- CSV Export ---
+  const exportCSV = useCallback(() => {
+    const escape = (v: string) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const header = ['ticker', 'signal_type', 'severity', 'title', 'body', 'created_at']
+    const rows = filtered.map(s => [
+      escape(s.ticker),
+      escape(s.signal_type),
+      String(s.severity),
+      escape(s.title),
+      escape(s.body),
+      escape(new Date(s.created_at).toISOString()),
+    ])
+    const csv = [header.join(','), ...rows.map(r => r.join(','))].join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `signals-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast(`Exported ${filtered.length} signals`, 'info')
+  }, [filtered, toast])
+
   // --- Auto-refresh countdown ---
   useEffect(() => {
     if (!autoRefresh) {
@@ -410,6 +433,17 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
           )}
 
           <PushToggle />
+
+          <button
+            onClick={exportCSV}
+            disabled={filtered.length === 0}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-30"
+            style={{ transition: 'color 0.15s, background 0.15s' }}
+            title="Export filtered signals to CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">Export CSV</span>
+          </button>
 
           <button onClick={refresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
             {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}

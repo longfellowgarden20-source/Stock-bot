@@ -10,8 +10,9 @@ import os
 import logging
 import httpx
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 from db import supabase, insert_signal
+from market_hours import now_et, is_weekday
 
 log = logging.getLogger("signal_engine")
 
@@ -218,12 +219,130 @@ async def run_once() -> dict:
     return {"status": "ok", "convergences": convergences, "tickers_analyzed": len(groups)}
 
 
+_recap_last_date: date | None = None
+
+
+async def daily_recap() -> dict:
+    """
+    Runs once at 4:15 PM ET after market close.
+    Fetches today's signals, picks top 5 tickers by total severity, asks Groq for
+    a 150-word plain-English recap, writes a MARKET convergence signal.
+    """
+    global _recap_last_date
+    today = now_et().date()
+    if _recap_last_date == today:
+        return {"status": "skipped", "reason": "already ran today"}
+
+    # Fetch all signals from the last 10 hours (covers the full trading day)
+    since = (datetime.now(timezone.utc) - timedelta(hours=10)).isoformat()
+    res = supabase().table("signals").select("*").gte("created_at", since).order("created_at", desc=True).execute()
+    signals = res.data or []
+
+    # Filter out convergence / MARKET signals so we don't recurse
+    signals = [s for s in signals if s.get("signal_type") != "convergence" and s.get("ticker") != "MARKET"]
+    if not signals:
+        return {"status": "skipped", "reason": "no signals today"}
+
+    # Group by ticker, sum severity
+    by_ticker: dict[str, list[dict]] = {}
+    for s in signals:
+        t = s.get("ticker", "").upper()
+        if not t:
+            continue
+        by_ticker.setdefault(t, []).append(s)
+
+    # Top 5 tickers by total severity
+    ranked = sorted(by_ticker.items(), key=lambda kv: sum(x["severity"] for x in kv[1]), reverse=True)[:5]
+    if not ranked:
+        return {"status": "skipped", "reason": "no tickers"}
+
+    # Build context for Groq
+    lines = []
+    for ticker, sigs in ranked:
+        total_sev = sum(s["severity"] for s in sigs)
+        types = list({s["signal_type"] for s in sigs})
+        titles = [s["title"] for s in sigs[:3]]
+        lines.append(f"- {ticker} (total severity {total_sev}, types: {', '.join(types)}): {'; '.join(titles)}")
+    context = "\n".join(lines)
+
+    date_str = today.strftime("%B %d, %Y")
+    prompt = f"""You are a trading analyst writing a daily recap for {date_str}. Here are the top 5 tickers by signal activity today:
+
+{context}
+
+Write a plain-English daily recap in 150 words or less. Cover:
+1. The standout tickers and what drove their activity
+2. Any sector or macro themes worth noting
+3. One key thing to watch tomorrow
+
+No bullet points. Direct sentences. Trader-focused."""
+
+    key = _rotator.current()
+    if not key:
+        return {"status": "skipped", "reason": "no Groq keys available"}
+
+    payload = {
+        "model": GROQ_MODEL,
+        "max_tokens": 350,
+        "temperature": 0.3,
+        "messages": [
+            {"role": "system", "content": "You are an experienced trader writing end-of-day internal recaps. Direct, specific, never generic."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+
+    try:
+        async with httpx.AsyncClient() as client:
+            r = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=20,
+            )
+        if r.status_code == 429:
+            retry_after = int(r.headers.get("retry-after", 60))
+            _rotator.mark_rate_limited(key, retry_after)
+            return {"status": "skipped", "reason": "Groq rate limited"}
+        if r.status_code != 200:
+            log.warning(f"Groq daily recap {r.status_code}: {r.text[:200]}")
+            return {"status": "error", "reason": f"Groq {r.status_code}"}
+        content = r.json()["choices"][0]["message"]["content"].strip()
+        _rotator.advance()
+    except Exception as e:
+        log.error(f"Daily recap Groq error: {e}")
+        return {"status": "error", "reason": str(e)}
+
+    tickers_covered = [t for t, _ in ranked]
+    insert_signal(
+        "MARKET",
+        "convergence",
+        6,
+        f"Daily Market Recap — {date_str}",
+        content,
+        {
+            "recap_type": "daily",
+            "tickers_covered": tickers_covered,
+            "signals_analyzed": len(signals),
+            "date": today.isoformat(),
+        },
+    )
+    _recap_last_date = today
+    log.info(f"Daily recap written for {date_str}, tickers: {tickers_covered}")
+    return {"status": "ok", "tickers": tickers_covered}
+
+
 async def main_loop():
     log.info("Signal engine started")
     while True:
         try:
             result = await run_once()
             log.info(f"Signal engine tick: {result}")
+
+            # Daily recap at 4:15 PM ET (16:15), weekdays only
+            et = now_et()
+            if is_weekday() and et.hour == 16 and et.minute >= 15 and et.minute < 20:
+                recap_result = await daily_recap()
+                log.info(f"Daily recap: {recap_result}")
         except Exception as e:
             log.error(f"Signal engine error: {e}")
         await asyncio.sleep(300)  # 5 min
