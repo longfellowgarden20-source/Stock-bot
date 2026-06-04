@@ -28,7 +28,7 @@ _seen_ids: set[str] = set()
 
 
 async def fetch_analyst_changes_finnhub(client: httpx.AsyncClient, ticker: str) -> list[dict]:
-    """Finnhub price target endpoint — returns analyst price target snapshots."""
+    """Finnhub price target endpoint — requires paid plan, skip gracefully on 403."""
     if not FINNHUB_KEY:
         return []
     try:
@@ -37,6 +37,9 @@ async def fetch_analyst_changes_finnhub(client: httpx.AsyncClient, ticker: str) 
             params={"symbol": ticker.upper(), "token": FINNHUB_KEY},
             timeout=10,
         )
+        if r.status_code == 403:
+            log.debug(f"Finnhub price-target requires paid plan for {ticker} — skipping")
+            return []
         if r.status_code != 200:
             return []
         data = r.json()

@@ -72,14 +72,15 @@ async def fetch_finra_short_volume(client: httpx.AsyncClient, ticker: str) -> di
     Returns short volume + total volume for most recent day available.
     """
     try:
+        import json as _json
+        compare_filter = _json.dumps([{
+            "fieldName": "issueSymbolIdentifier",
+            "compareType": "equal",
+            "fieldValue": ticker.upper()
+        }])
         # FINRA OTC short sale data (free, no auth required)
         r = await client.get(
-            "https://api.finra.org/data/group/OTCMarket/name/weeklySummary",
-            params={
-                "compareFilters": f"[{{\"fieldName\":\"issueSymbolIdentifier\",\"compareType\":\"equal\",\"fieldValue\":\"{ticker.upper()}\"}}]",
-                "limit": 5,
-                "sortFields": "-weekStartDate",
-            },
+            f"https://api.finra.org/data/group/OTCMarket/name/weeklySummary?compareFilters={compare_filter}&limit=5&sortFields=-weekStartDate",
             timeout=15,
         )
         if r.status_code != 200:
