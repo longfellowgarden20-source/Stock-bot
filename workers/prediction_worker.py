@@ -281,7 +281,7 @@ def _is_market_open_et() -> bool:
         utc = datetime.now(tz.utc)
         et_hour = (utc.hour - 4) % 24
         return 9 <= et_hour < 10
-    return et.hour == 9 and 15 <= et.minute < 60
+    return (et.hour == 9 and et.minute >= 15) or (et.hour == 10 and et.minute == 0)
 
 
 def _is_after_close_et() -> bool:

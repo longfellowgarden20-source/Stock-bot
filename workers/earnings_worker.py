@@ -216,7 +216,7 @@ async def generate_prep_brief(client: httpx.AsyncClient, ticker: str, earnings_d
 
     # Check DB — don't re-generate if we already have one
     try:
-        existing = supabase().table("signals").select("id").eq("ticker", ticker.upper()).eq("signal_type", "earnings_upcoming").contains("raw_data", {"prep_brief": True, "earnings_date": earnings_date}).limit(1).execute()
+        existing = supabase().table("signals").select("id").eq("ticker", ticker.upper()).eq("signal_type", "earnings_upcoming").filter("raw_data->>prep_brief", "eq", "true").filter("raw_data->>earnings_date", "eq", earnings_date).limit(1).execute()
         if existing.data:
             _prep_alerted[dedup_key] = datetime.now(timezone.utc).timestamp()
             return
