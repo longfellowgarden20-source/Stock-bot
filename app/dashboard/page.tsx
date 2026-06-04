@@ -10,17 +10,18 @@ export default async function DashboardPage() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const { data: signals } = await supabase
-    .from('signals')
-    .select('*')
-    .order('created_at', { ascending: false })
-    .limit(50)
-
-  const { data: snapshots } = await supabase
-    .from('snapshots')
-    .select('ticker, price, change_pct, volume, created_at')
-    .order('created_at', { ascending: false })
-    .limit(100)
+  const [{ data: signals }, { data: snapshots }] = await Promise.all([
+    supabase
+      .from('signals')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('snapshots')
+      .select('ticker, price, change_pct, volume, created_at')
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ])
 
   type SnapRow = { ticker: string; price: number; change_pct: number; volume: number; created_at: string }
   const latestSnaps: Record<string, SnapRow> = {}
