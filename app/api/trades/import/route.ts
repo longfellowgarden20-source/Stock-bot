@@ -48,7 +48,8 @@ function matchTrades(rows: ParsedRow[]): { matched: MatchedTrade[]; open: Matche
   const byTicker: Record<string, ParsedRow[]> = {}
   for (const row of rows) {
     if (!IMPORT_CODES.has(row.transCode)) continue
-    const key = row.instrument.toUpperCase()
+    const key = row.instrument.toUpperCase().trim()
+    if (!key) continue
     if (!byTicker[key]) byTicker[key] = []
     byTicker[key].push(row)
   }
@@ -70,57 +71,45 @@ function matchTrades(rows: ParsedRow[]): { matched: MatchedTrade[]; open: Matche
     const shortSells: ParsedRow[] = [] // STO
     const shortBuys: ParsedRow[] = []  // BTC
 
+    // Separate by transaction type to avoid cross-type matching (e.g. equity Buy vs options STC)
+    const equityBuys: ParsedRow[] = []
+    const equitySells: ParsedRow[] = []
+    const optionBuys: ParsedRow[] = []
+    const optionSells: ParsedRow[] = []
+
     for (const row of sorted) {
-      if (row.transCode === 'Buy' || row.transCode === 'BTO') longBuys.push(row)
-      else if (row.transCode === 'Sell' || row.transCode === 'STC') longSells.push(row)
+      if (row.transCode === 'Buy') equityBuys.push(row)
+      else if (row.transCode === 'Sell') equitySells.push(row)
+      else if (row.transCode === 'BTO') optionBuys.push(row)
+      else if (row.transCode === 'STC') optionSells.push(row)
       else if (row.transCode === 'STO') shortSells.push(row)
       else if (row.transCode === 'BTC') shortBuys.push(row)
     }
 
-    // Match long trades FIFO
-    const remainingBuys = longBuys.map((r) => ({ ...r, remaining: r.quantity }))
-    const remainingSells = longSells.map((r) => ({ ...r, remaining: r.quantity }))
-
-    let bi = 0
-    let si = 0
-    while (bi < remainingBuys.length && si < remainingSells.length) {
-      const buy = remainingBuys[bi]
-      const sell = remainingSells[si]
-      const qty = Math.min(buy.remaining, sell.remaining)
-
-      const pnl = Math.round(((sell.price - buy.price) * qty) * 100) / 100
-      matched.push({
-        date: parseDate(buy.activityDate),
-        ticker,
-        direction: 'long',
-        entry_price: buy.price,
-        exit_price: sell.price,
-        shares: qty,
-        pnl,
-      })
-
-      buy.remaining -= qty
-      sell.remaining -= qty
-      if (buy.remaining <= 0) bi++
-      if (sell.remaining <= 0) si++
-    }
-
-    // Remaining buys without sells = open long positions
-    while (bi < remainingBuys.length) {
-      const buy = remainingBuys[bi]
-      if (buy.remaining > 0) {
-        open.push({
-          date: parseDate(buy.activityDate),
-          ticker,
-          direction: 'long',
-          entry_price: buy.price,
-          exit_price: null,
-          shares: buy.remaining,
-          pnl: null,
-        })
+    // Helper to run FIFO matching on a buy/sell pair
+    function fifoMatch(buys: ParsedRow[], sells: ParsedRow[], dir: 'long' | 'short') {
+      const rb = buys.map((r) => ({ ...r, remaining: r.quantity }))
+      const rs = sells.map((r) => ({ ...r, remaining: r.quantity }))
+      let bi2 = 0, si2 = 0
+      while (bi2 < rb.length && si2 < rs.length) {
+        const buy = rb[bi2], sell = rs[si2]
+        const qty = Math.min(buy.remaining, sell.remaining)
+        const pnl = Math.round(((sell.price - buy.price) * qty) * 100) / 100
+        matched.push({ date: parseDate(buy.activityDate), ticker, direction: dir, entry_price: buy.price, exit_price: sell.price, shares: qty, pnl })
+        buy.remaining = Math.round((buy.remaining - qty) * 1e8) / 1e8
+        sell.remaining = Math.round((sell.remaining - qty) * 1e8) / 1e8
+        if (buy.remaining <= 1e-8) bi2++
+        if (sell.remaining <= 1e-8) si2++
       }
-      bi++
+      while (bi2 < rb.length) {
+        const buy = rb[bi2]
+        if (buy.remaining > 1e-8) open.push({ date: parseDate(buy.activityDate), ticker, direction: dir, entry_price: buy.price, exit_price: null, shares: buy.remaining, pnl: null })
+        bi2++
+      }
     }
+
+    fifoMatch(equityBuys, equitySells, 'long')
+    fifoMatch(optionBuys, optionSells, 'long')
 
     // Match short trades FIFO
     const remainingShortEntries = shortSells.map((r) => ({ ...r, remaining: r.quantity }))
@@ -144,10 +133,10 @@ function matchTrades(rows: ParsedRow[]): { matched: MatchedTrade[]; open: Matche
         pnl,
       })
 
-      entry.remaining -= qty
-      exit.remaining -= qty
-      if (entry.remaining <= 0) sei++
-      if (exit.remaining <= 0) sxi++
+      entry.remaining = Math.round((entry.remaining - qty) * 1e8) / 1e8
+      exit.remaining = Math.round((exit.remaining - qty) * 1e8) / 1e8
+      if (entry.remaining <= 1e-8) sei++
+      if (exit.remaining <= 1e-8) sxi++
     }
 
     // Remaining short entries without exits = open short positions

@@ -127,13 +127,13 @@ type PreviewRow = {
   status: 'Matched' | 'Open'
 }
 
-function parseRobinhoodCsv(text: string): { rows: ParsedRow[]; error: string | null } {
+function parseRobinhoodCsv(text: string): { rows: ParsedRow[]; skipped: number; error: string | null } {
   const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
-  if (lines.length < 2) return { rows: [], error: 'CSV is empty or has no data rows.' }
+  if (lines.length < 2) return { rows: [], skipped: 0, error: 'CSV is empty or has no data rows.' }
 
   // Find header row
   const headerIdx = lines.findIndex((l) => l.toLowerCase().includes('activity date') || l.toLowerCase().includes('instrument'))
-  if (headerIdx === -1) return { rows: [], error: 'Could not find CSV header row. Expected "Activity Date, Instrument, Trans Code, Quantity, Price, Amount".' }
+  if (headerIdx === -1) return { rows: [], skipped: 0, error: 'Could not find CSV header row. Expected "Activity Date, Instrument, Trans Code, Quantity, Price, Amount".' }
 
   const headers = parseCsvLine(lines[headerIdx]).map((h) => h.toLowerCase().replace(/\s+/g, '_'))
 
@@ -147,25 +147,36 @@ function parseRobinhoodCsv(text: string): { rows: ParsedRow[]; error: string | n
   }
 
   if (colIdx.activityDate === -1 || colIdx.instrument === -1 || colIdx.transCode === -1) {
-    return { rows: [], error: 'Missing required columns. Expected Activity Date, Instrument, Trans Code, Quantity, Price, Amount.' }
+    return { rows: [], skipped: 0, error: 'Missing required columns. Expected Activity Date, Instrument, Trans Code, Quantity, Price, Amount.' }
   }
 
   const rows: ParsedRow[] = []
+  let skipped = 0
+  const seen = new Set<string>()
+
   for (let i = headerIdx + 1; i < lines.length; i++) {
     const cells = parseCsvLine(lines[i])
     if (cells.length < 3) continue
     const transCode = cells[colIdx.transCode] ?? ''
     if (!IMPORT_CODES.has(transCode)) continue
 
+    const instrument = cells[colIdx.instrument]?.toUpperCase().trim() ?? ''
+    if (!instrument) { skipped++; continue }
+
     const quantity = parseFloat((cells[colIdx.quantity] ?? '0').replace(/,/g, ''))
     const price = parseFloat((cells[colIdx.price] ?? '0').replace(/[$,]/g, ''))
     const amount = parseFloat((cells[colIdx.amount] ?? '0').replace(/[$,]/g, ''))
 
-    if (isNaN(quantity) || isNaN(price)) continue
+    if (isNaN(quantity) || isNaN(price)) { skipped++; continue }
+
+    // Deduplicate by composite key
+    const dedupKey = `${cells[colIdx.activityDate]}|${instrument}|${transCode}|${quantity}|${price}`
+    if (seen.has(dedupKey)) { skipped++; continue }
+    seen.add(dedupKey)
 
     rows.push({
       activityDate: cells[colIdx.activityDate] ?? '',
-      instrument: cells[colIdx.instrument]?.toUpperCase() ?? '',
+      instrument,
       transCode,
       quantity: Math.abs(quantity),
       price: Math.abs(price),
@@ -173,8 +184,8 @@ function parseRobinhoodCsv(text: string): { rows: ParsedRow[]; error: string | n
     })
   }
 
-  if (rows.length === 0) return { rows: [], error: 'No importable rows found. Only Buy, Sell, BTO, STO, BTC, STC are imported.' }
-  return { rows, error: null }
+  if (rows.length === 0) return { rows: [], skipped, error: 'No importable rows found. Only Buy, Sell, BTO, STO, BTC, STC are imported.' }
+  return { rows, skipped, error: null }
 }
 
 function fifoPreview(rows: ParsedRow[]): PreviewRow[] {
@@ -255,6 +266,7 @@ function RobinhoodImportModal({ onClose, onImported }: {
   const [importing, setImporting] = useState(false)
   const [importResult, setImportResult] = useState<{ imported: number; open: number; skipped: number } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
+  const [clientSkipped, setClientSkipped] = useState(0)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function handleFile(file: File) {
@@ -265,9 +277,10 @@ function RobinhoodImportModal({ onClose, onImported }: {
     const reader = new FileReader()
     reader.onload = (e) => {
       const text = e.target?.result as string
-      const { rows, error } = parseRobinhoodCsv(text)
+      const { rows, skipped: cs, error } = parseRobinhoodCsv(text)
       if (error) { setParseError(error); setParsedRows(null); setPreview(null); return }
       setParseError(null)
+      setClientSkipped(cs)
       setParsedRows(rows)
       setPreview(fifoPreview(rows))
     }
@@ -298,7 +311,7 @@ function RobinhoodImportModal({ onClose, onImported }: {
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Import failed')
-      setImportResult({ imported: data.imported, open: data.open, skipped: data.skipped })
+      setImportResult({ imported: data.imported, open: data.open, skipped: (data.skipped ?? 0) + clientSkipped })
       onImported(data.trades ?? [])
     } catch (err) {
       setImportError(String(err))
