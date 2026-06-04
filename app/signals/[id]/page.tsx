@@ -1,5 +1,5 @@
-import { getSupabaseServer } from '@/lib/supabase-server'
-import { redirect, notFound } from 'next/navigation'
+import { createClient } from '@supabase/supabase-js'
+import { notFound } from 'next/navigation'
 import AppShell from '@/app/components/AppShell'
 import Link from 'next/link'
 import { ArrowLeft, Zap } from 'lucide-react'
@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic'
 
 export default async function SignalDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await getSupabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/sign-in')
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   const { data: signal } = await supabase.from('signals').select('*').eq('id', id).single()
   if (!signal) notFound()

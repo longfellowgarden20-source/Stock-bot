@@ -1,14 +1,14 @@
-import { getSupabaseServer } from '@/lib/supabase-server'
-import { redirect } from 'next/navigation'
+import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/app/components/AppShell'
 import ScannerClient from './ScannerClient'
 
 export const dynamic = 'force-dynamic'
 
 export default async function ScannerPage() {
-  const supabase = await getSupabaseServer()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) redirect('/sign-in')
+  const supabase = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!
+  )
 
   // Top signals from last 24h grouped by ticker
   const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
