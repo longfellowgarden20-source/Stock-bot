@@ -422,9 +422,9 @@ function Performance({ trades }: { trades: Trade[] }) {
       {/* Stats grid */}
       <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
         <StatCard label="Total Trades" value={String(trades.length)} sub={`${closed.length} closed`} />
-        <StatCard label="Win Rate" value={winRate > 0 ? `${winRate.toFixed(1)}%` : '—'} sub={`${winners.length}/${closed.length}`} accent={winRate >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'} />
+        <StatCard label="Win Rate" value={closed.length > 0 ? `${winRate.toFixed(1)}%` : '—'} sub={`${winners.length}/${closed.length}`} accent={winRate >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'} />
         <StatCard label="Total P&L" value={formatPnl(totalPnl)} accent={pnlColor(totalPnl)} />
-        <StatCard label="Avg P&L / Trade" value={avgPnl !== 0 ? formatPnl(avgPnl) : '—'} accent={pnlColor(avgPnl)} />
+        <StatCard label="Avg P&L / Trade" value={closed.length > 0 ? formatPnl(avgPnl) : '—'} accent={pnlColor(avgPnl)} />
         <StatCard label="Best Trade" value={bestTrade ? formatPnl(bestTrade.pnl) : '—'} sub={bestTrade?.ticker ?? ''} accent="text-[#22c55e]" />
         <StatCard label="Worst Trade" value={worstTrade ? formatPnl(worstTrade.pnl) : '—'} sub={worstTrade?.ticker ?? ''} accent="text-[#ef4444]" />
       </div>
@@ -542,7 +542,7 @@ function Tendencies({ trades, latestNote, onNoteGenerated }: {
       const res = await fetch('/api/coach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ trades: trades.slice(0, 30) }),
+        body: JSON.stringify({ trades: trades.filter((t) => t.pnl != null).slice(0, 30) }),
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? 'Failed'); }
       const note = await res.json() as CoachingNote
@@ -699,7 +699,7 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
       const key = t.date
       if (!map[key]) map[key] = { pnl: 0, trades: [] }
       map[key].trades.push(t)
-      map[key].pnl += t.pnl ?? 0
+      if (t.pnl != null) map[key].pnl += t.pnl
     }
     return map
   }, [trades])
@@ -762,7 +762,7 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
             const isSelected = key === selectedDay
             let bgClass = 'bg-white/2 border-white/5'
             if (data) {
-              bgClass = data.pnl > 0 ? 'bg-[#22c55e]/15 border-[#22c55e]/20' : 'bg-[#ef4444]/15 border-[#ef4444]/20'
+              bgClass = data.pnl > 0 ? 'bg-[#22c55e]/15 border-[#22c55e]/20' : data.pnl < 0 ? 'bg-[#ef4444]/15 border-[#ef4444]/20' : 'bg-slate-500/15 border-slate-500/20'
             }
             if (isSelected) bgClass = 'bg-[#0ea5e9]/20 border-[#0ea5e9]/40'
             return (
@@ -775,7 +775,7 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
               >
                 <span className={isToday ? 'text-[#0ea5e9]' : data ? 'text-white' : 'text-slate-600'}>{dayNum}</span>
                 {data && (
-                  <span className={`text-[9px] tabular-nums ${data.pnl > 0 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                  <span className={`text-[9px] tabular-nums ${data.pnl > 0 ? 'text-[#22c55e]' : data.pnl < 0 ? 'text-[#ef4444]' : 'text-slate-400'}`}>
                     {data.pnl > 0 ? '+' : ''}{data.pnl.toFixed(0)}
                   </span>
                 )}

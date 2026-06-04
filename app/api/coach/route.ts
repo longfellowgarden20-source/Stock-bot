@@ -21,8 +21,9 @@ export async function POST(req: NextRequest) {
   const groqApiKey = process.env.GROQ_API_KEY
   if (!groqApiKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 })
 
-  const winCount = trades.filter((t) => (t.pnl as number) > 0).length
-  const winRate = trades.length > 0 ? (winCount / trades.length) * 100 : 0
+  const closedTrades = trades.filter((t) => t.pnl != null)
+  const winCount = closedTrades.filter((t) => (t.pnl as number) > 0).length
+  const winRate = closedTrades.length > 0 ? (winCount / closedTrades.length) * 100 : 0
 
   const tradesSummary = trades.map((t) => {
     return `${t.date} | ${t.ticker} | ${t.direction} | Entry: ${t.entry_price} | Exit: ${t.exit_price ?? 'open'} | P&L: ${t.pnl != null ? `$${t.pnl}` : 'open'} | Grade: ${t.grade ?? 'N/A'} | Pattern: ${t.pattern ?? 'none'} | Mistakes: ${Array.isArray(t.mistakes) && t.mistakes.length > 0 ? (t.mistakes as string[]).join(', ') : 'none'} | Writeup: ${t.writeup ?? ''}`
@@ -56,6 +57,7 @@ ${tradesSummary}`
 
     const groqData = await groqRes.json() as { choices: { message: { content: string } }[] }
     noteText = groqData.choices?.[0]?.message?.content ?? ''
+    if (!noteText) return NextResponse.json({ error: 'Groq returned empty response' }, { status: 502 })
   } catch (e) {
     return NextResponse.json({ error: `Groq fetch failed: ${String(e)}` }, { status: 500 })
   }
