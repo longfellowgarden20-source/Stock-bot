@@ -10,7 +10,10 @@ export default async function JournalPage() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const [{ data: trades }, { data: coachingNotes }] = await Promise.all([
+  const today = new Date().toISOString().split('T')[0]
+  const since7d = new Date(Date.now() - 7 * 86400_000).toISOString().split('T')[0]
+
+  const [{ data: trades }, { data: coachingNotes }, { data: predictions }] = await Promise.all([
     supabase
       .from('trades')
       .select('*')
@@ -21,6 +24,12 @@ export default async function JournalPage() {
       .select('*')
       .order('generated_at', { ascending: false })
       .limit(1),
+    supabase
+      .from('eod_predictions')
+      .select('*')
+      .gte('date', since7d)
+      .order('date', { ascending: false })
+      .order('ticker'),
   ])
 
   return (
@@ -28,6 +37,8 @@ export default async function JournalPage() {
       <JournalClient
         initialTrades={trades ?? []}
         latestCoachingNote={coachingNotes?.[0] ?? null}
+        predictions={predictions ?? []}
+        today={today}
       />
     </AppShell>
   )

@@ -5,8 +5,28 @@ import {
   BookOpen, TrendingUp, TrendingDown, Brain, Calendar,
   Plus, Loader2, CheckCircle, ChevronLeft, ChevronRight,
   BarChart2, Sparkles, AlertTriangle, Star, Upload, X, FileText, RefreshCw,
+  Target, Zap, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import type { ParsedRow } from '@/app/api/trades/import/route'
+
+// ─── Prediction Types ─────────────────────────────────────────────────────────
+
+export type EodPrediction = {
+  id: string
+  ticker: string
+  date: string
+  open_price: number | null
+  predicted_low: number | null
+  predicted_high: number | null
+  bias: 'bullish' | 'bearish' | 'neutral'
+  confidence_pct: number | null
+  key_factors: string[] | null
+  invalidation_level: number | null
+  analysis: string | null
+  actual_close: number | null
+  error_pct: number | null
+  created_at: string
+}
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -51,7 +71,7 @@ const MISTAKE_OPTIONS = [
 ]
 const MOOD_OPTIONS = ['focused', 'confident', 'neutral', 'distracted', 'anxious'] as const
 
-const TAB_NAMES = ['Today\'s Entry', 'Performance', 'Tendencies', 'Calendar'] as const
+const TAB_NAMES = ['Today\'s Entry', 'Performance', 'Tendencies', 'Calendar', 'Predictions'] as const
 type TabName = typeof TAB_NAMES[number]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1248,14 +1268,185 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
   )
 }
 
+// ─── Prediction Brief ─────────────────────────────────────────────────────────
+
+function biasColor(bias: string) {
+  if (bias === 'bullish') return 'text-[#22c55e]'
+  if (bias === 'bearish') return 'text-[#ef4444]'
+  return 'text-[#f59e0b]'
+}
+
+function biasBg(bias: string) {
+  if (bias === 'bullish') return 'bg-[#22c55e]/10 border-[#22c55e]/20'
+  if (bias === 'bearish') return 'bg-[#ef4444]/10 border-[#ef4444]/20'
+  return 'bg-[#f59e0b]/10 border-[#f59e0b]/20'
+}
+
+function biasArrow(bias: string) {
+  if (bias === 'bullish') return '▲'
+  if (bias === 'bearish') return '▼'
+  return '→'
+}
+
+function PredictionCard({ pred }: { pred: EodPrediction }) {
+  const [expanded, setExpanded] = useState(false)
+  const hit = pred.actual_close != null && pred.predicted_low != null && pred.predicted_high != null
+    ? pred.actual_close >= pred.predicted_low && pred.actual_close <= pred.predicted_high
+    : null
+
+  return (
+    <div className={`border rounded-2xl overflow-hidden ${biasBg(pred.bias)}`}>
+      <button
+        type="button"
+        onClick={() => setExpanded(v => !v)}
+        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/5"
+        style={{ transition: 'background 0.15s' }}
+      >
+        <span className={`text-lg font-bold ${biasColor(pred.bias)}`}>{biasArrow(pred.bias)}</span>
+        <div className="flex flex-col min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-bold text-sm text-white font-mono">{pred.ticker}</span>
+            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border ${biasBg(pred.bias)} ${biasColor(pred.bias)}`}>
+              {pred.bias} {pred.confidence_pct != null ? `${pred.confidence_pct}%` : ''}
+            </span>
+            {hit != null && (
+              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${hit ? 'bg-[#22c55e]/10 text-[#22c55e] border border-[#22c55e]/20' : 'bg-[#ef4444]/10 text-[#ef4444] border border-[#ef4444]/20'}`}>
+                {hit ? '✓ In range' : '✗ Missed'}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5">
+            {pred.predicted_low != null && pred.predicted_high != null && (
+              <span className="text-xs text-slate-400 tabular-nums">
+                Range: ${pred.predicted_low.toFixed(2)}–${pred.predicted_high.toFixed(2)}
+              </span>
+            )}
+            {pred.open_price != null && (
+              <span className="text-xs text-slate-600 tabular-nums">open ${pred.open_price.toFixed(2)}</span>
+            )}
+            {pred.actual_close != null && (
+              <span className={`text-xs font-semibold tabular-nums ml-auto ${hit ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>
+                actual ${pred.actual_close.toFixed(2)}
+              </span>
+            )}
+          </div>
+        </div>
+        {expanded ? <ChevronUp className="w-4 h-4 text-slate-500 shrink-0" /> : <ChevronDown className="w-4 h-4 text-slate-500 shrink-0" />}
+      </button>
+
+      {expanded && (
+        <div className="px-4 pb-4 flex flex-col gap-3 border-t border-white/5">
+          {pred.analysis && (
+            <p className="text-sm text-slate-300 leading-relaxed pt-3">{pred.analysis}</p>
+          )}
+          {pred.key_factors && pred.key_factors.length > 0 && (
+            <div className="flex flex-col gap-1">
+              <p className="text-xs text-slate-600 uppercase tracking-wider font-medium">Key Factors</p>
+              <ul className="flex flex-col gap-1">
+                {pred.key_factors.map((f, i) => (
+                  <li key={i} className="text-xs text-slate-400 flex items-start gap-1.5">
+                    <span className={`mt-0.5 ${biasColor(pred.bias)}`}>•</span>{f}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {pred.invalidation_level != null && (
+            <p className="text-xs text-slate-500">
+              <span className="text-slate-600">Invalidation:</span> ${pred.invalidation_level.toFixed(2)} — bias flips if price crosses this level
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function PredictionBrief({ predictions, today }: { predictions: EodPrediction[]; today: string }) {
+  const todayPreds = predictions.filter(p => p.date === today)
+  const pastPreds = predictions.filter(p => p.date !== today && p.actual_close != null)
+
+  const accuracy = useMemo(() => {
+    const hits = pastPreds.filter(p =>
+      p.predicted_low != null && p.predicted_high != null && p.actual_close != null &&
+      p.actual_close >= p.predicted_low && p.actual_close <= p.predicted_high
+    )
+    return pastPreds.length > 0 ? (hits.length / pastPreds.length) * 100 : null
+  }, [pastPreds])
+
+  return (
+    <div className="flex flex-col gap-6">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Target className="w-4 h-4 text-[#0ea5e9]" /> EOD Price Predictions
+          </h2>
+          <p className="text-xs text-slate-500 mt-0.5">
+            Groq synthesis of signals → directional bias + price range at open. Updated each market day.
+          </p>
+        </div>
+        {accuracy != null && (
+          <div className="text-right">
+            <p className="text-xs text-slate-600">7-day accuracy</p>
+            <p className={`text-lg font-bold tabular-nums ${accuracy >= 60 ? 'text-[#22c55e]' : accuracy >= 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'}`}>
+              {accuracy.toFixed(0)}%
+            </p>
+          </div>
+        )}
+      </div>
+
+      {/* Today's predictions */}
+      {todayPreds.length > 0 ? (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
+            <Zap className="w-3 h-3 text-[#0ea5e9]" /> Today&apos;s Calls
+          </h3>
+          {todayPreds.map(p => <PredictionCard key={p.id} pred={p} />)}
+        </div>
+      ) : (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-8 text-center flex flex-col items-center gap-3">
+          <Target className="w-8 h-8 text-slate-700" />
+          <div>
+            <p className="text-sm text-slate-400 font-medium">No predictions for today yet</p>
+            <p className="text-xs text-slate-600 mt-1">
+              The prediction worker runs at market open (9:15–10am ET) for your portfolio tickers.
+              Make sure your tickers are in the portfolio page.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* Past predictions with actuals */}
+      {pastPreds.length > 0 && (
+        <div className="flex flex-col gap-3">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Recent Results</h3>
+          {pastPreds.slice(0, 10).map(p => <PredictionCard key={p.id} pred={p} />)}
+        </div>
+      )}
+
+      <div className="bg-white/2 border border-white/8 rounded-2xl p-4 text-xs text-slate-500 leading-relaxed">
+        <span className="text-slate-400 font-medium">How it works: </span>
+        At market open, Groq analyzes your last 24h signals, price momentum, and volatility to predict
+        a likely close range. After 4pm ET, actual close prices are filled in automatically so you can
+        track model accuracy over time. Not financial advice — use for situational awareness only.
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function JournalClient({
   initialTrades,
   latestCoachingNote,
+  predictions,
+  today,
 }: {
   initialTrades: Trade[]
   latestCoachingNote: CoachingNote | null
+  predictions: EodPrediction[]
+  today: string
 }) {
   const [activeTab, setActiveTab] = useState<TabName>('Today\'s Entry')
   const [trades, setTrades] = useState<Trade[]>(initialTrades)
@@ -1274,6 +1465,7 @@ export default function JournalClient({
     'Performance': <BarChart2 className="w-4 h-4" />,
     'Tendencies': <Brain className="w-4 h-4" />,
     'Calendar': <Calendar className="w-4 h-4" />,
+    'Predictions': <Target className="w-4 h-4" />,
   }
 
   return (
@@ -1321,6 +1513,9 @@ export default function JournalClient({
       )}
       {activeTab === 'Calendar' && (
         <CalendarTab trades={trades} />
+      )}
+      {activeTab === 'Predictions' && (
+        <PredictionBrief predictions={predictions} today={today} />
       )}
     </div>
   )
