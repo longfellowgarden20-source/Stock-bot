@@ -132,37 +132,71 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
         )
 
 
+def get_portfolio_tickers() -> list[str]:
+    """Returns only portfolio tickers — these get priority."""
+    res = supabase().table("portfolio").select("ticker").execute()
+    return sorted({row["ticker"].upper() for row in (res.data or [])})
+
+
 async def run_once() -> dict:
     if not POLYGON_KEY:
         return {"status": "skipped", "reason": "POLYGON_API_KEY not set"}
-    tickers = get_watchlist_tickers()
-    if not tickers:
+
+    all_tickers = get_watchlist_tickers()
+    if not all_tickers:
         return {"status": "skipped", "reason": "no tickers in watchlist or portfolio"}
+
+    # Portfolio tickers processed first — always up to date
+    portfolio_tickers = get_portfolio_tickers()
+    portfolio_set = set(portfolio_tickers)
+    remaining = [t for t in all_tickers if t not in portfolio_set]
+    ordered_tickers = portfolio_tickers + remaining
 
     processed = 0
     async with httpx.AsyncClient() as client:
-        # Polygon free tier is 5 req/min — process in batches with delay
-        # Paid tier (Stocks Starter) gets unlimited, so we batch by 10
-        for i in range(0, len(tickers), 10):
-            batch = tickers[i:i+10]
+        for i in range(0, len(ordered_tickers), 10):
+            batch = ordered_tickers[i:i+10]
             await asyncio.gather(*[process_ticker(client, t) for t in batch], return_exceptions=True)
             processed += len(batch)
-            if i + 10 < len(tickers):
-                await asyncio.sleep(2)  # Stay polite even on paid tier
+            if i + 10 < len(ordered_tickers):
+                await asyncio.sleep(2)
 
-    return {"status": "ok", "processed": processed, "tickers": tickers}
+    return {"status": "ok", "processed": processed, "portfolio_first": portfolio_tickers}
+
+
+async def run_portfolio_only() -> dict:
+    """Fetch only portfolio tickers — runs outside market hours too."""
+    if not POLYGON_KEY:
+        return {"status": "skipped", "reason": "no api key"}
+    tickers = get_portfolio_tickers()
+    if not tickers:
+        return {"status": "skipped", "reason": "no portfolio tickers"}
+    async with httpx.AsyncClient() as client:
+        for t in tickers:
+            await process_ticker(client, t)
+            await asyncio.sleep(1)
+    return {"status": "ok", "portfolio": tickers}
 
 
 async def main_loop():
-    """Background loop — runs every 5 min during extended hours."""
+    """Background loop — full scan during market hours, portfolio-only outside."""
     log.info("Price worker started")
+    # Always run once at startup so portfolio shows real prices immediately
+    try:
+        result = await run_once()
+        log.info(f"Price startup tick: {result}")
+    except Exception as e:
+        log.error(f"Price startup error: {e}")
+
     while True:
+        await asyncio.sleep(300)  # 5 min
         try:
             if is_extended_hours():
                 result = await run_once()
                 log.info(f"Price tick: {result}")
             else:
-                log.debug("Outside market hours, skipping")
+                # Outside market hours: still update portfolio every 30 min
+                result = await run_portfolio_only()
+                log.debug(f"Price off-hours portfolio tick: {result}")
         except Exception as e:
             log.error(f"Price loop error: {e}")
-        await asyncio.sleep(300)  # 5 min
