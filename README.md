@@ -20,15 +20,37 @@ Real-time stock intelligence platform — Next.js dashboard + Python workers.
 ┌────────────┴─────────────┐
 │  Python Worker Service   │ ← Railway
 │                          │
-│  price_worker            │
-│  news_worker             │
-│  sec_worker              │
-│  reddit_worker           │
-│  signal_engine (Groq)    │
+│  price_worker            │  Polygon snapshots, volume spikes
+│  news_worker             │  Polygon news + NewsAPI fallback
+│  sec_worker              │  EDGAR Form 4 / 8-K / 13D
+│  reddit_worker           │  Sentiment from 5 subreddits
+│  options_worker          │  Unusual Whales flow + skew
+│  congress_worker         │  Quiver — senator/rep trades
+│  squeeze_worker          │  FINRA short vol, SEC FTD data
+│  technical_worker        │  RSI, MACD, BB, 50/200 SMA, VWAP
+│  earnings_worker         │  Upcoming earnings + historic move
+│  analyst_worker          │  Finnhub PT + rating changes
+│  macro_worker            │  VIX, 10Y/2Y yields, dollar (FRED)
+│  darkpool_worker         │  UW dark pool prints + clusters
+│  sector_worker           │  Sector ETF 5d relative perf
+│  signal_engine (Groq)    │  Convergence synthesis
 └──────────────────────────┘
+
+Push notifications: when severity ≥ 8 fires, workers call
+`/api/push/notify` on the Next.js side, which dispatches
+web-push to subscribed browsers.
 ```
 
 ## Setup
+
+### 0. Generate VAPID keys (push notifications)
+
+```bash
+npx web-push generate-vapid-keys
+```
+
+Put the public key in `NEXT_PUBLIC_VAPID_PUBLIC_KEY` and private in `VAPID_PRIVATE_KEY`.
+Generate a random secret for `PUSH_NOTIFY_TOKEN` — it authenticates worker→Next.js push calls.
 
 ### 1. Supabase
 

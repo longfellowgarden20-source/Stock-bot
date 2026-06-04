@@ -15,9 +15,63 @@ from db import supabase, insert_signal
 
 log = logging.getLogger("signal_engine")
 
-GROQ_KEY = os.environ.get("GROQ_API_KEY", "")
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
+
+
+def _load_groq_keys() -> list[str]:
+    """Load all GROQ keys — GROQ_API_KEY plus GROQ_API_KEY_2, _3, _4, _5."""
+    keys = []
+    primary = os.environ.get("GROQ_API_KEY", "").strip()
+    if primary:
+        keys.append(primary)
+    for i in range(2, 6):
+        k = os.environ.get(f"GROQ_API_KEY_{i}", "").strip()
+        if k:
+            keys.append(k)
+    return keys
+
+
+class GroqKeyRotator:
+    """Round-robin key rotation with 429 fallback — drops to next key on rate limit."""
+
+    def __init__(self, keys: list[str]):
+        self._keys = keys
+        self._idx = 0
+        self._exhausted: dict[int, float] = {}  # idx -> cooldown-until timestamp
+
+    def current(self) -> str | None:
+        if not self._keys:
+            return None
+        # Find next non-exhausted key
+        for _ in range(len(self._keys)):
+            i = self._idx % len(self._keys)
+            until = self._exhausted.get(i, 0)
+            if datetime.now(timezone.utc).timestamp() >= until:
+                return self._keys[i]
+            self._idx += 1
+        return None  # all keys on cooldown
+
+    def mark_rate_limited(self, key: str, retry_after: int = 60) -> None:
+        """Called on 429 — put this key on cooldown and advance."""
+        try:
+            i = self._keys.index(key)
+            self._exhausted[i] = datetime.now(timezone.utc).timestamp() + retry_after
+            log.warning(f"Groq key [{i+1}/{len(self._keys)}] rate limited — cooling {retry_after}s")
+        except ValueError:
+            pass
+        self._idx += 1
+
+    def advance(self) -> None:
+        """Advance to next key (round-robin after each successful call)."""
+        self._idx += 1
+
+    @property
+    def key_count(self) -> int:
+        return len(self._keys)
+
+
+_rotator = GroqKeyRotator(_load_groq_keys())
 
 
 async def fetch_recent_signals(minutes: int = 30) -> list[dict]:
@@ -54,10 +108,9 @@ def already_synthesized(ticker: str, signal_ids: list[str]) -> bool:
 
 
 async def synthesize_with_groq(client: httpx.AsyncClient, ticker: str, signals: list[dict]) -> dict | None:
-    if not GROQ_KEY:
+    if _rotator.key_count == 0:
         return None
 
-    # Build context
     lines = [f"- [{s['signal_type']}, sev {s['severity']}] {s['title']}: {s['body']}" for s in signals]
     context = "\n".join(lines)
     total_score = sum(s["severity"] for s in signals)
@@ -75,29 +128,46 @@ Write a concise trader-focused synthesis in plain English. Max 100 words. No flu
 
 Output format: 2-3 short paragraphs. No headers, no bullet points. Direct sentences only."""
 
-    try:
-        r = await client.post(
-            GROQ_URL,
-            headers={"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"},
-            json={
-                "model": GROQ_MODEL,
-                "max_tokens": 400,
-                "temperature": 0.3,
-                "messages": [
-                    {"role": "system", "content": "You are an experienced trader writing internal alerts. Direct, specific, never generic."},
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=20,
-        )
-        if r.status_code != 200:
-            log.warning(f"Groq {r.status_code}: {r.text[:200]}")
+    payload = {
+        "model": GROQ_MODEL,
+        "max_tokens": 400,
+        "temperature": 0.3,
+        "messages": [
+            {"role": "system", "content": "You are an experienced trader writing internal alerts. Direct, specific, never generic."},
+            {"role": "user", "content": prompt},
+        ],
+    }
+
+    # Try each key — on 429 cool the key and fall through to the next
+    for _ in range(_rotator.key_count):
+        key = _rotator.current()
+        if not key:
+            log.warning(f"All Groq keys on cooldown for {ticker}")
             return None
-        content = r.json()["choices"][0]["message"]["content"].strip()
-        return {"synthesis": content, "score": total_score}
-    except Exception as e:
-        log.error(f"Groq error for {ticker}: {e}")
-        return None
+        try:
+            r = await client.post(
+                GROQ_URL,
+                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                json=payload,
+                timeout=20,
+            )
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("retry-after", 60))
+                _rotator.mark_rate_limited(key, retry_after)
+                continue  # try next key
+            if r.status_code != 200:
+                log.warning(f"Groq {r.status_code} on key ending ...{key[-6:]}: {r.text[:200]}")
+                _rotator.advance()
+                return None
+            content = r.json()["choices"][0]["message"]["content"].strip()
+            _rotator.advance()
+            return {"synthesis": content, "score": total_score}
+        except Exception as e:
+            log.error(f"Groq error for {ticker}: {e}")
+            _rotator.advance()
+            return None
+
+    return None
 
 
 async def run_once() -> dict:

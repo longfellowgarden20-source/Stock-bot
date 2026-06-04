@@ -9,6 +9,8 @@ create table if not exists watchlist (
   sector text,
   notes text,
   alert_threshold_pct numeric,
+  pinned boolean default false,
+  muted boolean default false,
   added_at timestamptz default now()
 );
 
@@ -77,6 +79,18 @@ create table if not exists alerts (
   notified boolean default false,
   created_at timestamptz default now()
 );
+
+-- Push subscriptions (browser web push)
+create table if not exists push_subscriptions (
+  id uuid primary key default gen_random_uuid(),
+  endpoint text not null unique,
+  p256dh text not null,
+  auth text not null,
+  user_agent text,
+  min_severity integer not null default 7 check (min_severity between 1 and 10),
+  created_at timestamptz default now()
+);
+create index if not exists push_sub_endpoint_idx on push_subscriptions(endpoint);
 
 -- Enable Realtime on signals table (run in Supabase dashboard or here)
 -- alter publication supabase_realtime add table signals;

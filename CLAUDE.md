@@ -7,46 +7,71 @@ A real-time stock intelligence platform built for active trading. Two core funct
 
 This is NOT a trade executor. It surfaces signals and alerts. The human makes the final call.
 
-## Stack Decisions (Non-Negotiable)
+---
 
-**Frontend:** Next.js 15 App Router + TypeScript
-**Database:** Supabase (postgres + realtime subscriptions)
-**Background Jobs:** Railway.app (Python FastAPI workers for data ingestion)
-**AI Analysis:** Groq (llama-3.3-70b-versatile for deep analysis, llama-3.1-8b-instant for fast summaries)
-**Auth:** Supabase Google OAuth — single user only
-**Styling:** Tailwind CSS — dark terminal aesthetic, no marketing fluff
+## Stack
 
-**Why this stack:**
-- Supabase Realtime lets the dashboard update without polling
-- Railway workers run continuously outside Vercel's 10s function limit
-- Groq is fast enough for real-time signal synthesis — sub 2 second responses
-- Same stack as existing projects — no context switching
+| Layer | Tech |
+|---|---|
+| Frontend | Next.js 15 App Router + TypeScript |
+| Styling | Tailwind CSS v4 — dark terminal aesthetic |
+| Database | Supabase (Postgres + Realtime subscriptions) |
+| Background workers | Railway.app — Python FastAPI |
+| AI synthesis | Groq `llama-3.3-70b-versatile` (deep), `llama-3.1-8b-instant` (fast) |
+| Auth | Supabase Google OAuth — single user only |
+| Push notifications | Web Push API (VAPID), service worker in `public/sw.js` |
+
+---
 
 ## Data Sources & APIs
 
-| Signal Type | Source | API | Cost |
-|---|---|---|---|
-| Real-time price + volume | Polygon.io | REST + WebSocket | Free tier / $29/mo |
-| Options flow + dark pool | Unusual Whales | REST | $50/mo |
-| Technical indicators | Alpha Vantage | REST | Free tier |
-| SEC filings (insider, 13F, 8-K) | SEC EDGAR | REST | Free |
-| Breaking news | NewsAPI | REST | Free tier |
-| Social sentiment | Reddit API | REST | Free |
-| Congressional trades | Quiver Quantitative | REST | Free tier |
-| Earnings data | Alpha Vantage / Polygon | REST | Free tier |
-| Short interest | Finviz scrape / FINRA | REST | Free |
+| Signal Type | Source | Free Tier |
+|---|---|---|
+| Real-time price + volume | Polygon.io REST + WebSocket | Yes |
+| Options flow + dark pool | Unusual Whales | $50/mo |
+| Technical indicators | Computed in-house from Polygon aggregates | — |
+| Analyst ratings + price targets | Finnhub | Free tier |
+| SEC filings (insider, 13F, 8-K) | SEC EDGAR REST | Free |
+| Congressional trades | Quiver Quantitative | Free tier |
+| Short interest / FTDs | FINRA + SEC EDGAR ZIP downloads | Free |
+| Macro (yields, VIX, dollar) | Polygon (I:VIX, ETFs) + FRED API | Free |
+| Sector rotation | SPDR ETF aggregates via Polygon | Free |
 
-**Priority order for API keys to get first:**
-1. Polygon.io — core price/volume data, everything depends on this
-2. Unusual Whales — options flow is the highest-signal data source
-3. NewsAPI — breaking news
-4. Reddit — already have this from agency scraper
+---
+
+## Environment Variables
+
+```bash
+# Supabase
+NEXT_PUBLIC_SUPABASE_URL
+NEXT_PUBLIC_SUPABASE_ANON_KEY
+SUPABASE_SERVICE_ROLE_KEY
+
+# Data APIs
+POLYGON_API_KEY
+UNUSUAL_WHALES_API_KEY
+FINNHUB_API_KEY
+QUIVER_API_KEY
+FRED_API_KEY
+
+# AI
+GROQ_API_KEY
+
+# Push notifications
+NEXT_PUBLIC_APP_URL              # e.g. https://stock-bot.vercel.app
+NEXT_PUBLIC_VAPID_PUBLIC_KEY
+VAPID_PRIVATE_KEY
+VAPID_SUBJECT                    # mailto:you@example.com
+PUSH_NOTIFY_TOKEN                # shared secret — workers use this to call /api/push/notify
+```
+
+---
 
 ## Database Schema
 
 ### `watchlist`
 ```sql
-id, ticker, name, sector, added_at, notes, alert_threshold_pct
+id, ticker, name, sector, added_at, notes, alert_threshold_pct, pinned, muted
 ```
 
 ### `portfolio`
@@ -56,9 +81,20 @@ id, ticker, shares, avg_cost, added_at, notes
 
 ### `signals`
 ```sql
-id, ticker, signal_type, severity (1-10), title, body, raw_data (jsonb), created_at, read
+id uuid PK
+ticker text
+signal_type text   -- see list below
+severity int       -- 1–10
+title text
+body text
+raw_data jsonb
+created_at timestamptz
+read boolean default false
 ```
-Signal types: `price_move`, `volume_spike`, `options_unusual`, `dark_pool`, `insider_buy`, `insider_sell`, `news_breaking`, `sec_filing`, `sentiment_spike`, `short_squeeze`, `earnings_upcoming`, `analyst_change`, `congress_trade`
+
+Signal types: `price_move`, `volume_spike`, `options_unusual`, `dark_pool`, `insider_buy`,
+`insider_sell`, `sec_filing`, `short_squeeze`, `earnings_upcoming`, `analyst_change`,
+`congress_trade`, `technical`, `macro`, `sector_rotation`, `convergence`
 
 ### `snapshots`
 ```sql
@@ -66,146 +102,221 @@ id, ticker, price, volume, change_pct, market_cap, short_interest, iv_rank, crea
 ```
 Stored every 5 minutes during market hours.
 
-### `news`
+### `push_subscriptions`
 ```sql
-id, ticker, headline, source, url, sentiment (bullish/bearish/neutral), published_at, created_at
+id, endpoint (unique), p256dh, auth, min_severity (default 7), created_at
 ```
 
-### `alerts`
-```sql
-id, ticker, condition, threshold, triggered_at, notified
+---
+
+## Workers (14 total on Railway)
+
+All workers are Python FastAPI services in `workers/`. Each exports `run_once()` called by
+`main.py` on a schedule (via `asyncio.create_task`).
+
+| Worker file | What it does | Interval |
+|---|---|---|
+| `price_worker.py` | Polygon REST — price + volume snapshots | 5 min |
+| `news_worker.py` | NewsAPI + Polygon news — breaking stories | 2 min |
+| `sec_worker.py` | EDGAR RSS — insider filings, 8-Ks, 13Fs | 10 min |
+| `options_worker.py` | Unusual Whales — sweeps >$25k, blocks >$50k, put/call skew | 5 min |
+| `darkpool_worker.py` | Unusual Whales — dark pool prints >$1M, clusters >$5M | 5 min |
+| `congress_worker.py` | Quiver Quantitative — STOCK Act disclosures | 6 hr |
+| `squeeze_worker.py` | FINRA short volume + SEC FTD downloads | 1 hr |
+| `technical_worker.py` | RSI, MACD, Bollinger, SMA 50/200, 52w high/low, VWAP | 15 min |
+| `earnings_worker.py` | Earnings countdown (7/5/2/1 days) + historical move estimate | 1 hr |
+| `analyst_worker.py` | Finnhub price targets + upgrade/downgrade waves | 1 hr |
+| `macro_worker.py` | VIX, treasury yields (FRED), dollar (UUP) | 30 min |
+| `sector_worker.py` | 11 SPDR ETF sector rotation detection | 1 hr |
+| `sentiment_worker.py` | Reddit mention velocity per ticker | 15 min |
+| `signal_engine.py` | Groq synthesis when ≥2 signal types on same ticker in 30 min, score ≥14 | 5 min |
+
+### `workers/db.py`
+Shared module. Key points:
+- Use `supabase_admin` everywhere (service role key)
+- `insert_signal()` returns the inserted row and fires a push notification (severity ≥ 8) via
+  a daemon thread so it never blocks the event loop
+- `_notify_push()` does a sync httpx POST to `NEXT_PUBLIC_APP_URL/api/push/notify` with
+  `x-push-token: PUSH_NOTIFY_TOKEN`
+
+### `workers/main.py`
+- `WORKERS` dict maps name → module
+- Generic `POST /trigger/{worker}` calls `WORKERS[worker].run_once()`
+- `GET /health` lists any worker that hasn't run successfully in its expected interval
+
+---
+
+## Signal Convergence Engine (`signal_engine.py`)
+
+The core intelligence. Single signal = noise. Multiple signals on same ticker in a short
+window = real alert.
+
+Weights per signal type:
+```python
+WEIGHTS = {
+    'dark_pool':        8,
+    'insider_buy':      9,
+    'insider_sell':     9,
+    'options_unusual':  8,
+    'short_squeeze':    8,
+    'congress_trade':   7,
+    'volume_spike':     7,
+    'technical':        5,
+    'news_breaking':    5,
+    'analyst_change':   6,
+    'earnings_upcoming':5,
+    'sentiment_spike':  4,
+    'macro':            4,
+    'sector_rotation':  3,
+}
 ```
 
-## Architecture
+When ≥2 different signal types hit same ticker within 30 min AND total weight ≥14:
+→ Groq `llama-3.3-70b` synthesis triggered (150 words max, trader-focused plain English)
+→ `convergence` signal written to DB with severity = min(10, weight // 2)
+→ Dashboard updates via Supabase Realtime
 
-```
-┌─────────────────────────────────────┐
-│         Next.js Dashboard           │
-│  - Real-time via Supabase channels  │
-│  - Signal feed, portfolio, scanner  │
-└──────────────┬──────────────────────┘
-               │ Supabase Realtime
-┌──────────────▼──────────────────────┐
-│            Supabase DB              │
-│  signals, snapshots, news, alerts   │
-└──────────────▲──────────────────────┘
-               │ writes
-┌──────────────┴──────────────────────┐
-│       Railway Python Workers        │
-│                                     │
-│  price_worker.py   — Polygon WS     │
-│  options_worker.py — Unusual Whales │
-│  news_worker.py    — NewsAPI        │
-│  sec_worker.py     — EDGAR          │
-│  reddit_worker.py  — Reddit API     │
-│  sentiment_worker.py               │
-│  signal_engine.py  — Groq synthesis │
-└─────────────────────────────────────┘
-```
+---
 
-**Key principle:** Workers write raw data to Supabase. The signal engine reads raw data, cross-references signals, and writes synthesized alerts. Dashboard only reads — never writes to signal tables directly.
+## Technical Indicators (`technical_worker.py`)
 
-## Signal Engine — The Core Intelligence
+All computed in-house from Polygon `/v2/aggs` — no Alpha Vantage needed.
 
-This is what makes the bot elite. Not individual signals but **signal convergence**.
-
-Single signal = noise.
-Multiple signals on same ticker in short window = real alert.
-
-### Convergence scoring (signal_engine.py)
-Each signal type has a base weight:
-- Dark pool print: 8/10
-- Insider buy: 9/10
-- Unusual options sweep: 8/10
-- Volume 10x avg: 7/10
-- Short squeeze setup: 8/10
-- Congress trade: 7/10
-- News breaking: 5/10
-- Reddit sentiment spike: 4/10
-- Technical breakout: 5/10
-
-When 2+ signals align on the same ticker within 30 minutes → Groq synthesis triggered → alert written to `signals` table → dashboard updates in real time.
-
-### Groq prompt for signal synthesis
-Keep it under 150 words, plain English, trader-focused. No fluff. Example output:
-> "AAPL showing unusual call sweep ($2.1M) + dark pool print at $195 + volume 4x avg. Possible institutional accumulation ahead of earnings (June 15). Watch $196 for breakout confirmation. Risk: broad market weakness today."
-
-## Workers — Build Order
-
-1. `price_worker.py` — Polygon WebSocket, writes snapshots every 5 min
-2. `news_worker.py` — NewsAPI polling every 2 min, writes to news table
-3. `sec_worker.py` — EDGAR RSS feed, fires on new filings instantly
-4. `options_worker.py` — Unusual Whales polling every 5 min
-5. `reddit_worker.py` — Reddit API, tracks mention velocity per ticker
-6. `signal_engine.py` — runs every 5 min, cross-references all tables, calls Groq
-
-## Dashboard Pages
-
-| Page | Purpose |
+| Indicator | Logic |
 |---|---|
-| `/dashboard` | Signal feed — real-time alerts sorted by severity |
-| `/scanner` | Opportunity scanner — filter by signal type, sector, market cap |
-| `/portfolio` | Your positions — P&L, watchdog alerts, news feed per ticker |
-| `/watchlist` | Tickers you're monitoring — add/remove, set alert thresholds |
-| `/signals/[id]` | Deep dive on a single signal — full Groq analysis, raw data |
+| RSI | Wilder's smoothing, 14-period |
+| MACD | EMA(12) − EMA(26), signal = EMA(9) of MACD. EMA seeded with SMA of first N values |
+| Bollinger Bands | 20-period SMA ± 2 std dev |
+| SMA 50 / SMA 200 | Golden cross / death cross detection |
+| 52-week high/low | Breakout above 52w high = bullish signal |
+| VWAP | (Σ price×volume) / Σ volume, reset daily |
+
+Per-indicator cooldown dict prevents re-emitting the same setup more than once per day.
+
+---
+
+## Web Push Notifications
+
+1. `public/sw.js` — service worker handles `push` event, shows notification
+   - `requireInteraction: true` when severity ≥ 9
+   - Click → focus existing tab or open new one
+2. `app/api/push/subscribe/route.ts` — POST upserts subscription, DELETE removes it
+3. `app/api/push/notify/route.ts` — called by workers; auth via `x-push-token` header;
+   fetches subs where `min_severity ≤ signal.severity`; auto-removes expired (410) subs
+4. `lib/web-push.ts` — wraps `web-push` npm package, lazy VAPID init
+
+---
+
+## Dashboard Features (`app/dashboard/DashboardClient.tsx`)
+
+1. Real-time Supabase signal feed
+2. Filter by signal type (multi-select)
+3. Filter by severity threshold slider
+4. Ticker search with URL sync (250ms debounce)
+5. j/k keyboard navigation between signals
+6. `o` to open focused signal detail
+7. `r` to mark signal read
+8. `p` to pin/unpin a ticker
+9. `m` to mute a ticker
+10. `x` to select signal, bulk actions (mark read, delete)
+11. `a` to mark all read
+12. `f` to force-trigger all workers
+13. `+` to open QuickAddTicker modal
+14. `?` to open KeyboardShortcutsHelp modal
+15. `g d/s/p/w` two-key navigation shortcuts
+16. Density toggle (compact / comfortable)
+17. Sound alerts (WebAudio synth tone — no asset needed)
+18. Web push toggle (PushToggle component)
+19. Unread count in document title
+20. Toast notifications for all user actions
+
+---
 
 ## UI Rules
 
-**Theme:** Dark terminal. Think Bloomberg terminal not Robinhood.
+**Theme:** Dark terminal. Bloomberg, not Robinhood.
 **Base:** `#0a0f1a`
-**Green:** `#22c55e` (bullish signals)
-**Red:** `#ef4444` (bearish signals, distress)
-**Yellow:** `#f59e0b` (warnings, neutral signals)
-**Blue:** `#0ea5e9` (info, price data)
-**Orange:** `#f97316` (high severity alerts)
+**Accent/info:** `#0ea5e9`
+**Bullish:** `#22c55e`
+**Bearish:** `#ef4444`
+**Warning:** `#f59e0b`
+**High severity:** `#f97316` (orange pulse)
 
-**Signal severity colors:**
-- 9-10: red pulse animation — act now
-- 7-8: orange — high priority
-- 5-6: yellow — watch closely
-- 1-4: blue — informational
+Severity color mapping:
+- 9–10: red pulse — act now
+- 7–8: orange — high priority
+- 5–6: yellow — watch closely
+- 1–4: blue — informational
 
-**No candlestick charts in v1** — too much complexity, focus on signals first. Add charts in v2.
+Never use `transition-all`. Only animate `transform` and `opacity`.
+Every clickable element needs hover + `focus-visible` states.
+
+---
+
+## Key Components
+
+| File | Purpose |
+|---|---|
+| `app/components/SignalCard.tsx` | Signal display — density, pin, mute, select, expand |
+| `app/components/AppShell.tsx` | Layout shell — wraps with ToastProvider |
+| `app/components/Nav.tsx` | Sidebar nav with unread badge |
+| `app/components/KeyboardShortcutsHelp.tsx` | `?` modal |
+| `app/components/QuickAddTicker.tsx` | `+` modal — add ticker to watchlist |
+| `app/components/Toaster.tsx` | Toast context + provider |
+| `app/components/PushToggle.tsx` | Web push subscribe/unsubscribe UI |
+| `app/hooks/useKeyboardShortcuts.ts` | Two-key sequence handler using mapRef pattern |
+| `app/hooks/useLocalStorage.ts` | SSR-safe localStorage hook |
+| `app/hooks/useDocumentTitle.ts` | Document title with unread count |
+
+---
 
 ## Hard Rules
 
-- Never auto-trade anything — signals only, human pulls the trigger
-- Never expose API keys client-side — all data fetching in workers or API routes
-- Rate limit all external API calls — respect free tier limits
-- Cap Groq calls — only synthesize when 2+ signals converge, not on every data point
+- Never auto-trade — signals only, human pulls the trigger
+- Never expose `SUPABASE_SERVICE_ROLE_KEY`, `VAPID_PRIVATE_KEY`, or `PUSH_NOTIFY_TOKEN` client-side
+- Rate limit all external APIs — respect free tier limits
+- Cap Groq calls — only synthesize when ≥2 signals converge, never on every data point
 - All times in Eastern (market time) — display converted from UTC
-- Market hours awareness — workers behave differently pre-market (4am-9:30am ET), market hours (9:30am-4pm ET), after hours (4pm-8pm ET)
+- Market hours awareness — workers should note pre-market (4–9:30 ET), regular (9:30–16:00), after-hours (16:00–20:00)
+- Push notify endpoint is authenticated — always require `x-push-token` header
 
-## Environment Variables
+---
 
-```
-NEXT_PUBLIC_SUPABASE_URL
-NEXT_PUBLIC_SUPABASE_ANON_KEY
-SUPABASE_SERVICE_ROLE_KEY
-POLYGON_API_KEY
-UNUSUAL_WHALES_API_KEY
-ALPHA_VANTAGE_API_KEY
-NEWS_API_KEY
-REDDIT_CLIENT_ID
-REDDIT_CLIENT_SECRET
-GROQ_API_KEY
-QUIVER_API_KEY
-```
+## File Naming Conventions
 
-## Build Order
+- Pages: `page.tsx`
+- Client components with state: `[Feature]Client.tsx`
+- Shared UI: `app/components/[Name].tsx`
+- API routes: `app/api/[resource]/route.ts`
+- Workers: `workers/[signal_type]_worker.py`
 
-1. Supabase schema — all tables, RLS policies, realtime enabled
-2. Auth + Next.js shell — copy from agency scraper pattern
-3. `price_worker.py` on Railway — Polygon snapshots flowing into DB
-4. Dashboard signal feed — realtime subscription to signals table
-5. `news_worker.py` — news flowing in
-6. `sec_worker.py` — insider filing alerts
-7. Portfolio page — positions + P&L
-8. `options_worker.py` — Unusual Whales flow
-9. `signal_engine.py` — cross-signal Groq synthesis
-10. `reddit_worker.py` — sentiment layer
-11. Scanner page — opportunity hunting UI
-12. Push notifications — Expo or web push for mobile alerts
+---
+
+## Dashboard Pages
+
+| Route | Purpose |
+|---|---|
+| `/dashboard` | Real-time signal feed |
+| `/scanner` | Filter signals by type, sector, severity |
+| `/portfolio` | Positions + P&L + per-ticker watchdog |
+| `/watchlist` | Manage monitored tickers |
+| `/signals/[id]` | Deep dive — full Groq analysis + raw data |
+
+---
+
+## Setup Order (from scratch)
+
+1. `supabase-schema.sql` — create all tables + enable Realtime on `signals`
+2. Copy auth + middleware from surfonly pattern
+3. Deploy workers to Railway with all env vars
+4. Verify `/health` endpoint shows all 14 workers alive
+5. Set VAPID keys (`npx web-push generate-vapid-keys`)
+6. Deploy Next.js to Vercel
+7. Register service worker in browser — push toggle appears in dashboard
+
+---
 
 ## Current Status
-Project just created. Nothing built yet. Start with Supabase schema.
+
+**All 14 workers built.** All dashboard features built. Push notifications wired end-to-end.
+Next: swap in real API keys and do a live data test run.
