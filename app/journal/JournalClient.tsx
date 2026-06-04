@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useRef } from 'react'
 import {
   BookOpen, TrendingUp, TrendingDown, Brain, Calendar,
   Plus, Loader2, CheckCircle, ChevronLeft, ChevronRight,
-  BarChart2, Sparkles, AlertTriangle, Star,
+  BarChart2, Sparkles, AlertTriangle, Star, Upload, X, FileText, RefreshCw,
 } from 'lucide-react'
+import type { ParsedRow } from '@/app/api/trades/import/route'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -92,11 +93,405 @@ function StatCard({ label, value, sub, accent }: { label: string; value: string;
   )
 }
 
+// ─── CSV Parser ──────────────────────────────────────────────────────────────
+
+function parseCsvLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++ }
+      else inQuotes = !inQuotes
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current.trim())
+      current = ''
+    } else {
+      current += ch
+    }
+  }
+  result.push(current.trim())
+  return result
+}
+
+const IMPORT_CODES = new Set(['Buy', 'Sell', 'BTO', 'STO', 'BTC', 'STC'])
+
+type PreviewRow = {
+  date: string
+  ticker: string
+  direction: 'long' | 'short' | 'open-long' | 'open-short'
+  entry: number
+  exit: number | null
+  pnl: number | null
+  status: 'Matched' | 'Open'
+}
+
+function parseRobinhoodCsv(text: string): { rows: ParsedRow[]; error: string | null } {
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean)
+  if (lines.length < 2) return { rows: [], error: 'CSV is empty or has no data rows.' }
+
+  // Find header row
+  const headerIdx = lines.findIndex((l) => l.toLowerCase().includes('activity date') || l.toLowerCase().includes('instrument'))
+  if (headerIdx === -1) return { rows: [], error: 'Could not find CSV header row. Expected "Activity Date, Instrument, Trans Code, Quantity, Price, Amount".' }
+
+  const headers = parseCsvLine(lines[headerIdx]).map((h) => h.toLowerCase().replace(/\s+/g, '_'))
+
+  const colIdx = {
+    activityDate: headers.findIndex((h) => h.includes('activity_date') || h.includes('activity date')),
+    instrument: headers.findIndex((h) => h.includes('instrument')),
+    transCode: headers.findIndex((h) => h.includes('trans_code') || h.includes('trans code')),
+    quantity: headers.findIndex((h) => h.includes('quantity')),
+    price: headers.findIndex((h) => h.includes('price')),
+    amount: headers.findIndex((h) => h.includes('amount')),
+  }
+
+  if (colIdx.activityDate === -1 || colIdx.instrument === -1 || colIdx.transCode === -1) {
+    return { rows: [], error: 'Missing required columns. Expected Activity Date, Instrument, Trans Code, Quantity, Price, Amount.' }
+  }
+
+  const rows: ParsedRow[] = []
+  for (let i = headerIdx + 1; i < lines.length; i++) {
+    const cells = parseCsvLine(lines[i])
+    if (cells.length < 3) continue
+    const transCode = cells[colIdx.transCode] ?? ''
+    if (!IMPORT_CODES.has(transCode)) continue
+
+    const quantity = parseFloat((cells[colIdx.quantity] ?? '0').replace(/,/g, ''))
+    const price = parseFloat((cells[colIdx.price] ?? '0').replace(/[$,]/g, ''))
+    const amount = parseFloat((cells[colIdx.amount] ?? '0').replace(/[$,]/g, ''))
+
+    if (isNaN(quantity) || isNaN(price)) continue
+
+    rows.push({
+      activityDate: cells[colIdx.activityDate] ?? '',
+      instrument: cells[colIdx.instrument]?.toUpperCase() ?? '',
+      transCode,
+      quantity: Math.abs(quantity),
+      price: Math.abs(price),
+      amount,
+    })
+  }
+
+  if (rows.length === 0) return { rows: [], error: 'No importable rows found. Only Buy, Sell, BTO, STO, BTC, STC are imported.' }
+  return { rows, error: null }
+}
+
+function fifoPreview(rows: ParsedRow[]): PreviewRow[] {
+  const byTicker: Record<string, ParsedRow[]> = {}
+  for (const row of rows) {
+    const key = row.instrument.toUpperCase()
+    if (!byTicker[key]) byTicker[key] = []
+    byTicker[key].push(row)
+  }
+
+  const result: PreviewRow[] = []
+
+  function parseDateStr(mmddyyyy: string): string {
+    const parts = mmddyyyy.trim().split('/')
+    if (parts.length !== 3) return mmddyyyy
+    const [mm, dd, yyyy] = parts
+    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+  }
+
+  for (const [ticker, tickerRows] of Object.entries(byTicker)) {
+    const sorted = [...tickerRows].sort((a, b) =>
+      new Date(parseDateStr(a.activityDate)).getTime() - new Date(parseDateStr(b.activityDate)).getTime()
+    )
+
+    const longBuys = sorted.filter((r) => r.transCode === 'Buy' || r.transCode === 'BTO').map((r) => ({ ...r, remaining: r.quantity }))
+    const longSells = sorted.filter((r) => r.transCode === 'Sell' || r.transCode === 'STC').map((r) => ({ ...r, remaining: r.quantity }))
+    const shortEntries = sorted.filter((r) => r.transCode === 'STO').map((r) => ({ ...r, remaining: r.quantity }))
+    const shortExits = sorted.filter((r) => r.transCode === 'BTC').map((r) => ({ ...r, remaining: r.quantity }))
+
+    // Match longs
+    let bi = 0, si = 0
+    while (bi < longBuys.length && si < longSells.length) {
+      const buy = longBuys[bi], sell = longSells[si]
+      const qty = Math.min(buy.remaining, sell.remaining)
+      const pnl = Math.round(((sell.price - buy.price) * qty) * 100) / 100
+      result.push({ date: parseDateStr(buy.activityDate), ticker, direction: 'long', entry: buy.price, exit: sell.price, pnl, status: 'Matched' })
+      buy.remaining -= qty; sell.remaining -= qty
+      if (buy.remaining <= 0) bi++
+      if (sell.remaining <= 0) si++
+    }
+    while (bi < longBuys.length) {
+      const buy = longBuys[bi]
+      if (buy.remaining > 0) result.push({ date: parseDateStr(buy.activityDate), ticker, direction: 'open-long', entry: buy.price, exit: null, pnl: null, status: 'Open' })
+      bi++
+    }
+
+    // Match shorts
+    let sei = 0, sxi = 0
+    while (sei < shortEntries.length && sxi < shortExits.length) {
+      const entry = shortEntries[sei], exit = shortExits[sxi]
+      const qty = Math.min(entry.remaining, exit.remaining)
+      const pnl = Math.round(((entry.price - exit.price) * qty) * 100) / 100
+      result.push({ date: parseDateStr(entry.activityDate), ticker, direction: 'short', entry: entry.price, exit: exit.price, pnl, status: 'Matched' })
+      entry.remaining -= qty; exit.remaining -= qty
+      if (entry.remaining <= 0) sei++
+      if (exit.remaining <= 0) sxi++
+    }
+    while (sei < shortEntries.length) {
+      const entry = shortEntries[sei]
+      if (entry.remaining > 0) result.push({ date: parseDateStr(entry.activityDate), ticker, direction: 'open-short', entry: entry.price, exit: null, pnl: null, status: 'Open' })
+      sei++
+    }
+  }
+
+  return result.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+// ─── Import Modal ─────────────────────────────────────────────────────────────
+
+function RobinhoodImportModal({ onClose, onImported }: {
+  onClose: () => void
+  onImported: (trades: Trade[]) => void
+}) {
+  const [dragOver, setDragOver] = useState(false)
+  const [parsedRows, setParsedRows] = useState<ParsedRow[] | null>(null)
+  const [preview, setPreview] = useState<PreviewRow[] | null>(null)
+  const [parseError, setParseError] = useState<string | null>(null)
+  const [importing, setImporting] = useState(false)
+  const [importResult, setImportResult] = useState<{ imported: number; open: number; skipped: number } | null>(null)
+  const [importError, setImportError] = useState<string | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  function handleFile(file: File) {
+    if (!file.name.endsWith('.csv') && file.type !== 'text/csv') {
+      setParseError('Please select a .csv file.')
+      return
+    }
+    const reader = new FileReader()
+    reader.onload = (e) => {
+      const text = e.target?.result as string
+      const { rows, error } = parseRobinhoodCsv(text)
+      if (error) { setParseError(error); setParsedRows(null); setPreview(null); return }
+      setParseError(null)
+      setParsedRows(rows)
+      setPreview(fifoPreview(rows))
+    }
+    reader.readAsText(file)
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) handleFile(file)
+  }
+
+  function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) handleFile(file)
+  }
+
+  async function handleImport() {
+    if (!parsedRows) return
+    setImporting(true)
+    setImportError(null)
+    try {
+      const res = await fetch('/api/trades/import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rows: parsedRows }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Import failed')
+      setImportResult({ imported: data.imported, open: data.open, skipped: data.skipped })
+      onImported(data.trades ?? [])
+    } catch (err) {
+      setImportError(String(err))
+    } finally {
+      setImporting(false)
+    }
+  }
+
+  const matchedCount = preview?.filter((r) => r.status === 'Matched').length ?? 0
+  const openCount = preview?.filter((r) => r.status === 'Open').length ?? 0
+
+  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div className="bg-[#0d1420] border border-white/10 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto flex flex-col gap-5 mx-4">
+        {/* Header */}
+        <div className="flex items-center justify-between shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 flex items-center justify-center">
+              <FileText className="w-4 h-4 text-[#0ea5e9]" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white">Import from Robinhood</h2>
+              <p className="text-xs text-slate-500">CSV trade history importer</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-xl text-slate-500 hover:text-white hover:bg-white/8"
+            style={{ transition: 'background 0.15s, color 0.15s' }}
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {!importResult ? (
+          <>
+            {/* Instructions */}
+            <div className="bg-[#0ea5e9]/5 border border-[#0ea5e9]/15 rounded-xl p-3 text-xs text-slate-400 leading-relaxed">
+              Download your trade history from Robinhood: <span className="text-white font-medium">Account → Statements → Export CSV</span>. The importer will match buys to sells using FIFO and calculate P&L automatically.
+            </div>
+
+            {/* Drop zone */}
+            {!preview && (
+              <div
+                className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer ${dragOver ? 'border-[#0ea5e9]/60 bg-[#0ea5e9]/5' : 'border-white/10 hover:border-white/20 hover:bg-white/2'}`}
+                style={{ transition: 'border-color 0.15s, background 0.15s' }}
+                onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragLeave={() => setDragOver(false)}
+                onDrop={handleDrop}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className={`w-8 h-8 ${dragOver ? 'text-[#0ea5e9]' : 'text-slate-600'}`} />
+                <div className="text-center">
+                  <p className="text-sm text-slate-300">Drop your CSV here or <span className="text-[#0ea5e9]">click to browse</span></p>
+                  <p className="text-xs text-slate-600 mt-1">Supports Robinhood CSV export format</p>
+                </div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="hidden"
+                  onChange={handleInputChange}
+                />
+              </div>
+            )}
+
+            {parseError && (
+              <div className="bg-[#ef4444]/8 border border-[#ef4444]/20 rounded-xl p-3 text-xs text-[#ef4444]">
+                {parseError}
+              </div>
+            )}
+
+            {/* Preview table */}
+            {preview && preview.length > 0 && (
+              <div className="flex flex-col gap-3">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Preview — {matchedCount} matched, {openCount} open
+                  </h3>
+                  <button
+                    type="button"
+                    onClick={() => { setParsedRows(null); setPreview(null); setParseError(null) }}
+                    className="text-xs text-slate-500 hover:text-white flex items-center gap-1"
+                    style={{ transition: 'color 0.15s' }}
+                  >
+                    <RefreshCw className="w-3 h-3" /> Choose different file
+                  </button>
+                </div>
+                <div className="overflow-x-auto rounded-xl border border-white/8">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-white/8 bg-white/2">
+                        {['Date', 'Ticker', 'Direction', 'Entry', 'Exit', 'P&L', 'Status'].map((h) => (
+                          <th key={h} className="px-3 py-2 text-left text-slate-500 font-medium whitespace-nowrap">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.map((row, i) => {
+                        const rowBg = row.status === 'Open'
+                          ? 'bg-white/0'
+                          : (row.pnl ?? 0) > 0
+                            ? 'bg-[#22c55e]/5'
+                            : (row.pnl ?? 0) < 0
+                              ? 'bg-[#ef4444]/5'
+                              : 'bg-white/0'
+                        const isLong = row.direction === 'long' || row.direction === 'open-long'
+                        return (
+                          <tr key={i} className={`border-b border-white/5 last:border-0 ${rowBg}`}>
+                            <td className="px-3 py-2 text-slate-500 whitespace-nowrap">{row.date}</td>
+                            <td className="px-3 py-2 font-bold text-white">{row.ticker}</td>
+                            <td className="px-3 py-2">
+                              {isLong
+                                ? <span className="text-[#22c55e]">▲ Long</span>
+                                : <span className="text-[#ef4444]">▼ Short</span>}
+                            </td>
+                            <td className="px-3 py-2 text-slate-400 tabular-nums">${row.entry.toFixed(2)}</td>
+                            <td className="px-3 py-2 text-slate-400 tabular-nums">{row.exit != null ? `$${row.exit.toFixed(2)}` : '—'}</td>
+                            <td className={`px-3 py-2 font-bold tabular-nums ${row.pnl == null ? 'text-slate-600' : row.pnl > 0 ? 'text-[#22c55e]' : row.pnl < 0 ? 'text-[#ef4444]' : 'text-slate-400'}`}>
+                              {row.pnl == null ? '—' : (row.pnl >= 0 ? '+' : '') + '$' + Math.abs(row.pnl).toFixed(2)}
+                            </td>
+                            <td className="px-3 py-2">
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${row.status === 'Matched' ? 'bg-[#0ea5e9]/10 border-[#0ea5e9]/20 text-[#0ea5e9]' : 'bg-white/5 border-white/10 text-slate-500'}`}>
+                                {row.status}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+
+                {importError && (
+                  <div className="bg-[#ef4444]/8 border border-[#ef4444]/20 rounded-xl p-3 text-xs text-[#ef4444]">
+                    {importError}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={handleImport}
+                  disabled={importing}
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25 disabled:opacity-50 flex items-center justify-center gap-2"
+                  style={{ transition: 'background 0.15s' }}
+                >
+                  {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+                  {importing ? 'Importing…' : `Import ${matchedCount + openCount} trades`}
+                </button>
+              </div>
+            )}
+          </>
+        ) : (
+          /* Success state */
+          <div className="flex flex-col items-center gap-4 py-6">
+            <div className="w-14 h-14 rounded-2xl bg-[#22c55e]/15 border border-[#22c55e]/30 flex items-center justify-center">
+              <CheckCircle className="w-7 h-7 text-[#22c55e]" />
+            </div>
+            <div className="text-center">
+              <p className="text-base font-bold text-white">Import complete</p>
+              <p className="text-sm text-slate-400 mt-1">
+                Imported <span className="text-white font-semibold">{importResult.imported}</span> closed trade{importResult.imported !== 1 ? 's' : ''}
+                {importResult.open > 0 && <>, <span className="text-white font-semibold">{importResult.open}</span> open position{importResult.open !== 1 ? 's' : ''}</>}
+                {importResult.skipped > 0 && <>, <span className="text-slate-500">{importResult.skipped}</span> skipped</>}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25"
+              style={{ transition: 'background 0.15s' }}
+            >
+              Done
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 // ─── Tab 1: Today's Entry ────────────────────────────────────────────────────
 
 function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (t: Trade) => void }) {
   const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' })
 
+  const [showImport, setShowImport] = useState(false)
   const [ticker, setTicker] = useState('')
   const [direction, setDirection] = useState<'long' | 'short'>('long')
   const [entryPrice, setEntryPrice] = useState('')
@@ -163,11 +558,34 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
 
   return (
     <div className="flex flex-col gap-6">
+      {showImport && (
+        <RobinhoodImportModal
+          onClose={() => setShowImport(false)}
+          onImported={(newTrades) => {
+            for (const t of newTrades) onTradeAdded(t)
+          }}
+        />
+      )}
+
       {/* Trade Log Form */}
       <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
-        <h2 className="text-sm font-semibold text-white mb-4 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-[#0ea5e9]" /> Log a Trade
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+            <Plus className="w-4 h-4 text-[#0ea5e9]" /> Log a Trade
+          </h2>
+          <div className="flex flex-col items-end gap-0.5">
+            <button
+              type="button"
+              onClick={() => setShowImport(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium bg-white/4 border border-white/10 text-slate-400 hover:text-white hover:bg-white/8 hover:border-white/20"
+              style={{ transition: 'background 0.15s, color 0.15s, border-color 0.15s' }}
+            >
+              <Upload className="w-3.5 h-3.5" />
+              Import CSV
+            </button>
+            <span className="text-[10px] text-slate-600">Supports Robinhood CSV export</span>
+          </div>
+        </div>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           {/* Row 1: ticker + direction */}
           <div className="grid grid-cols-2 gap-3">
