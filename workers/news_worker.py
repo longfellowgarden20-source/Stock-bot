@@ -156,6 +156,16 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> int:
             sentiment = classify_sentiment(headline)
             if insert_news(ticker, headline, source, url, sentiment, published_at):
                 new_count += 1
+                if sentiment in ("bullish", "bearish"):
+                    sev = _score_news(headline, source, published_at)
+                    insert_signal(
+                        ticker,
+                        "news_breaking",
+                        sev,
+                        headline[:120],
+                        f"{source}: {headline}",
+                        {"url": url, "sentiment": sentiment, "source": source, "published_at": published_at},
+                    )
 
     return new_count
 

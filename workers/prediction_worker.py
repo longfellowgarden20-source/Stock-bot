@@ -97,6 +97,15 @@ def _avg_daily_range_pct(bars: list[dict]) -> float:
     return sum(ranges) / len(ranges) if ranges else 2.0
 
 
+def _safe_float(val, default: float) -> float:
+    if val is None:
+        return float(default)
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 async def _call_groq(prompt: str) -> str | None:
     """Call Groq API, rotating through all available keys on 429/error."""
     for key in _groq_keys():
@@ -201,8 +210,10 @@ Rules:
     try:
         # Strip markdown code fences if present
         text = raw.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
+        if "```" in text:
+            parts = text.split("```")
+            # Take the content between first and second fence
+            text = parts[1] if len(parts) >= 2 else text
             if text.startswith("json"):
                 text = text[4:]
         parsed = json.loads(text.strip())
@@ -214,12 +225,12 @@ Rules:
         "ticker": ticker.upper(),
         "date": today_str,
         "open_price": round(float(open_price), 4),
-        "predicted_low": round(float(parsed.get("predicted_low", open_price * 0.98)), 4),
-        "predicted_high": round(float(parsed.get("predicted_high", open_price * 1.02)), 4),
-        "bias": parsed.get("bias", "neutral"),
-        "confidence_pct": int(parsed.get("confidence_pct", 50)),
-        "key_factors": parsed.get("key_factors", []),
-        "invalidation_level": round(float(parsed.get("invalidation_level", open_price)), 4),
+        "predicted_low": round(_safe_float(parsed.get("predicted_low"), open_price * 0.98), 4),
+        "predicted_high": round(_safe_float(parsed.get("predicted_high"), open_price * 1.02), 4),
+        "bias": parsed.get("bias", "neutral") if parsed.get("bias") in ("bullish", "bearish", "neutral") else "neutral",
+        "confidence_pct": int(_safe_float(parsed.get("confidence_pct"), 50)),
+        "key_factors": parsed.get("key_factors") if isinstance(parsed.get("key_factors"), list) else [],
+        "invalidation_level": round(_safe_float(parsed.get("invalidation_level"), open_price), 4),
         "analysis": str(parsed.get("analysis", ""))[:800],
         "actual_close": None,
         "error_pct": None,
@@ -270,7 +281,7 @@ def _is_market_open_et() -> bool:
         utc = datetime.now(tz.utc)
         et_hour = (utc.hour - 4) % 24
         return 9 <= et_hour < 10
-    return (et.hour == 9 and et.minute >= 15) or (et.hour == 9 and et.minute <= 59) or et.hour == 9
+    return et.hour == 9 and 15 <= et.minute < 60
 
 
 def _is_after_close_et() -> bool:

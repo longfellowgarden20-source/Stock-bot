@@ -222,7 +222,9 @@ function fifoPreview(rows: ParsedRow[]): PreviewRow[] {
     const parts = mmddyyyy.trim().split('/')
     if (parts.length !== 3) return mmddyyyy
     const [mm, dd, yyyy] = parts
-    return `${yyyy}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+    const y = yyyy.length === 2 ? `20${yyyy}` : yyyy
+    if (!mm || !dd || !y || isNaN(Number(mm)) || isNaN(Number(dd)) || isNaN(Number(y))) return mmddyyyy
+    return `${y}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
   }
 
   for (const [ticker, tickerRows] of Object.entries(byTicker)) {
