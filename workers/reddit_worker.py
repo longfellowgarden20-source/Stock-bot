@@ -20,9 +20,6 @@ log = logging.getLogger("reddit_worker")
 
 REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "StockBot/1.0 (personal trading tool)")
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_MODEL = "llama-3.3-70b-versatile"
-
 def _groq_keys() -> list[str]:
     """Reddit worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
     keys = []
@@ -148,10 +145,7 @@ async def groq_morning_brief(
     top_tickers: list[dict],
     date_str: str,
 ) -> str | None:
-    keys = _groq_keys()
-    if not keys:
-        log.warning("No GROQ keys — skipping morning brief synthesis")
-        return None
+    from groq_pool import call_llm
 
     ticker_lines = []
     for item in top_tickers:
@@ -159,9 +153,7 @@ async def groq_morning_brief(
         count = item["count"]
         subs = ", ".join(sorted(item["subreddits"]))
         titles = "; ".join(f'"{t}"' for t in item["titles"])
-        ticker_lines.append(
-            f"{ticker}: {count} mentions across {subs}\n  Sample posts: {titles}"
-        )
+        ticker_lines.append(f"{ticker}: {count} mentions across {subs}\n  Sample posts: {titles}")
     ticker_data = "\n\n".join(ticker_lines)
 
     prompt = f"""You are a trading analyst reviewing retail sentiment from Reddit. Here are the top mentioned tickers today with sample posts:
@@ -170,38 +162,13 @@ async def groq_morning_brief(
 
 For each ticker, write ONE sentence explaining: what retail traders are saying and why it might be worth watching. Be specific — mention the actual catalyst or thesis being discussed. If the ticker seems like noise/meme, say so. Format as a numbered list. Be direct and trader-focused."""
 
-    payload = {
-        "model": GROQ_MODEL,
-        "max_tokens": 600,
-        "temperature": 0.3,
-        "messages": [
-            {
-                "role": "system",
-                "content": "You are an experienced trader writing internal morning briefings. Direct, specific, never generic.",
-            },
-            {"role": "user", "content": prompt},
-        ],
-    }
-
-    for key in keys:
-        try:
-            r = await client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=25,
-            )
-            if r.status_code == 429:
-                log.warning("Groq rate limited — trying next key")
-                continue
-            if r.status_code != 200:
-                log.warning(f"Groq error {r.status_code}: {r.text[:200]}")
-                continue
-            return r.json()["choices"][0]["message"]["content"].strip()
-        except Exception as e:
-            log.error(f"Groq morning brief error with key: {e}")
-            continue
-    return None
+    return await call_llm(
+        prompt,
+        primary_env_vars=["GROQ_BACKUP_API_KEY"],
+        max_tokens=600,
+        temperature=0.3,
+        system="You are an experienced trader writing internal morning briefings. Direct, specific, never generic.",
+    )
 
 
 # ─── Core scan logic ─────────────────────────────────────────────────────────

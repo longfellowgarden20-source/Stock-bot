@@ -21,20 +21,8 @@ from market_hours import is_market_hours
 
 log = logging.getLogger("prediction_worker")
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
-
-def _groq_keys() -> list[str]:
-    """Prediction worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
-    keys = []
-    seen = set()
-    for name in ["GROQ_BACKUP_API_KEY", "GROQ_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
-        k = os.environ.get(name, "").strip()
-        if k and k not in seen:
-            keys.append(k)
-            seen.add(k)
-    return keys
 
 # Only predict for portfolio tickers (positions you hold)
 def get_portfolio_tickers() -> list[str]:
@@ -108,26 +96,8 @@ def _safe_float(val, default: float) -> float:
 
 
 async def _call_groq(prompt: str) -> str | None:
-    """Call Groq API, rotating through all available keys on 429/error."""
-    for key in _groq_keys():
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                r = await client.post(
-                    GROQ_URL,
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={
-                        "model": "llama-3.3-70b-versatile",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": 400,
-                        "temperature": 0.3,
-                    },
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                log.debug(f"Groq returned {r.status_code}: {r.text[:200]}")
-        except Exception as e:
-            log.debug(f"Groq call failed: {e}")
-    return None
+    from groq_pool import call_llm
+    return await call_llm(prompt, primary_env_vars=["GROQ_BACKUP_API_KEY"], max_tokens=400, temperature=0.3)
 
 
 async def predict_ticker(client: httpx.AsyncClient, ticker: str) -> dict | None:

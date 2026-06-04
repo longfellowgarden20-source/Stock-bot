@@ -25,7 +25,6 @@ from db import supabase, insert_signal
 
 log = logging.getLogger("intelligence_worker")
 
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
 
@@ -71,40 +70,9 @@ _MAX_SEEN = 2000
 _last_run_headlines: list[dict] = []
 
 
-def _groq_keys() -> list[str]:
-    """Intelligence worker uses GROQ_API_KEY_2 as primary, falls back to full pool."""
-    seen = set()
-    keys = []
-    for name in ["GROQ_API_KEY_2", "GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(3, 6)]:
-        k = os.environ.get(name, "").strip()
-        if k and k not in seen:
-            keys.append(k)
-            seen.add(k)
-    return keys
-
-
 async def _call_groq(prompt: str, max_tokens: int = 600) -> str | None:
-    for key in _groq_keys():
-        try:
-            async with httpx.AsyncClient(timeout=45) as c:
-                r = await c.post(
-                    GROQ_URL,
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={
-                        "model": "llama-3.3-70b-versatile",
-                        "messages": [{"role": "user", "content": prompt}],
-                        "max_tokens": max_tokens,
-                        "temperature": 0.2,
-                    },
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                if r.status_code == 429:
-                    log.debug("Groq rate limited — trying next key")
-                    continue
-        except Exception as e:
-            log.debug(f"Groq call failed: {e}")
-    return None
+    from groq_pool import call_llm
+    return await call_llm(prompt, primary_env_vars=["GROQ_API_KEY_2"], max_tokens=max_tokens, temperature=0.2)
 
 
 def _fetch_feed(url: str, name: str) -> list[dict]:

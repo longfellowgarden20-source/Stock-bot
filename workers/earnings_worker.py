@@ -124,39 +124,12 @@ UNUSUAL_WHALES_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "")
 UNUSUAL_WHALES_BASE = "https://api.unusualwhales.com"
 FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
 FINNHUB_BASE = "https://finnhub.io/api/v1"
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-
 _prep_alerted: dict[str, float] = {}
 
 
-def _groq_keys() -> list[str]:
-    """Earnings worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
-    keys = []
-    seen = set()
-    for name in ["GROQ_BACKUP_API_KEY", "GROQ_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
-        k = os.environ.get(name, "").strip()
-        if k and k not in seen:
-            keys.append(k)
-            seen.add(k)
-    return keys
-
-
 async def _call_groq(prompt: str) -> str | None:
-    for key in _groq_keys():
-        try:
-            async with httpx.AsyncClient(timeout=30) as c:
-                r = await c.post(
-                    GROQ_URL,
-                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 500, "temperature": 0.3},
-                )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                if r.status_code == 429:
-                    continue
-        except Exception as e:
-            log.debug(f"Groq call failed: {e}")
-    return None
+    from groq_pool import call_llm
+    return await call_llm(prompt, primary_env_vars=["GROQ_BACKUP_API_KEY"], max_tokens=500, temperature=0.3)
 
 
 async def fetch_eps_estimates(client: httpx.AsyncClient, ticker: str) -> dict | None:
