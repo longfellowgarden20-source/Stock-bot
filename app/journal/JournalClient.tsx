@@ -1484,7 +1484,7 @@ function LessonCard({ lesson }: { lesson: PredictionLesson }) {
           {' → '}actual <span className="text-white">{lesson.actual_bias}</span>
         </span>
       </div>
-      {lesson.predicted_low != null && lesson.actual_close != null && (
+      {lesson.predicted_low != null && lesson.predicted_high != null && lesson.actual_close != null && (
         <p className="text-xs text-slate-500 tabular-nums">
           Range ${lesson.predicted_low?.toFixed(2)}–${lesson.predicted_high?.toFixed(2)} · Actual ${lesson.actual_close.toFixed(2)}
           {lesson.in_range ? <span className="text-[#22c55e] ml-1">in range</span> : <span className="text-[#ef4444] ml-1">missed range</span>}
@@ -1568,7 +1568,7 @@ function PredictionBrief({ predictions, lessons, today }: { predictions: EodPred
               <Brain className="w-3 h-3 text-purple-400" /> Groq Learning Log
             </h3>
             <span className="text-xs text-slate-600">
-              {lessons.filter(l => l.in_range && l.bias === l.actual_bias).length}/{lessons.length} correct in last 7d
+              {lessons.filter(l => l.in_range === true && l.bias === l.actual_bias).length}/{lessons.length} correct in last 7d
             </span>
           </div>
           <p className="text-xs text-slate-600">Groq reviews each prediction at market close and writes a self-critique when wrong. These lessons are automatically injected into tomorrow&apos;s predictions.</p>

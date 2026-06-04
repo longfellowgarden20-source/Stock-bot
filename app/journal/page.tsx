@@ -33,11 +33,6 @@ export default async function JournalPage() {
       .order('date', { ascending: false })
       .order('ticker'),
     supabase
-      .from('prediction_lessons')
-      .select('*')
-      .gte('date', since7d)
-      .order('date', { ascending: false }),
-    supabase
       .from('signals')
       .select('*')
       .eq('ticker', 'REDDIT')
@@ -45,6 +40,11 @@ export default async function JournalPage() {
       .gte('created_at', since2d)
       .order('created_at', { ascending: false })
       .limit(20),
+    supabase
+      .from('prediction_lessons')
+      .select('*')
+      .gte('date', since7d)
+      .order('date', { ascending: false }),
   ])
 
   return (
