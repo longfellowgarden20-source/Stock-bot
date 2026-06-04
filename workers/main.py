@@ -42,6 +42,7 @@ import macro_worker
 import darkpool_worker
 import sector_worker
 import prediction_worker
+import intelligence_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 log = logging.getLogger("main")
@@ -58,6 +59,7 @@ WORKER_INTERVALS = {
     'squeeze': 3600, 'technical': 900, 'earnings': 3600,
     'analyst': 3600, 'macro': 1800, 'sector': 3600,
     'reddit': 1800, 'engine': 300, 'prediction': 1800,
+    'intelligence': 1800,
 }
 
 WORKERS = {
@@ -76,6 +78,7 @@ WORKERS = {
     "darkpool": darkpool_worker,
     "sector": sector_worker,
     "prediction": prediction_worker,
+    "intelligence": intelligence_worker,
 }
 
 
