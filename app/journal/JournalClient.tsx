@@ -58,6 +58,19 @@ export type CoachingNote = {
   win_rate: number | null
 }
 
+export type BriefSignal = {
+  id: string
+  ticker: string
+  title: string
+  body: string
+  created_at: string
+  raw_data: {
+    tickers?: string[]
+    mention_counts?: Record<string, number>
+    date?: string
+  } | null
+}
+
 const GRADES = ['A+', 'A', 'A-', 'B+', 'B', 'B-', 'C', 'D', 'F']
 const MISTAKE_OPTIONS = [
   'No man\'s land',
@@ -71,7 +84,7 @@ const MISTAKE_OPTIONS = [
 ]
 const MOOD_OPTIONS = ['focused', 'confident', 'neutral', 'distracted', 'anxious'] as const
 
-const TAB_NAMES = ['Today\'s Entry', 'Performance', 'Tendencies', 'Calendar', 'Predictions'] as const
+const TAB_NAMES = ['Today\'s Entry', 'Performance', 'Tendencies', 'Calendar', 'Predictions', 'Briefs'] as const
 type TabName = typeof TAB_NAMES[number]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -1270,6 +1283,82 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
   )
 }
 
+// ─── Morning Briefs ───────────────────────────────────────────────────────────
+
+function MorningBriefs({ briefs }: { briefs: BriefSignal[] }) {
+  const formatTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString('en-US', {
+        timeZone: 'America/New_York',
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }) + ' ET'
+    } catch { return iso }
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-sm font-semibold text-white flex items-center gap-2">
+          <Sparkles className="w-4 h-4 text-[#0ea5e9]" /> Reddit Intelligence Briefs
+        </h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Groq synthesis of Reddit sentiment — runs every 2 hours during market hours.
+        </p>
+      </div>
+
+      {briefs.length === 0 ? (
+        <div className="bg-white/2 border border-white/8 rounded-2xl p-8 text-center flex flex-col items-center gap-3">
+          <Sparkles className="w-8 h-8 text-slate-700" />
+          <div>
+            <p className="text-sm text-slate-400 font-medium">No briefs yet today</p>
+            <p className="text-xs text-slate-600 mt-1">Briefs run every 2 hours during market hours (6am–8pm ET).</p>
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-4">
+          {briefs.map((b) => {
+            const tickers = b.raw_data?.tickers ?? []
+            const counts = b.raw_data?.mention_counts ?? {}
+            return (
+              <div key={b.id} className="bg-white/2 border border-white/8 rounded-2xl overflow-hidden">
+                <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Sparkles className="w-3.5 h-3.5 text-[#0ea5e9]" />
+                    <span className="text-sm font-semibold text-white">{b.title}</span>
+                  </div>
+                  <span className="text-xs text-slate-500">{formatTime(b.created_at)}</span>
+                </div>
+
+                {tickers.length > 0 && (
+                  <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-white/5">
+                    {tickers.slice(0, 10).map((t) => (
+                      <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 text-[#0ea5e9]">
+                        {t}
+                        {counts[t] != null && (
+                          <span className="text-slate-500 font-normal">{counts[t]}×</span>
+                        )}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="px-4 py-3">
+                  <p className="text-sm text-slate-300 leading-relaxed whitespace-pre-wrap">{b.body}</p>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Prediction Brief ─────────────────────────────────────────────────────────
 
 function biasColor(bias: string) {
@@ -1443,11 +1532,13 @@ export default function JournalClient({
   initialTrades,
   latestCoachingNote,
   predictions,
+  briefs,
   today,
 }: {
   initialTrades: Trade[]
   latestCoachingNote: CoachingNote | null
   predictions: EodPrediction[]
+  briefs: BriefSignal[]
   today: string
 }) {
   const [activeTab, setActiveTab] = useState<TabName>('Today\'s Entry')
@@ -1468,6 +1559,7 @@ export default function JournalClient({
     'Tendencies': <Brain className="w-4 h-4" />,
     'Calendar': <Calendar className="w-4 h-4" />,
     'Predictions': <Target className="w-4 h-4" />,
+    'Briefs': <Sparkles className="w-4 h-4" />,
   }
 
   return (
@@ -1518,6 +1610,9 @@ export default function JournalClient({
       )}
       {activeTab === 'Predictions' && (
         <PredictionBrief predictions={predictions} today={today} />
+      )}
+      {activeTab === 'Briefs' && (
+        <MorningBriefs briefs={briefs} />
       )}
     </div>
   )

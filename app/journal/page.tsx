@@ -13,7 +13,9 @@ export default async function JournalPage() {
   const today = new Date().toISOString().split('T')[0]
   const since7d = new Date(Date.now() - 7 * 86400_000).toISOString().split('T')[0]
 
-  const [{ data: trades }, { data: coachingNotes }, { data: predictions }] = await Promise.all([
+  const since2d = new Date(Date.now() - 2 * 86400_000).toISOString()
+
+  const [{ data: trades }, { data: coachingNotes }, { data: predictions }, { data: briefs }] = await Promise.all([
     supabase
       .from('trades')
       .select('*')
@@ -30,6 +32,14 @@ export default async function JournalPage() {
       .gte('date', since7d)
       .order('date', { ascending: false })
       .order('ticker'),
+    supabase
+      .from('signals')
+      .select('*')
+      .eq('ticker', 'REDDIT')
+      .eq('signal_type', 'convergence')
+      .gte('created_at', since2d)
+      .order('created_at', { ascending: false })
+      .limit(20),
   ])
 
   return (
@@ -38,6 +48,7 @@ export default async function JournalPage() {
         initialTrades={trades ?? []}
         latestCoachingNote={coachingNotes?.[0] ?? null}
         predictions={predictions ?? []}
+        briefs={briefs ?? []}
         today={today}
       />
     </AppShell>
