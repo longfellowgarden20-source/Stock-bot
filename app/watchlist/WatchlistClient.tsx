@@ -107,8 +107,8 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
     <div className="flex flex-col gap-6">
       {/* Bulk Add Modal */}
       {bulkOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) { setBulkOpen(false); setBulkResult(null) } }}>
-          <div className="bg-[#0d1520] border border-white/15 rounded-2xl p-6 w-full max-w-md mx-4 flex flex-col gap-4">
+        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) { setBulkOpen(false); setBulkResult(null) } }}>
+          <div className="bg-[#0d1520] border border-white/15 rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 w-full sm:max-w-md flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-white">Bulk Add Tickers</h2>
               <button onClick={() => { setBulkOpen(false); setBulkResult(null) }} className="text-slate-500 hover:text-white" style={{ transition: 'color 0.15s' }}>

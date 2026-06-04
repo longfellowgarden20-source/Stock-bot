@@ -83,17 +83,17 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
       </aside>
 
       {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#080d18] border-t border-white/8 px-2 pb-safe">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#080d18] border-t border-white/8 px-1 pb-4">
         {links.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href)
           return (
             <Link
               key={href}
               href={href}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium ${active ? 'text-[#0ea5e9]' : 'text-slate-500'}`}
+              className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium min-w-0 ${active ? 'text-[#0ea5e9]' : 'text-slate-500'}`}
             >
               <div className="relative">
-                <Icon className="w-5 h-5" />
+                <Icon className="w-4 h-4" />
                 {label === 'Signals' && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">{unreadCount}</span>
                 )}
@@ -102,9 +102,9 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
             </Link>
           )
         })}
-        <button onClick={signOut} className="flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium text-slate-500">
-          <LogOut className="w-5 h-5" />
-          Out
+        <button onClick={signOut} className="flex-1 flex flex-col items-center gap-1 py-3 text-xs font-medium text-slate-500 min-w-0">
+          <LogOut className="w-4 h-4" />
+          <span className="text-[10px]">Out</span>
         </button>
       </nav>
     </>

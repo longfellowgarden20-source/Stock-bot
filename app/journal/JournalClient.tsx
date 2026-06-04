@@ -323,14 +323,14 @@ function RobinhoodImportModal({ onClose, onImported }: {
   const matchedCount = preview?.filter((r) => r.status === 'Matched').length ?? 0
   const openCount = preview?.filter((r) => r.status === 'Open').length ?? 0
 
-  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-[#0d1420] border border-white/10 rounded-2xl p-6 w-full max-w-2xl max-h-[80vh] overflow-y-auto flex flex-col gap-5 mx-4">
+      <div className="bg-[#0d1420] border border-white/10 rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 sm:gap-5 sm:mx-4">
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
@@ -567,7 +567,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
     }
   }
 
-  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
 
   return (
     <div className="flex flex-col gap-6">
@@ -635,7 +635,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
           </div>
 
           {/* Row 2: entry, exit, shares */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Entry Price</label>
               <input className={inputCls} type="number" step="0.0001" placeholder="0.00" value={entryPrice} onChange={(e) => setEntryPrice(e.target.value)} />
@@ -651,7 +651,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
           </div>
 
           {/* Row 3: pattern + grade + grade accurate */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <div>
               <label className="block text-xs text-slate-500 mb-1">Pattern</label>
               <input className={inputCls} placeholder="e.g. bull flag" value={pattern} onChange={(e) => setPattern(e.target.value)} />
