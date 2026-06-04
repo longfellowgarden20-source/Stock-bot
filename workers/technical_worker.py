@@ -228,16 +228,24 @@ async def check_rsi_confluence(client: httpx.AsyncClient, ticker: str, daily_clo
 
     if daily_rsi < 35 and weekly_rsi < 40 and not _on_cooldown(ticker, "rsi_confluence"):
         _mark(ticker, "rsi_confluence")
+        conf_sev = 7.5
+        if daily_rsi < 25 and weekly_rsi < 35:
+            conf_sev += 0.5
+        conf_sev = round(min(conf_sev, 10.0), 1)
         insert_signal(
-            ticker, "technical", 8,
+            ticker, "technical", conf_sev,
             f"{ticker} RSI oversold on daily + weekly",
             f"Daily RSI {daily_rsi:.1f} and weekly RSI {weekly_rsi:.1f} are both in oversold territory. Multi-timeframe RSI confluence is a high-conviction mean-reversion setup. Watch for a volume-backed reversal candle.",
             {"indicator": "rsi_confluence", "daily_rsi": round(daily_rsi, 1), "weekly_rsi": round(weekly_rsi, 1), "direction": "oversold"},
         )
     elif daily_rsi > 65 and weekly_rsi > 60 and not _on_cooldown(ticker, "rsi_confluence"):
         _mark(ticker, "rsi_confluence")
+        conf_sev = 7.5
+        if daily_rsi > 75 and weekly_rsi > 70:
+            conf_sev += 0.5
+        conf_sev = round(min(conf_sev, 10.0), 1)
         insert_signal(
-            ticker, "technical", 7,
+            ticker, "technical", conf_sev,
             f"{ticker} RSI overbought on daily + weekly",
             f"Daily RSI {daily_rsi:.1f} and weekly RSI {weekly_rsi:.1f} are both elevated. Multi-timeframe RSI overbought confluence — distribution risk increases. Consider tightening stops.",
             {"indicator": "rsi_confluence", "daily_rsi": round(daily_rsi, 1), "weekly_rsi": round(weekly_rsi, 1), "direction": "overbought"},
@@ -260,8 +268,18 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
 
     price = closes[-1]
 
+    # --- Pre-compute volume stats used across multiple signal checks ---
+    vols = [b.get("v", 0) for b in complete_bars if b.get("v") is not None]
+    avg_vol_20 = sum(vols[-20:]) / len(vols[-20:]) if len(vols) >= 20 else None
+    today_vol = vols[-1] if vols else None
+    # vol_above_avg: today volume exceeds the 20-day average (used for confirmation bonuses)
+    vol_above_avg = avg_vol_20 is not None and today_vol is not None and today_vol > avg_vol_20
+    # vol_spike_day: today volume is 50% above average (used for gap severity bonuses)
+    vol_spike_day = avg_vol_20 is not None and today_vol is not None and today_vol > avg_vol_20 * 1.5
+
     # --- Gap detection (compare today's open vs yesterday's close) ---
     # Both from complete_bars so indices are guaranteed in sync
+
     if len(complete_bars) >= 2:
         today_open = opens[-1]
         yesterday_close = closes[-2]
@@ -270,16 +288,30 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
             if gap_pct >= 5.0 and not _on_cooldown(ticker, "gap_up_large"):
                 _mark(ticker, "gap_up_large")
                 _mark(ticker, "gap_up")
+                gap_sev = 5.5
+                if gap_pct >= 5.0:
+                    gap_sev += 1.0
+                if gap_pct >= 3.0:
+                    gap_sev += 0.5
+                if vol_spike_day:
+                    gap_sev += 0.5
+                gap_sev = round(min(gap_sev, 10.0), 1)
                 insert_signal(
-                    ticker, "technical", 8,
+                    ticker, "technical", gap_sev,
                     f"{ticker} gapped up {gap_pct:.1f}% at open",
                     f"Today's open ${today_open:.2f} is {gap_pct:.1f}% above yesterday's close ${yesterday_close:.2f}. Large gap — watch for gap fill or continuation. Current price ${price:.2f}.",
                     {"indicator": "gap_up", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
                 )
             elif 2.0 <= gap_pct < 5.0 and not _on_cooldown(ticker, "gap_up"):
                 _mark(ticker, "gap_up")
+                gap_sev = 5.5
+                if gap_pct >= 3.0:
+                    gap_sev += 0.5
+                if vol_spike_day:
+                    gap_sev += 0.5
+                gap_sev = round(min(gap_sev, 10.0), 1)
                 insert_signal(
-                    ticker, "technical", 6,
+                    ticker, "technical", gap_sev,
                     f"{ticker} gapped up {gap_pct:.1f}% at open",
                     f"Today's open ${today_open:.2f} is {gap_pct:.1f}% above yesterday's close ${yesterday_close:.2f}. Potential continuation or gap fill setup. Current price ${price:.2f}.",
                     {"indicator": "gap_up", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
@@ -287,16 +319,30 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
             elif gap_pct <= -5.0 and not _on_cooldown(ticker, "gap_down_large"):
                 _mark(ticker, "gap_down_large")
                 _mark(ticker, "gap_down")
+                gap_sev = 5.5
+                if abs(gap_pct) >= 5.0:
+                    gap_sev += 1.0
+                if abs(gap_pct) >= 3.0:
+                    gap_sev += 0.5
+                if vol_spike_day:
+                    gap_sev += 0.5
+                gap_sev = round(min(gap_sev, 10.0), 1)
                 insert_signal(
-                    ticker, "technical", 8,
+                    ticker, "technical", gap_sev,
                     f"{ticker} gapped down {abs(gap_pct):.1f}% at open",
                     f"Today's open ${today_open:.2f} is {abs(gap_pct):.1f}% below yesterday's close ${yesterday_close:.2f}. Large bearish gap — watch for continued selling or gap fill bounce. Current price ${price:.2f}.",
                     {"indicator": "gap_down", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
                 )
             elif -5.0 < gap_pct <= -2.0 and not _on_cooldown(ticker, "gap_down"):
                 _mark(ticker, "gap_down")
+                gap_sev = 5.5
+                if abs(gap_pct) >= 3.0:
+                    gap_sev += 0.5
+                if vol_spike_day:
+                    gap_sev += 0.5
+                gap_sev = round(min(gap_sev, 10.0), 1)
                 insert_signal(
-                    ticker, "technical", 6,
+                    ticker, "technical", gap_sev,
                     f"{ticker} gapped down {abs(gap_pct):.1f}% at open",
                     f"Today's open ${today_open:.2f} is {abs(gap_pct):.1f}% below yesterday's close ${yesterday_close:.2f}. Bearish gap — check for catalyst. Current price ${price:.2f}.",
                     {"indicator": "gap_down", "gap_pct": round(gap_pct, 2), "today_open": today_open, "yesterday_close": yesterday_close, "price": price},
@@ -320,20 +366,37 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
 
     # --- RSI ---
     rsi_val = rsi(closes, 14)
+
     if rsi_val is not None:
-        if rsi_val <= 25 and not _on_cooldown(ticker, "rsi_oversold"):
+        if rsi_val <= 30 and not _on_cooldown(ticker, "rsi_oversold"):
             _mark(ticker, "rsi_oversold")
+            rsi_sev = 5.0
+            if rsi_val < 25:
+                rsi_sev += 1.0
+            elif rsi_val < 30:
+                rsi_sev += 0.5
+            if vol_above_avg:
+                rsi_sev += 0.5
+            rsi_sev = round(min(rsi_sev, 10.0), 1)
+            label = "deeply oversold" if rsi_val < 25 else "oversold"
             insert_signal(
-                ticker, "technical", 7,
-                f"{ticker} RSI {rsi_val:.0f} — deeply oversold",
+                ticker, "technical", rsi_sev,
+                f"{ticker} RSI {rsi_val:.0f} — {label}",
                 f"14-day RSI at {rsi_val:.1f}, well below the 30 oversold line. Price ${price:.2f}. Mean reversion setup or further breakdown — watch volume on next bounce.",
                 {"indicator": "rsi", "value": rsi_val, "price": price, "direction": "oversold"},
             )
-        elif rsi_val >= 75 and not _on_cooldown(ticker, "rsi_overbought"):
+        elif rsi_val >= 70 and not _on_cooldown(ticker, "rsi_overbought"):
             _mark(ticker, "rsi_overbought")
+            rsi_sev = 5.0
+            if rsi_val > 75:
+                rsi_sev += 1.0
+            elif rsi_val > 70:
+                rsi_sev += 0.5
+            rsi_sev = round(min(rsi_sev, 10.0), 1)
+            label = "extremely overbought" if rsi_val > 75 else "overbought"
             insert_signal(
-                ticker, "technical", 6,
-                f"{ticker} RSI {rsi_val:.0f} — overbought",
+                ticker, "technical", rsi_sev,
+                f"{ticker} RSI {rsi_val:.0f} — {label}",
                 f"14-day RSI at {rsi_val:.1f}, above the 70 overbought line. Price ${price:.2f}. Profit-taking risk rising.",
                 {"indicator": "rsi", "value": rsi_val, "price": price, "direction": "overbought"},
             )
@@ -342,19 +405,39 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
     await check_rsi_confluence(client, ticker, closes)
 
     # --- MACD crossover ---
+    # Compute 200 SMA for trend-confirmation bonus
+    sma200 = sma(closes, 200) if len(closes) >= 200 else None
     cross = macd_crossover(closes)
     if cross == "bullish" and not _on_cooldown(ticker, "macd_bull"):
         _mark(ticker, "macd_bull")
+        macd_data = macd(closes)
+        macd_sev = 5.5
+        if macd_data and price > 0:
+            hist_pct = abs(macd_data[2]) / price * 100
+            if hist_pct > 1.0:
+                macd_sev += 0.5
+        if sma200 is not None and price > sma200:
+            macd_sev += 0.5
+        macd_sev = round(min(macd_sev, 10.0), 1)
         insert_signal(
-            ticker, "technical", 7,
+            ticker, "technical", macd_sev,
             f"{ticker} MACD bullish crossover",
             f"MACD line crossed above the signal line. Price ${price:.2f}. Momentum shift to upside — confirm with volume.",
             {"indicator": "macd", "direction": "bullish", "price": price},
         )
     elif cross == "bearish" and not _on_cooldown(ticker, "macd_bear"):
         _mark(ticker, "macd_bear")
+        macd_data = macd(closes)
+        macd_sev = 5.5
+        if macd_data and price > 0:
+            hist_pct = abs(macd_data[2]) / price * 100
+            if hist_pct > 1.0:
+                macd_sev += 0.5
+        if sma200 is not None and price < sma200:
+            macd_sev += 0.5
+        macd_sev = round(min(macd_sev, 10.0), 1)
         insert_signal(
-            ticker, "technical", 6,
+            ticker, "technical", macd_sev,
             f"{ticker} MACD bearish crossover",
             f"MACD line crossed below the signal line. Price ${price:.2f}. Momentum shift to downside.",
             {"indicator": "macd", "direction": "bearish", "price": price},
@@ -366,16 +449,28 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
         lower, mid, upper = bb
         if price > upper and not _on_cooldown(ticker, "bb_upper"):
             _mark(ticker, "bb_upper")
+            bb_sev = 5.5
+            if upper > 0 and ((price - upper) / upper * 100) > 2.0:
+                bb_sev += 0.5
+            if rsi_val is not None and rsi_val > 65:
+                bb_sev += 1.0
+            bb_sev = round(min(bb_sev, 10.0), 1)
             insert_signal(
-                ticker, "technical", 7,
+                ticker, "technical", bb_sev,
                 f"{ticker} broke upper Bollinger ${upper:.2f}",
                 f"Price ${price:.2f} closed above upper band ${upper:.2f} (20,2). Volatility expansion or trend continuation.",
                 {"indicator": "bollinger", "direction": "upper_break", "price": price, "upper": upper, "lower": lower},
             )
         elif price < lower and not _on_cooldown(ticker, "bb_lower"):
             _mark(ticker, "bb_lower")
+            bb_sev = 5.5
+            if lower > 0 and ((lower - price) / lower * 100) > 2.0:
+                bb_sev += 0.5
+            if rsi_val is not None and rsi_val < 35:
+                bb_sev += 1.0
+            bb_sev = round(min(bb_sev, 10.0), 1)
             insert_signal(
-                ticker, "technical", 7,
+                ticker, "technical", bb_sev,
                 f"{ticker} broke lower Bollinger ${lower:.2f}",
                 f"Price ${price:.2f} closed below lower band ${lower:.2f} (20,2). Capitulation or accelerating breakdown.",
                 {"indicator": "bollinger", "direction": "lower_break", "price": price, "upper": upper, "lower": lower},
@@ -412,16 +507,29 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str, spy_bars: list[
         prior_window_low = min(lows[-253:-1])
         if price > prior_window_high and not _on_cooldown(ticker, "52w_high"):
             _mark(ticker, "52w_high")
+            w52_sev = 7.0
+            # Within 0.5% of exact high = very precise breakout
+            if prior_window_high > 0 and ((price - prior_window_high) / prior_window_high * 100) <= 0.5:
+                w52_sev += 0.5
+            if vol_spike_day:
+                w52_sev += 0.5
+            w52_sev = round(min(w52_sev, 10.0), 1)
             insert_signal(
-                ticker, "technical", 7,
+                ticker, "technical", w52_sev,
                 f"{ticker} new 52-week high ${price:.2f}",
                 f"Closed at ${price:.2f}, above prior 52-week high ${prior_window_high:.2f}. Breakouts at 52-week highs often continue if volume confirms.",
                 {"indicator": "52w_high", "price": price, "prior_high": prior_window_high},
             )
         elif price < prior_window_low and not _on_cooldown(ticker, "52w_low"):
             _mark(ticker, "52w_low")
+            w52_sev = 7.0
+            if prior_window_low > 0 and ((prior_window_low - price) / prior_window_low * 100) <= 0.5:
+                w52_sev += 0.5
+            if vol_spike_day:
+                w52_sev += 0.5
+            w52_sev = round(min(w52_sev, 10.0), 1)
             insert_signal(
-                ticker, "technical", 7,
+                ticker, "technical", w52_sev,
                 f"{ticker} new 52-week low ${price:.2f}",
                 f"Closed at ${price:.2f}, below prior 52-week low ${prior_window_low:.2f}. Distribution or capitulation setup.",
                 {"indicator": "52w_low", "price": price, "prior_low": prior_window_low},

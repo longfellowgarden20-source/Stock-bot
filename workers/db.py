@@ -96,14 +96,14 @@ def _insert_to_dlq(
 def insert_signal(
     ticker: str,
     signal_type: str,
-    severity: int,
+    severity: float,
     title: str,
     body: str,
     raw_data: dict[str, Any] | None = None,
 ) -> None:
     """Insert a new signal — triggers realtime update on dashboard + push if severity high.
     On failure, writes to dead-letter queue instead of raising."""
-    sev = max(1, min(10, severity))
+    sev = round(max(1.0, min(10.0, float(severity))), 1)
     payload = {
         "ticker": ticker.upper(),
         "signal_type": signal_type,
@@ -178,7 +178,7 @@ def retry_failed_signals() -> int:
 
     for row in (rows.data or []):
         row_id = row["id"]
-        sev = max(1, min(10, row.get("severity", 5)))
+        sev = round(max(1.0, min(10.0, float(row.get("severity", 5)))), 1)
         payload = {
             "ticker": (row.get("ticker") or "UNKNOWN").upper(),
             "signal_type": row.get("signal_type", "convergence"),

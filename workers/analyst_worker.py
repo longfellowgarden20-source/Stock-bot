@@ -26,6 +26,41 @@ FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 _seen_ids: set[str] = set()
 
+# Sector-leader tickers that get a small severity bump
+_SECTOR_LEADERS = {"AAPL", "NVDA", "MSFT", "TSLA", "AMZN", "GOOGL", "META", "NFLX"}
+
+
+def _score_upgrade_wave(deltas: dict, curr: dict, ticker: str) -> float:
+    """Nuanced severity for analyst upgrade waves. Range 6.0–8.5."""
+    sev = 6.0
+    if deltas.get("strongBuy", 0) >= 1:
+        sev += 0.5
+    if (deltas.get("buy", 0) + deltas.get("strongBuy", 0)) >= 3:
+        sev += 0.5
+    total = sum(int(curr.get(f, 0)) for f in ["strongBuy", "buy", "hold", "sell", "strongSell"])
+    if total > 0:
+        buy_pct = (int(curr.get("buy", 0)) + int(curr.get("strongBuy", 0))) / total
+        if buy_pct > 0.70:
+            sev += 0.5
+    if ticker.upper() in _SECTOR_LEADERS:
+        sev += 0.3
+    return round(min(sev, 8.5), 1)
+
+
+def _score_downgrade_wave(deltas: dict, curr: dict) -> float:
+    """Nuanced severity for analyst downgrade waves. Range 6.0–8.0."""
+    sev = 6.0
+    if deltas.get("strongSell", 0) >= 1:
+        sev += 0.5
+    if (deltas.get("sell", 0) + deltas.get("strongSell", 0)) >= 3:
+        sev += 0.5
+    total = sum(int(curr.get(f, 0)) for f in ["strongBuy", "buy", "hold", "sell", "strongSell"])
+    if total > 0:
+        sell_pct = (int(curr.get("sell", 0)) + int(curr.get("strongSell", 0))) / total
+        if sell_pct > 0.30:
+            sev += 0.5
+    return round(min(sev, 8.0), 1)
+
 
 async def fetch_analyst_changes_finnhub(client: httpx.AsyncClient, ticker: str) -> list[dict]:
     """Finnhub price target endpoint — requires paid plan, skip gracefully on 403."""
@@ -142,15 +177,17 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
         _seen_ids.add(dedup_key)
         kind, deltas = _detect_change(curr, prev)
         if kind == "upgrade_wave":
+            sev = _score_upgrade_wave(deltas, curr, ticker)
             insert_signal(
-                ticker, "analyst_change", 7,
+                ticker, "analyst_change", sev,
                 f"{ticker} analyst upgrade wave",
                 f"Multiple analysts upgraded {ticker} this period. Buy ratings +{deltas['buy']}, Strong Buy +{deltas['strongBuy']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
                 {"direction": "upgrade", "period": period, "current": curr, "prior": prev, "deltas": deltas},
             )
         elif kind == "downgrade_wave":
+            sev = _score_downgrade_wave(deltas, curr)
             insert_signal(
-                ticker, "analyst_change", 7,
+                ticker, "analyst_change", sev,
                 f"{ticker} analyst downgrade wave",
                 f"Multiple analysts downgraded {ticker} this period. Sell +{deltas['sell']}, Strong Sell +{deltas['strongSell']}. Current consensus: {curr.get('buy', 0)} buy, {curr.get('hold', 0)} hold, {curr.get('sell', 0)} sell.",
                 {"direction": "downgrade", "period": period, "current": curr, "prior": prev, "deltas": deltas},

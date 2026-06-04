@@ -985,7 +985,7 @@ function TickerGroup({
         {isPinned && <Pin className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
         <span className="text-xs text-slate-500">{signals.length} signal{signals.length === 1 ? '' : 's'}</span>
         {unreadCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#0ea5e9]/20 text-[#0ea5e9]">{unreadCount} new</span>}
-        <span className={`ml-auto text-xs font-bold ${maxSev >= 9 ? 'text-red-400' : maxSev >= 7 ? 'text-orange-400' : maxSev >= 5 ? 'text-yellow-400' : 'text-slate-400'}`}>max {maxSev}/10</span>
+        <span className={`ml-auto text-xs font-bold ${maxSev >= 9 ? 'text-red-400' : maxSev >= 7 ? 'text-orange-400' : maxSev >= 5 ? 'text-yellow-400' : 'text-slate-400'}`}>max {Number(maxSev).toFixed(1)}/10</span>
       </button>
       {open && (
         <div className="flex flex-col gap-2 px-2 pb-2">

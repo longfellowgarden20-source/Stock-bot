@@ -5,12 +5,66 @@ import os
 import logging
 import httpx
 import asyncio
+from datetime import datetime, timezone
 from db import get_watchlist_tickers, insert_news, insert_signal
 
 log = logging.getLogger("news_worker")
 
 NEWS_API_KEY = os.environ.get("NEWS_API_KEY", "")
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
+
+# Keywords that raise severity
+_EARNINGS_KW = ["earnings", "revenue", "guidance", "eps", "profit", "loss", "quarterly", "annual results"]
+_CATALYST_KW = ["fda", "merger", "acquisition", "buyout", "takeover", "deal", "agreement", "approved", "approval"]
+_ANALYST_KW = ["upgrade", "downgrade", "price target", "initiated", "outperform", "underperform"]
+
+# Sources that get a +0.5 credibility bonus
+_PREMIUM_SOURCES = {"reuters", "bloomberg", "the wall street journal", "wsj", "financial times", "ft", "cnbc"}
+# Sources that get a -0.5 press-release penalty
+_PR_SOURCES = {"pr newswire", "globe newswire", "globenewswire", "business wire", "businesswire"}
+
+
+def _is_premarket_et() -> bool:
+    """True if current UTC time falls in 4:00–9:30 AM Eastern."""
+    try:
+        import zoneinfo
+        et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+    except Exception:
+        # Fallback: UTC-4 (EDT) approximation
+        et = datetime.now(timezone.utc).replace(tzinfo=None)
+        et = et.replace(hour=(et.hour - 4) % 24)
+    return (et.hour == 4 and et.minute >= 0) or (5 <= et.hour <= 8) or (et.hour == 9 and et.minute < 30)
+
+
+def _score_news(headline: str, source: str, published_at: str | None = None) -> float:
+    """Compute nuanced severity for a news signal. Returns a value in [4.0, 9.0]."""
+    h = headline.lower()
+    s = source.lower() if source else ""
+    sev = 5.0
+
+    # Earnings / revenue / guidance keywords
+    if any(kw in h for kw in _EARNINGS_KW):
+        sev += 1.0
+
+    # High-impact catalyst keywords
+    if any(kw in h for kw in _CATALYST_KW):
+        sev += 1.0
+
+    # Analyst action keywords
+    if any(kw in h for kw in _ANALYST_KW):
+        sev += 0.5
+
+    # Source credibility
+    if any(ps in s for ps in _PREMIUM_SOURCES):
+        sev += 0.5
+    elif any(ps in s for ps in _PR_SOURCES):
+        sev -= 0.5
+
+    # Pre-market timing bonus
+    if _is_premarket_et():
+        sev += 0.5
+
+    return round(max(4.0, min(9.0, sev)), 1)
 
 
 BULLISH_KEYWORDS = ["beats", "surge", "rally", "upgrade", "soars", "record", "wins", "approves", "announces partnership", "breakthrough", "expands"]
@@ -79,7 +133,7 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> int:
         if insert_news(ticker, headline, source, url, sentiment, published_at):
             new_count += 1
             if sentiment in ("bullish", "bearish"):
-                sev = 6 if sentiment == "bullish" else 7
+                sev = _score_news(headline, source, published_at)
                 insert_signal(
                     ticker,
                     "news_breaking",

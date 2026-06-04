@@ -132,7 +132,7 @@ export default function SignalCard({
             <span className="text-sm font-bold text-white font-mono">{signal.ticker}</span>
             {pinned && <Pin className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
             <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${severityBadge(signal.severity)}`}>
-              {signal.severity}/10
+              {Number(signal.severity).toFixed(1)}/10
             </span>
             <span className="text-xs text-slate-500">{meta.label}</span>
             <span className="text-xs text-slate-600 ml-auto shrink-0">{timeAgo(signal.created_at)}</span>
