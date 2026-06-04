@@ -20,7 +20,8 @@ log = logging.getLogger("groq_pool")
 GROQ_BASE = "https://api.groq.com/openai/v1/chat/completions"
 CEREBRAS_BASE = "https://api.cerebras.ai/v1/chat/completions"
 DEFAULT_MODEL = "llama-3.3-70b-versatile"
-CEREBRAS_MODEL = "llama-3.3-70b"  # Cerebras model name (no -versatile suffix)
+# Cerebras free tier only exposes gpt-oss-120b and zai-glm-4.7 (no Llama models).
+CEREBRAS_MODEL = "gpt-oss-120b"
 
 
 def _is_cerebras(key: str) -> bool:
@@ -31,6 +32,23 @@ def _endpoint_and_model(key: str, model: str) -> tuple[str, str]:
     if _is_cerebras(key):
         return CEREBRAS_BASE, CEREBRAS_MODEL
     return GROQ_BASE, model
+
+
+def _extract_content(data: dict) -> str | None:
+    """Extract text from a chat completion response.
+
+    Groq returns it in message.content. Cerebras gpt-oss-120b is a reasoning
+    model that may put the answer in message.reasoning when content is empty.
+    """
+    try:
+        msg = data["choices"][0]["message"]
+    except (KeyError, IndexError, TypeError):
+        return None
+    content = (msg.get("content") or "").strip()
+    if content:
+        return content
+    reasoning = (msg.get("reasoning") or "").strip()
+    return reasoning or None
 
 
 def _load_keys(primary_names: list[str]) -> list[str]:
@@ -85,8 +103,9 @@ async def call_llm(
     messages.append({"role": "user", "content": prompt})
 
     for key in keys:
+        is_cere = _is_cerebras(key)
+        provider = "Cerebras" if is_cere else "Groq"
         url, m = _endpoint_and_model(key, model)
-        provider = "Cerebras" if _is_cerebras(key) else "Groq"
         try:
             async with httpx.AsyncClient(timeout=45) as c:
                 r = await c.post(
@@ -94,14 +113,19 @@ async def call_llm(
                     headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
                     json={"model": m, "messages": messages, "max_tokens": max_tokens, "temperature": temperature},
                 )
-                if r.status_code == 200:
-                    return r.json()["choices"][0]["message"]["content"].strip()
-                if r.status_code == 429:
-                    log.debug(f"{provider} rate limited — trying next key")
-                    continue
-                log.debug(f"{provider} error {r.status_code}: {r.text[:150]}")
+            if r.status_code == 200:
+                content = _extract_content(r.json())
+                if content:
+                    return content
+                log.warning(f"{provider} returned empty content — trying next key")
+                continue
+            if r.status_code == 429:
+                log.debug(f"{provider} rate limited — trying next key")
+                continue
+            # Surface real errors (401 bad key, 404 bad model, etc.) so they aren't silent
+            log.warning(f"{provider} error {r.status_code}: {r.text[:150]}")
         except Exception as e:
-            log.debug(f"{provider} call failed: {e}")
+            log.warning(f"{provider} call failed: {e}")
 
     log.warning("All LLM keys exhausted")
     return None
