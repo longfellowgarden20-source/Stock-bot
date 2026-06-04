@@ -14,6 +14,7 @@ import os
 import logging
 import httpx
 import asyncio
+import json
 from datetime import datetime, timezone, timedelta, date
 from db import get_watchlist_tickers, insert_signal, supabase
 
@@ -121,6 +122,194 @@ async def fetch_historical_move(client: httpx.AsyncClient, ticker: str) -> float
 
 UNUSUAL_WHALES_KEY = os.environ.get("UNUSUAL_WHALES_API_KEY", "")
 UNUSUAL_WHALES_BASE = "https://api.unusualwhales.com"
+FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+FINNHUB_BASE = "https://finnhub.io/api/v1"
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+
+_prep_alerted: dict[str, float] = {}
+
+
+def _groq_keys() -> list[str]:
+    keys = []
+    seen = set()
+    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
+        k = os.environ.get(name, "").strip()
+        if k and k not in seen:
+            keys.append(k)
+            seen.add(k)
+    return keys
+
+
+async def _call_groq(prompt: str) -> str | None:
+    for key in _groq_keys():
+        try:
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post(
+                    GROQ_URL,
+                    headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+                    json={"model": "llama-3.3-70b-versatile", "messages": [{"role": "user", "content": prompt}], "max_tokens": 500, "temperature": 0.3},
+                )
+                if r.status_code == 200:
+                    return r.json()["choices"][0]["message"]["content"].strip()
+                if r.status_code == 429:
+                    continue
+        except Exception as e:
+            log.debug(f"Groq call failed: {e}")
+    return None
+
+
+async def fetch_eps_estimates(client: httpx.AsyncClient, ticker: str) -> dict | None:
+    """Finnhub EPS estimates for the next quarter."""
+    if not FINNHUB_KEY:
+        return None
+    try:
+        r = await client.get(
+            f"{FINNHUB_BASE}/stock/eps-estimate",
+            params={"symbol": ticker.upper(), "freq": "quarterly", "token": FINNHUB_KEY},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json()
+        estimates = data.get("data", [])
+        if not estimates:
+            return None
+        return estimates[0]
+    except Exception as e:
+        log.debug(f"EPS estimate failed for {ticker}: {e}")
+        return None
+
+
+async def fetch_earnings_surprises(client: httpx.AsyncClient, ticker: str) -> list[dict]:
+    """Last 4 quarters of actual vs estimated EPS from Finnhub."""
+    if not FINNHUB_KEY:
+        return []
+    try:
+        r = await client.get(
+            f"{FINNHUB_BASE}/stock/earnings",
+            params={"symbol": ticker.upper(), "token": FINNHUB_KEY},
+            timeout=10,
+        )
+        if r.status_code != 200:
+            return []
+        return (r.json() or [])[:4]
+    except Exception as e:
+        log.debug(f"Earnings surprises failed for {ticker}: {e}")
+        return []
+
+
+async def fetch_recent_news_headlines(ticker: str, hours: int = 48) -> list[str]:
+    """Pull recent news titles from the signals table."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        res = supabase().table("signals").select("title").eq("ticker", ticker.upper()).eq("signal_type", "news_breaking").gte("created_at", since).order("created_at", desc=True).limit(8).execute()
+        return [r["title"] for r in (res.data or [])]
+    except Exception:
+        return []
+
+
+async def generate_prep_brief(client: httpx.AsyncClient, ticker: str, earnings_date: str, days_until: int, hist_move: float | None) -> None:
+    """Generate a Groq earnings prep brief 24h before the report."""
+    dedup_key = f"{ticker}-prep-{earnings_date}"
+    if dedup_key in _prep_alerted:
+        return
+
+    # Check DB — don't re-generate if we already have one
+    try:
+        existing = supabase().table("signals").select("id").eq("ticker", ticker.upper()).eq("signal_type", "earnings_upcoming").contains("raw_data", {"prep_brief": True, "earnings_date": earnings_date}).limit(1).execute()
+        if existing.data:
+            _prep_alerted[dedup_key] = datetime.now(timezone.utc).timestamp()
+            return
+    except Exception:
+        pass
+
+    eps_est = await fetch_eps_estimates(client, ticker)
+    surprises = await fetch_earnings_surprises(client, ticker)
+    headlines = await fetch_recent_news_headlines(ticker, hours=48)
+
+    # Build beat/miss history string
+    beat_miss_lines = []
+    for s in surprises:
+        period = s.get("period", "")
+        actual = s.get("actual")
+        estimate = s.get("estimate")
+        surprise_pct = s.get("surprisePercent")
+        if actual is not None and estimate is not None:
+            direction = "BEAT" if actual >= estimate else "MISS"
+            line = f"  {period}: EPS actual ${actual:.2f} vs est ${estimate:.2f} ({direction}"
+            if surprise_pct is not None:
+                line += f", {surprise_pct:+.1f}%"
+            line += ")"
+            beat_miss_lines.append(line)
+
+    history_str = "\n".join(beat_miss_lines) if beat_miss_lines else "  No historical data available."
+
+    eps_str = "Unknown"
+    rev_str = "Unknown"
+    if eps_est:
+        eps_q = eps_est.get("epsAvg") or eps_est.get("eps_avg")
+        rev_q = eps_est.get("revenueAvg") or eps_est.get("revenue_avg")
+        if eps_q:
+            eps_str = f"${eps_q:.2f}"
+        if rev_q:
+            rev_str = f"${rev_q/1e9:.2f}B" if rev_q > 1e9 else f"${rev_q/1e6:.0f}M"
+
+    hist_str = f"{hist_move:.1f}% average post-earnings move" if hist_move else "historical move data unavailable"
+    news_str = "\n".join(f"  - {h}" for h in headlines) if headlines else "  No recent news."
+
+    prompt = f"""You are a professional equity analyst writing a pre-earnings briefing for a trader who holds {ticker}.
+
+Earnings report: {earnings_date} ({days_until} day{'s' if days_until != 1 else ''} away)
+
+Analyst consensus estimates:
+  EPS estimate: {eps_str}
+  Revenue estimate: {rev_str}
+
+Last 4 quarters beat/miss history:
+{history_str}
+
+Historical post-earnings move: {hist_str}
+
+Recent news (last 48h):
+{news_str}
+
+Write a concise earnings prep note covering:
+1. What the market expects (EPS/revenue consensus and whether the bar is high or low)
+2. Beat/miss trend — has this company been consistently beating or missing?
+3. Key risk: what could cause a big miss or a big beat surprise?
+4. What to watch: the one metric that matters most this quarter
+5. Positioning note: given the implied move and history, what's the risk/reward of holding through earnings?
+
+Be direct, trader-focused, specific to {ticker}. Max 200 words. No generic filler."""
+
+    analysis = await _call_groq(prompt)
+    if not analysis:
+        log.warning(f"Groq prep brief failed for {ticker}")
+        return
+
+    _prep_alerted[dedup_key] = datetime.now(timezone.utc).timestamp()
+
+    beat_count = sum(1 for s in surprises if s.get("actual") is not None and s.get("estimate") is not None and s.get("actual", 0) >= s.get("estimate", 0))
+    miss_count = len(surprises) - beat_count
+
+    insert_signal(
+        ticker,
+        "earnings_upcoming",
+        8.5,
+        f"{ticker} earnings prep — reports {earnings_date}",
+        analysis,
+        {
+            "prep_brief": True,
+            "earnings_date": earnings_date,
+            "days_until": days_until,
+            "eps_estimate": eps_str,
+            "revenue_estimate": rev_str,
+            "historical_move_pct": hist_move,
+            "beat_count": beat_count,
+            "miss_count": miss_count,
+            "recent_headlines": headlines,
+        },
+    )
 
 # Dedup for implied move alerts
 _implied_alerted: dict[str, float] = {}
@@ -290,6 +479,15 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
     )
 
     await check_implied_move(client, ticker, next_date)
+
+    # Generate Groq prep brief when 1–2 days out (portfolio tickers only)
+    if days_until <= 2:
+        try:
+            port = supabase().table("portfolio").select("ticker").eq("ticker", ticker.upper()).limit(1).execute()
+            if port.data:
+                await generate_prep_brief(client, ticker, next_date, days_until, hist_move)
+        except Exception as e:
+            log.debug(f"Prep brief skipped for {ticker}: {e}")
 
 
 async def run_once() -> dict:
