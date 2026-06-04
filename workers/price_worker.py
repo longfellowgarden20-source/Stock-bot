@@ -23,19 +23,43 @@ POLYGON_BASE = "https://api.polygon.io"
 
 
 async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
-    """Polygon Snapshot endpoint — latest trade + day's volume/change."""
-    url = f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}"
+    """
+    Fetch latest price data. Tries Polygon snapshot first (paid tier),
+    falls back to daily aggregates (free tier) if snapshot returns non-200.
+    """
+    # Try snapshot endpoint (works on paid tier)
+    snap_url = f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}"
     try:
-        r = await client.get(url, params={"apiKey": POLYGON_KEY}, timeout=10)
+        r = await client.get(snap_url, params={"apiKey": POLYGON_KEY}, timeout=10)
+        if r.status_code == 200:
+            data = r.json()
+            if data.get("status") == "OK" and "ticker" in data:
+                return data["ticker"]
+    except Exception:
+        pass
+
+    # Fallback: daily aggregates (free tier) — get today + yesterday for change_pct
+    try:
+        today = date.today()
+        start = (today - timedelta(days=5)).isoformat()
+        agg_url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{today.isoformat()}"
+        r = await client.get(agg_url, params={"apiKey": POLYGON_KEY, "limit": 3, "sort": "desc"}, timeout=10)
         if r.status_code != 200:
-            log.warning(f"{ticker}: polygon snapshot status {r.status_code}")
+            log.warning(f"{ticker}: aggs fallback status {r.status_code}")
             return None
-        data = r.json()
-        if data.get("status") != "OK" or "ticker" not in data:
+        results = r.json().get("results", [])
+        if not results:
             return None
-        return data["ticker"]
+        today_bar = results[0]
+        prev_bar = results[1] if len(results) > 1 else {}
+        # Wrap into snapshot-compatible shape
+        return {
+            "day": {"c": today_bar.get("c"), "v": today_bar.get("v"), "o": today_bar.get("o")},
+            "prevDay": {"c": prev_bar.get("c")},
+            "lastTrade": {"p": today_bar.get("c")},  # use close as last price
+        }
     except Exception as e:
-        log.error(f"{ticker}: snapshot fetch failed — {e}")
+        log.error(f"{ticker}: aggs fallback failed — {e}")
         return None
 
 
