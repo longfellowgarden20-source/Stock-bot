@@ -190,7 +190,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
           const isUp = pnl >= 0
 
           return (
-            <div key={pos.id} className="flex items-center gap-4 px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
+            <div key={pos.id} className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
               <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isUp ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                 {isUp ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
               </div>
@@ -214,7 +214,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
                   {isUp ? '+' : ''}${pnl.toFixed(2)} ({isUp ? '+' : ''}{pnlPct.toFixed(2)}%)
                 </p>
               </div>
-              <button onClick={() => remove(pos.id)} className="text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
+              <button onClick={() => remove(pos.id)} className="p-2 text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
                 <Trash2 className="w-4 h-4" />
               </button>
             </div>

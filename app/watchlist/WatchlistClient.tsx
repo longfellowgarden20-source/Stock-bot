@@ -243,7 +243,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
           <div className="text-center py-16 text-slate-500 text-sm">No tickers yet — add one above to start tracking signals</div>
         )}
         {watchlist.map(item => (
-          <div key={item.id} className="flex items-center gap-4 px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
+          <div key={item.id} className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
             <div className="w-10 h-10 rounded-xl bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center shrink-0">
               <span className="text-xs font-bold text-[#0ea5e9] font-mono">{item.ticker.slice(0, 4)}</span>
             </div>
@@ -260,7 +260,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
               </div>
             </div>
             <span className="text-xs text-slate-600 shrink-0">{new Date(item.added_at).toLocaleDateString()}</span>
-            <button onClick={() => remove(item.id)} className="text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
+            <button onClick={() => remove(item.id)} className="p-2 text-slate-600 hover:text-red-400 shrink-0" style={{ transition: 'color 0.15s' }}>
               <Trash2 className="w-4 h-4" />
             </button>
           </div>

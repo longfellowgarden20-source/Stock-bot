@@ -779,8 +779,8 @@ function TradeRow({ trade }: { trade: Trade }) {
           <span className="font-bold text-sm text-white">{trade.ticker}</span>
         </div>
         <span className="text-xs text-slate-500 w-24">{toET(trade.date)}</span>
-        <span className="text-xs text-slate-400">in: ${Number(trade.entry_price).toFixed(2)}</span>
-        {trade.exit_price && <span className="text-xs text-slate-400">out: ${Number(trade.exit_price).toFixed(2)}</span>}
+        <span className="hidden sm:inline text-xs text-slate-400">in: ${Number(trade.entry_price).toFixed(2)}</span>
+        {trade.exit_price && <span className="hidden sm:inline text-xs text-slate-400">out: ${Number(trade.exit_price).toFixed(2)}</span>}
         <span className={`ml-auto text-sm font-bold tabular-nums ${pnlColor(trade.pnl)}`}>{formatPnl(trade.pnl)}</span>
         {trade.grade && <span className={`text-xs font-bold ml-2 ${gradeColor(trade.grade)}`}>{trade.grade}</span>}
         <ChevronRight className={`w-4 h-4 text-slate-600 ml-2 ${open ? 'rotate-90' : ''}`} style={{ transition: 'transform 0.15s' }} />
@@ -1277,7 +1277,7 @@ export default function JournalClient({
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-4 py-6 flex flex-col gap-6">
+    <div className="max-w-4xl mx-auto flex flex-col gap-6">
       {/* Page header */}
       <div className="flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 flex items-center justify-center shrink-0">

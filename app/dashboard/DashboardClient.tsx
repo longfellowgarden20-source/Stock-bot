@@ -434,7 +434,7 @@ export default function DashboardClient({
 
           <button
             onClick={() => setSoundEnabled(s => !s)}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5"
+            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5"
             style={{ transition: 'color 0.15s, background 0.15s' }}
             title={soundEnabled ? 'Mute alerts' : 'Sound on critical signals'}
           >
@@ -452,7 +452,7 @@ export default function DashboardClient({
           </button>
 
           {unread > 0 && (
-            <button onClick={markAllRead} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5" style={{ transition: 'color 0.15s, background 0.15s' }}>
+            <button onClick={markAllRead} aria-label="Mark all read" className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5" style={{ transition: 'color 0.15s, background 0.15s' }}>
               <CheckCheck className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">Mark all read</span>
             </button>
@@ -463,7 +463,7 @@ export default function DashboardClient({
           <button
             onClick={exportCSV}
             disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-30"
+            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-30"
             style={{ transition: 'color 0.15s, background 0.15s' }}
             title="Export filtered signals to CSV"
           >
@@ -471,7 +471,7 @@ export default function DashboardClient({
             <span className="hidden sm:inline">Export CSV</span>
           </button>
 
-          <button onClick={refresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
+          <button onClick={refresh} disabled={refreshing} className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
             {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{refreshing ? 'Scanning…' : 'Force scan'}</span>
           </button>

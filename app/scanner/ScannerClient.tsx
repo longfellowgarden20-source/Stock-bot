@@ -54,7 +54,7 @@ export default function ScannerClient({ signals }: { signals: Signal[] }) {
             <button
               key={v}
               onClick={() => setMinSeverity(v)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${minSeverity === v ? 'bg-[#0ea5e9]/15 border-[#0ea5e9]/40 text-[#0ea5e9]' : 'border-white/10 text-slate-500 hover:text-white'}`}
+              className={`px-3 py-2.5 rounded-lg text-xs font-bold border ${minSeverity === v ? 'bg-[#0ea5e9]/15 border-[#0ea5e9]/40 text-[#0ea5e9]' : 'border-white/10 text-slate-500 hover:text-white'}`}
               style={{ transition: 'color 0.15s, background 0.15s' }}
             >{v}+</button>
           ))}

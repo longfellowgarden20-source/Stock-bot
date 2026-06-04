@@ -69,7 +69,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
         <div className="flex items-center gap-3 flex-wrap">
           <Link
             href="/dashboard"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60"
+            className="p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60"
             style={{ transitionProperty: 'color, background', transitionDuration: '0.15s' }}
           >
             <ArrowLeft className="w-4 h-4" />

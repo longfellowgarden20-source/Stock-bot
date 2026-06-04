@@ -115,7 +115,7 @@ export default function SignalCard({
         {selectable && (
           <button
             onClick={(e) => { stop(e); onSelect?.(signal.id, e) }}
-            className="mt-1 w-4 h-4 rounded border border-white/20 hover:border-[#0ea5e9] flex items-center justify-center shrink-0"
+            className="mt-1 w-6 h-6 rounded border border-white/20 hover:border-[#0ea5e9] flex items-center justify-center shrink-0"
             style={{ transition: 'border-color 0.15s, background 0.15s', background: selected ? '#0ea5e9' : 'transparent' }}
             aria-label="Select signal"
           >
@@ -148,7 +148,7 @@ export default function SignalCard({
           {onToggleExpand && !isCompact && (
             <button
               onClick={(e) => { stop(e); onToggleExpand(signal.id) }}
-              className="p-1 rounded-lg text-slate-600 hover:text-white hover:bg-white/5 opacity-0 group-hover:opacity-100"
+              className="p-2.5 rounded-lg text-slate-600 hover:text-white hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label={expanded ? 'Collapse' : 'Expand'}
               title={expanded ? 'Collapse' : 'Expand'}
@@ -159,7 +159,7 @@ export default function SignalCard({
           {onTogglePin && (
             <button
               onClick={(e) => { stop(e); onTogglePin(signal.ticker) }}
-              className="p-1 rounded-lg text-slate-600 hover:text-yellow-400 hover:bg-white/5 opacity-0 group-hover:opacity-100"
+              className="p-2.5 rounded-lg text-slate-600 hover:text-yellow-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label={pinned ? 'Unpin' : 'Pin'}
               title={pinned ? 'Unpin ticker' : 'Pin ticker'}
@@ -170,7 +170,7 @@ export default function SignalCard({
           {onMuteTicker && (
             <button
               onClick={(e) => { stop(e); onMuteTicker(signal.ticker) }}
-              className="p-1 rounded-lg text-slate-600 hover:text-red-400 hover:bg-white/5 opacity-0 group-hover:opacity-100"
+              className="p-2.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label="Mute ticker"
               title="Mute ticker"
@@ -180,7 +180,7 @@ export default function SignalCard({
           )}
           <Link
             href={`/signals/${signal.id}`}
-            className="p-1 rounded-lg text-slate-600 hover:text-white"
+            className="p-2.5 rounded-lg text-slate-600 hover:text-white"
             style={{ transition: 'color 0.15s' }}
             aria-label="Open"
           >
