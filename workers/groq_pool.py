@@ -42,7 +42,7 @@ def _load_keys(primary_names: list[str]) -> list[str]:
         primary_names
         + ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"]
         + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]
-        + ["CEREBRAS_API_KEY"]
+        + ["CEREBRAS_API_KEY", "CEREBRAS_API_KEY_2"]
     )
     keys = []
     seen = set()

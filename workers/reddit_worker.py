@@ -12,7 +12,7 @@ import re
 import logging
 import httpx
 import asyncio
-from datetime import date
+from datetime import date, datetime
 from db import get_watchlist_tickers, insert_signal, supabase
 from market_hours import now_et, is_weekday
 
@@ -164,7 +164,7 @@ For each ticker, write ONE sentence explaining: what retail traders are saying a
 
     return await call_llm(
         prompt,
-        primary_env_vars=["GROQ_BACKUP_API_KEY"],
+        primary_env_vars=["CEREBRAS_API_KEY_2"],
         max_tokens=600,
         temperature=0.3,
         system="You are an experienced trader writing internal morning briefings. Direct, specific, never generic.",
@@ -271,22 +271,29 @@ async def morning_brief(client: httpx.AsyncClient) -> dict:
         )
 
     n = len(top_10)
+    try:
+        import zoneinfo
+        et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        hour_label = et_now.strftime("%-I%p").lower()
+    except Exception:
+        hour_label = date_str
+
     insert_signal(
         "REDDIT",
         "convergence",
         6,
-        f"Morning Reddit Scan — {date_str} — Top {n} tickers",
+        f"Reddit Sentiment — {hour_label} — Top {n} tickers",
         synthesis,
         {
             "tickers": [t for t, _ in top_10],
             "mention_counts": {t: r["count"] for t, r in top_10},
             "sample_posts": {t: r["titles"] for t, r in top_10},
             "subreddits_scanned": SUBREDDITS,
-            "scan_type": "morning_brief",
+            "scan_type": "sentiment_brief",
             "date": today.isoformat(),
         },
     )
-    log.info(f"Morning brief inserted: top tickers = {[t for t, _ in top_10]}")
+    log.info(f"Reddit brief inserted: top tickers = {[t for t, _ in top_10]}")
     return {"status": "ok", "tickers": [t for t, _ in top_10], "date": today.isoformat()}
 
 
@@ -317,30 +324,42 @@ async def run_once() -> dict:
     }
 
 
+_last_brief_hour: int = -1
+
+
 async def main_loop():
+    global _last_brief_hour
     log.info("Reddit worker started")
     while True:
         try:
             et = now_et()
+            # Brief runs every 2 hours during extended market hours (6am–8pm ET), weekdays only
+            # Fires at 6, 8, 10, 12, 14, 16, 18 ET — deduped by hour so it only fires once per slot
+            brief_hours = {6, 8, 10, 12, 14, 16, 18}
+            should_brief = (
+                is_weekday()
+                and et.hour in brief_hours
+                and et.minute < 30
+                and et.hour != _last_brief_hour
+            )
 
-            # Morning brief window: 6:00–6:30 AM ET, weekdays only
-            if is_weekday() and et.hour == 6 and et.minute < 30:
-                async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient() as client:
+                if should_brief:
+                    _last_brief_hour = et.hour
                     result = await morning_brief(client)
-                log.info(f"Morning brief: {result}")
-            else:
-                # Regular 30-min tick: mention counting + sentiment spikes (no Groq)
-                async with httpx.AsyncClient() as client:
-                    all_posts: list[dict] = []
-                    for sub in SUBREDDITS:
-                        posts = await fetch_subreddit_posts(client, sub, 100)
-                        all_posts.extend(posts)
-                        await asyncio.sleep(2)
-                    mentions = build_mention_map(all_posts)
-                    qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
-                    watchlist = get_watchlist_tickers()
-                    spikes = emit_sentiment_spikes(qualified, watchlist)
-                    log.info(f"Reddit tick: {len(qualified)} qualified tickers, {spikes} spikes")
+                    log.info(f"Reddit brief ({et.hour}h): {result}")
+
+                # Always do mention counting + sentiment spikes every 30 min
+                all_posts: list[dict] = []
+                for sub in SUBREDDITS:
+                    posts = await fetch_subreddit_posts(client, sub, 100)
+                    all_posts.extend(posts)
+                    await asyncio.sleep(2)
+                mentions = build_mention_map(all_posts)
+                qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
+                watchlist = get_watchlist_tickers()
+                spikes = emit_sentiment_spikes(qualified, watchlist)
+                log.info(f"Reddit tick: {len(qualified)} qualified tickers, {spikes} spikes")
 
         except Exception as e:
             log.error(f"Reddit loop error: {e}")
