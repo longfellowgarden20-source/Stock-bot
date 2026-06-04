@@ -33,8 +33,10 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
   const { data: signal } = await supabase.from('signals').select('*').eq('id', id).single()
   if (!signal) notFound()
 
-  // Mark as read
-  await supabase.from('signals').update({ read: true }).eq('id', id)
+  // Mark as read — run in background, don't await (avoids stale read=false in render)
+  supabase.from('signals').update({ read: true }).eq('id', id).then(() => {})
+  // Treat signal as read for this render
+  const displaySignal = { ...signal, read: true }
 
   // Get other recent signals for same ticker
   const { data: related } = await supabase
@@ -45,7 +47,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
     .order('created_at', { ascending: false })
     .limit(6)
 
-  const createdAt = new Date(signal.created_at)
+  const createdAt = new Date(displaySignal.created_at)
   const timeStr = createdAt.toLocaleString('en-US', {
     timeZone: 'America/New_York',
     month: 'short',

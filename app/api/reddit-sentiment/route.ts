@@ -65,12 +65,16 @@ async function fetchSearch(ticker: string): Promise<RedditPost[]> {
   }
 }
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 function postMentionsTicker(post: RedditPost, ticker: string): boolean {
   const upper = ticker.toUpperCase()
+  const escaped = escapeRegex(upper)
   const combined = `${post.title} ${post.selftext ?? ''}`.toUpperCase()
-  // Match $TICKER or whole-word TICKER
-  const dollarPattern = new RegExp(`\\$${upper}\\b`)
-  const wordPattern = new RegExp(`\\b${upper}\\b`)
+  const dollarPattern = new RegExp(`\\$${escaped}\\b`)
+  const wordPattern = new RegExp(`\\b${escaped}\\b`)
   return dollarPattern.test(combined) || wordPattern.test(combined)
 }
 

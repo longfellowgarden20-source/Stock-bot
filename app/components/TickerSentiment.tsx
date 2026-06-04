@@ -58,8 +58,7 @@ function ScoreBar({ score }: { score: number }) {
   const pct = ((score - 1) / 9) * 100
   const color =
     score >= 7 ? '#22c55e'
-    : score <= 3 ? '#ef4444'
-    : score >= 5 ? '#f59e0b'
+    : score >= 4 ? '#f59e0b'
     : '#ef4444'
 
   return (

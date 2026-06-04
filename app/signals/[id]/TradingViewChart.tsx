@@ -5,8 +5,10 @@ export default function TradingViewChart({ ticker }: { ticker: string }) {
   const containerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    if (!containerRef.current) return
-    containerRef.current.innerHTML = ''
+    const container = containerRef.current
+    if (!container) return
+    let active = true
+    container.innerHTML = ''
     const script = document.createElement('script')
     script.src = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
     script.async = true
@@ -27,7 +29,11 @@ export default function TradingViewChart({ ticker }: { ticker: string }) {
       calendar: false,
       hide_volume: false,
     })
-    containerRef.current.appendChild(script)
+    if (active) container.appendChild(script)
+    return () => {
+      active = false
+      container.innerHTML = ''
+    }
   }, [ticker])
 
   return (

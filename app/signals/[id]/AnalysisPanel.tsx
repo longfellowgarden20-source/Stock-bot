@@ -95,7 +95,7 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    let cancelled = false
+    const controller = new AbortController()
     async function fetchAnalysis() {
       setLoading(true)
       setError(null)
@@ -104,21 +104,23 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ signal_id: signalId }),
+          signal: controller.signal,
         })
         if (!res.ok) {
           const data = await res.json().catch(() => ({}))
           throw new Error(data.error || `HTTP ${res.status}`)
         }
         const data: AnalysisResult = await res.json()
-        if (!cancelled) setResult(data)
+        setResult(data)
       } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load analysis')
+        if ((e as Error).name === 'AbortError') return
+        setError(e instanceof Error ? e.message : 'Failed to load analysis')
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!controller.signal.aborted) setLoading(false)
       }
     }
     fetchAnalysis()
-    return () => { cancelled = true }
+    return () => controller.abort()
   }, [signalId])
 
   // Group sources by type
@@ -129,7 +131,7 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
       groupedSources[s.type]!.push(s)
     }
   }
-  const hasSourcess = result?.sources && result.sources.length > 0
+  const hasSources = result?.sources && result.sources.length > 0
 
   return (
     <>
@@ -193,7 +195,7 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
       </div>
 
       {/* Source Links Card */}
-      {hasSourcess && (
+      {hasSources && (
         <div className="bg-white/4 border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
           <div className="flex items-center gap-2">
             <ExternalLink className="w-4 h-4 text-slate-400" />
