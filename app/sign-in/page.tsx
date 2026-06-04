@@ -1,26 +1,26 @@
 'use client'
 
 import { useState } from 'react'
-import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { TrendingUp, BarChart2, Zap, Shield } from 'lucide-react'
 
+const ACCESS_PASSWORD = 'Blacky10'
+
 export default function SignInPage() {
-  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
 
   const signIn = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
     setError('')
-    const supabase = getSupabaseBrowser()
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
-      setLoading(false)
-    } else {
+
+    if (password === ACCESS_PASSWORD) {
+      document.cookie = 'sb-access=granted; path=/; max-age=2592000; SameSite=Lax'
       window.location.href = '/dashboard'
+    } else {
+      setError('Incorrect password')
+      setLoading(false)
     }
   }
 
@@ -60,20 +60,12 @@ export default function SignInPage() {
 
           <form onSubmit={signIn} className="flex flex-col gap-3">
             <input
-              type="email"
-              placeholder="Email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              required
-              className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0ea5e9]/60 text-sm"
-              style={{ transition: 'border-color 0.15s' }}
-            />
-            <input
               type="password"
-              placeholder="Password"
+              placeholder="Access password"
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
+              autoFocus
               className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-slate-500 focus:outline-none focus:border-[#0ea5e9]/60 text-sm"
               style={{ transition: 'border-color 0.15s' }}
             />
@@ -86,7 +78,7 @@ export default function SignInPage() {
             >
               {loading ? (
                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-              ) : 'Sign In'}
+              ) : 'Enter'}
             </button>
           </form>
         </div>
