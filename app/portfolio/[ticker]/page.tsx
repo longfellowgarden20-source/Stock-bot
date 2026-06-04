@@ -38,7 +38,7 @@ export default async function PositionDetailPage({
     { data: signals },
     { data: allPortfolio },
   ] = await Promise.all([
-    supabase.from('portfolio').select('*').eq('ticker', symbol).single(),
+    supabase.from('portfolio').select('*').eq('ticker', symbol).order('added_at', { ascending: false }).limit(1).single(),
     supabase
       .from('snapshots')
       .select('*')
@@ -59,11 +59,25 @@ export default async function PositionDetailPage({
 
   const latestSnapshot = snapshots?.[0] ?? null
 
-  // Compute total portfolio value for position sizing
+  // Compute total portfolio market value for position sizing
+  // Fetch latest snapshots for all portfolio tickers to get market prices
+  const allTickers = (allPortfolio ?? []).map(p => p.ticker)
+  let allSnapshotMap: Record<string, number> = {}
+  if (allTickers.length > 0) {
+    const { data: allSnaps } = await supabase
+      .from('snapshots')
+      .select('ticker, price, created_at')
+      .in('ticker', allTickers)
+      .order('created_at', { ascending: false })
+      .limit(allTickers.length * 2)
+    for (const s of allSnaps ?? []) {
+      if (!allSnapshotMap[s.ticker] && s.price > 0) allSnapshotMap[s.ticker] = s.price
+    }
+  }
   let totalPortfolioValue = 0
-  // We'd need snapshots for all tickers — approximate with cost basis
   for (const p of allPortfolio ?? []) {
-    totalPortfolioValue += p.shares * p.avg_cost
+    const price = allSnapshotMap[p.ticker] || p.avg_cost
+    totalPortfolioValue += p.shares * price
   }
 
   // Parallel external API fetches

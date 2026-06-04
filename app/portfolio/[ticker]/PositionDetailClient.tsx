@@ -128,9 +128,9 @@ export default function PositionDetailClient({
   const [targetPrice, setTargetPrice] = useState('')
 
   const ticker = position.ticker
-  const currentPrice = latestSnapshot?.price ?? position.avg_cost
+  const currentPrice = latestSnapshot?.price || position.avg_cost
   const pnl = (currentPrice - position.avg_cost) * position.shares
-  const pnlPct = ((currentPrice - position.avg_cost) / position.avg_cost) * 100
+  const pnlPct = position.avg_cost > 0 ? ((currentPrice - position.avg_cost) / position.avg_cost) * 100 : 0
   const totalValue = currentPrice * position.shares
   const isUp = pnl >= 0
   const dayChange = latestSnapshot?.change_pct ?? null
@@ -197,7 +197,8 @@ export default function PositionDetailClient({
   const potentialGainPct = !isNaN(targetNum) && targetNum > 0 && currentPrice > 0
     ? ((targetNum - currentPrice) / currentPrice) * 100
     : null
-  const rrRatio = maxLossDollar != null && potentialGainDollar != null && maxLossDollar < 0
+  // Valid R:R: stop must be below entry (maxLossDollar < 0) AND target above entry (potentialGainDollar > 0)
+  const rrRatio = maxLossDollar != null && potentialGainDollar != null && maxLossDollar < 0 && potentialGainDollar > 0
     ? Math.abs(potentialGainDollar / maxLossDollar)
     : null
 
@@ -361,7 +362,7 @@ export default function PositionDetailClient({
                 { label: '52W Low', value: week52Low != null ? fmt$(week52Low) : '—' },
                 { label: 'Beta', value: beta != null ? beta.toFixed(2) : '—' },
                 { label: 'Dividend Yield', value: m.dividendYieldIndicatedAnnual != null ? fmtPct(m.dividendYieldIndicatedAnnual, 2) : '—' },
-                { label: 'Revenue TTM', value: m.revenuePerShareTTM != null ? fmtLargeNum(m.revenueTTM) : '—' },
+                { label: 'Revenue TTM', value: m.revenueTTM != null ? fmtLargeNum(m.revenueTTM) : '—' },
                 { label: 'Profit Margin', value: m.netProfitMarginTTM != null ? fmtPct(m.netProfitMarginTTM, 1) : '—' },
               ].map(({ label, value }) => (
                 <div key={label} className="flex flex-col gap-1 bg-white/3 border border-white/8 rounded-xl p-3">
