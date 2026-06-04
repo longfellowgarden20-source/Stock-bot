@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/app/components/AppShell'
 import ScannerClient from './ScannerClient'
 
-export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 export default async function ScannerPage() {
   const supabase = createClient(

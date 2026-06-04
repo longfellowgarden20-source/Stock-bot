@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/app/components/AppShell'
 import PortfolioClient from './PortfolioClient'
 
-export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 export default async function PortfolioPage() {
   const supabase = createClient(

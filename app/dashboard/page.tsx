@@ -2,7 +2,7 @@ import { createClient } from '@supabase/supabase-js'
 import AppShell from '@/app/components/AppShell'
 import DashboardClient from './DashboardClient'
 
-export const revalidate = 30
+export const dynamic = 'force-dynamic'
 
 export default async function DashboardPage() {
   const supabase = createClient(
