@@ -18,7 +18,7 @@ from db import supabase, get_watchlist_tickers, insert_signal
 
 log = logging.getLogger("congress_worker")
 
-CT_BASE = "https://www.capitoltrades.com/api"
+CT_BASE = "https://api.capitoltrades.com/v1"
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (compatible; StockBot/1.0; personal research tool)",
     "Accept": "application/json",
