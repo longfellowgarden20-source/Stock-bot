@@ -3,7 +3,6 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { TrendingUp, LayoutDashboard, Briefcase, Search, Bookmark, LogOut, Bell } from 'lucide-react'
-import { getSupabaseBrowser } from '@/lib/supabase-browser'
 import { useRouter } from 'next/navigation'
 
 const links = [
@@ -17,9 +16,8 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
   const pathname = usePathname()
   const router = useRouter()
 
-  const signOut = async () => {
-    const supabase = getSupabaseBrowser()
-    await supabase.auth.signOut()
+  const signOut = () => {
+    document.cookie = 'sb-access=; path=/; max-age=0'
     router.push('/sign-in')
   }
 
