@@ -24,11 +24,14 @@ GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 GROQ_MODEL = "llama-3.3-70b-versatile"
 
 def _groq_keys() -> list[str]:
+    """Reddit worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
     keys = []
-    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY", "GROQ_API_KEY_2", "GROQ_API_KEY_3"]:
+    seen = set()
+    for name in ["GROQ_BACKUP_API_KEY", "GROQ_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
         k = os.environ.get(name, "").strip()
-        if k:
+        if k and k not in seen:
             keys.append(k)
+            seen.add(k)
     return keys
 
 GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")

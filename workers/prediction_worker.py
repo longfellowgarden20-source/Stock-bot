@@ -26,9 +26,10 @@ POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
 
 def _groq_keys() -> list[str]:
+    """Prediction worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
     keys = []
     seen = set()
-    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
+    for name in ["GROQ_BACKUP_API_KEY", "GROQ_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
         k = os.environ.get(name, "").strip()
         if k and k not in seen:
             keys.append(k)

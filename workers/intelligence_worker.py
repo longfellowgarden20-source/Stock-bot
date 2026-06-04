@@ -72,9 +72,10 @@ _last_run_headlines: list[dict] = []
 
 
 def _groq_keys() -> list[str]:
-    keys = []
+    """Intelligence worker uses GROQ_API_KEY_2 as primary, falls back to full pool."""
     seen = set()
-    for name in ["GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
+    keys = []
+    for name in ["GROQ_API_KEY_2", "GROQ_API_KEY", "GROQ_BACKUP_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(3, 6)]:
         k = os.environ.get(name, "").strip()
         if k and k not in seen:
             keys.append(k)
