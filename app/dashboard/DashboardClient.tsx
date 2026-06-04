@@ -272,9 +272,11 @@ export default function DashboardClient({
 
   // --- History fetch ---
   const fetchHistory = useCallback(async (from: string, to: string) => {
+    // Swap if inverted
+    const [resolvedFrom, resolvedTo] = from > to ? [to, from] : [from, to]
     setHistoryLoading(true)
     try {
-      const params = new URLSearchParams({ from, to, limit: '200' })
+      const params = new URLSearchParams({ from: resolvedFrom, to: resolvedTo, limit: '200' })
       if (typeFilter !== 'all') params.set('type', typeFilter)
       if (severityFilter !== 'all' && severityFilter !== 'medium') {
         const minSev = severityFilter === 'critical' ? '9' : severityFilter === 'high' ? '7' : '5'

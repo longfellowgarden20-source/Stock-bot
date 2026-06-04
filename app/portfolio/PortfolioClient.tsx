@@ -70,7 +70,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
   let totalCost = 0
   for (const pos of portfolio) {
     const snap = snapshots[pos.ticker]
-    const currentPrice = snap?.price ?? pos.avg_cost
+    const currentPrice = snap?.price || pos.avg_cost
     totalValue += currentPrice * pos.shares
     totalCost += pos.avg_cost * pos.shares
   }
@@ -211,7 +211,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
         )}
         {portfolio.map(pos => {
           const snap = snapshots[pos.ticker]
-          const currentPrice = snap?.price ?? pos.avg_cost
+          const currentPrice = snap?.price || pos.avg_cost
           const pnl = (currentPrice - pos.avg_cost) * pos.shares
           const pnlPct = ((currentPrice - pos.avg_cost) / pos.avg_cost) * 100
           const value = currentPrice * pos.shares
@@ -278,7 +278,7 @@ function HeatMapView({
 }) {
   const positions = portfolio.map(pos => {
     const snap = snapshots[pos.ticker]
-    const currentPrice = snap?.price ?? pos.avg_cost
+    const currentPrice = snap?.price || pos.avg_cost
     const value = currentPrice * pos.shares
     const dayDollarPnl = snap?.change_pct != null
       ? pos.shares * currentPrice * (snap.change_pct / 100)

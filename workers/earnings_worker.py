@@ -141,7 +141,10 @@ async def check_implied_move(client: httpx.AsyncClient, ticker: str, earnings_da
         snap_res = db.table("snapshots").select("price").eq("ticker", ticker.upper()).order("created_at", desc=True).limit(1).execute()
         if not snap_res.data:
             return
-        current_price = float(snap_res.data[0]["price"])
+        raw_price = snap_res.data[0].get("price")
+        if raw_price is None:
+            return
+        current_price = float(raw_price)
         if current_price <= 0:
             return
     except Exception as e:

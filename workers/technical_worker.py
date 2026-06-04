@@ -217,10 +217,10 @@ async def check_rsi_confluence(client: httpx.AsyncClient, ticker: str, daily_clo
         return
 
     weekly_bars = await fetch_weekly_bars(client, ticker, weeks=52)
-    if len(weekly_bars) < 15:
+    if len(weekly_bars) < 16:
         return
     weekly_closes = [b["c"] for b in weekly_bars if b.get("c") is not None]
-    if len(weekly_closes) < 15:
+    if len(weekly_closes) < 16:
         return
     weekly_rsi = rsi(weekly_closes, 14)
     if weekly_rsi is None:

@@ -75,9 +75,10 @@ export async function GET() {
 
   const severities = (allSignals24h ?? []).map(s => s.severity as number)
   const avgSeverity = severities.length > 0 ? severities.reduce((a, b) => a + b, 0) / severities.length : 0
+  // High severity = more fear (market stress), not greed
   let severityScore = 0
-  if (avgSeverity > 7) severityScore = 10
-  else if (avgSeverity >= 5) severityScore = 5
+  if (avgSeverity > 7) severityScore = -10
+  else if (avgSeverity >= 5) severityScore = -5
 
   const raw = 50 + vixScore + convergenceScore + severityScore
   const score = Math.max(0, Math.min(100, raw))

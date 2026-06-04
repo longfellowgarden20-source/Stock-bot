@@ -56,7 +56,7 @@ WORKER_INTERVALS = {
     'options': 300, 'darkpool': 300, 'congress': 21600,
     'squeeze': 3600, 'technical': 900, 'earnings': 3600,
     'analyst': 3600, 'macro': 1800, 'sector': 3600,
-    'reddit': 1800, 'signal_engine': 300,
+    'reddit': 1800, 'engine': 300,
 }
 
 WORKERS = {
