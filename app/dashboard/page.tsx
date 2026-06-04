@@ -10,7 +10,10 @@ export default async function DashboardPage() {
     process.env.SUPABASE_SERVICE_ROLE_KEY!
   )
 
-  const [{ data: signals }, { data: snapshots }] = await Promise.all([
+  const todayStart = new Date()
+  todayStart.setHours(0, 0, 0, 0)
+
+  const [{ data: signals }, { data: snapshots }, { data: morningBriefRows }] = await Promise.all([
     supabase
       .from('signals')
       .select('*')
@@ -21,6 +24,14 @@ export default async function DashboardPage() {
       .select('ticker, price, change_pct, volume, created_at')
       .order('created_at', { ascending: false })
       .limit(50),
+    supabase
+      .from('signals')
+      .select('*')
+      .eq('ticker', 'REDDIT')
+      .eq('signal_type', 'convergence')
+      .gte('created_at', todayStart.toISOString())
+      .order('created_at', { ascending: false })
+      .limit(1),
   ])
 
   type SnapRow = { ticker: string; price: number; change_pct: number; volume: number; created_at: string }
@@ -30,10 +41,15 @@ export default async function DashboardPage() {
   }
 
   const unreadCount = (signals ?? []).filter(s => !s.read).length
+  const morningBrief = morningBriefRows?.[0] ?? null
 
   return (
     <AppShell unreadCount={unreadCount}>
-      <DashboardClient signals={signals ?? []} snapshots={Object.values(latestSnaps)} />
+      <DashboardClient
+        signals={signals ?? []}
+        snapshots={Object.values(latestSnaps)}
+        morningBrief={morningBrief}
+      />
     </AppShell>
   )
 }

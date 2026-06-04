@@ -14,7 +14,7 @@ import { useDocumentTitle } from '@/app/hooks/useDocumentTitle'
 import {
   TrendingUp, TrendingDown, Zap, Filter, CheckCheck, RefreshCw, Loader2,
   Search, X, Volume2, VolumeX, Rows3, Rows4, Layers, ChevronDown,
-  ArrowUpDown, Pause, Play, Pin, Keyboard, Sparkles, Download,
+  ArrowUpDown, Pause, Play, Pin, Keyboard, Sparkles, Download, Newspaper,
 } from 'lucide-react'
 
 type Snapshot = {
@@ -39,7 +39,28 @@ type Density = 'compact' | 'comfortable'
 
 const AUTO_REFRESH_SECONDS = 60
 
-export default function DashboardClient({ signals: initial, snapshots }: { signals: Signal[]; snapshots: Snapshot[] }) {
+type MorningBriefSignal = {
+  id: string
+  title: string
+  body: string
+  created_at: string
+  raw_data: {
+    tickers?: string[]
+    mention_counts?: Record<string, number>
+    sample_posts?: Record<string, string[]>
+    subreddits_scanned?: string[]
+  } | null
+}
+
+export default function DashboardClient({
+  signals: initial,
+  snapshots,
+  morningBrief,
+}: {
+  signals: Signal[]
+  snapshots: Snapshot[]
+  morningBrief?: MorningBriefSignal | null
+}) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -64,6 +85,8 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
   const { toast } = useToast()
   const [refreshing, setRefreshing] = useState(false)
   const [countdown, setCountdown] = useState<number>(AUTO_REFRESH_SECONDS)
+
+  const [briefDismissed, setBriefDismissed] = useState(false)
 
   const searchRef = useRef<HTMLInputElement>(null)
   const filteredRef = useRef<HTMLDivElement>(null)
@@ -461,6 +484,11 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
         </div>
       </div>
 
+      {/* Morning Brief banner */}
+      {morningBrief && !briefDismissed && (
+        <MorningBriefBanner brief={morningBrief} onDismiss={() => setBriefDismissed(true)} />
+      )}
+
       {/* Featured convergence signals */}
       {convergenceSignals.length > 0 && (
         <div className="border border-red-500/20 rounded-2xl p-3 bg-red-500/5">
@@ -711,6 +739,79 @@ export default function DashboardClient({ signals: initial, snapshots }: { signa
             />
           ))
         )}
+      </div>
+    </div>
+  )
+}
+
+function MorningBriefBanner({
+  brief,
+  onDismiss,
+}: {
+  brief: MorningBriefSignal
+  onDismiss: () => void
+}) {
+  const tickers = brief.raw_data?.tickers ?? []
+  const mentionCounts = brief.raw_data?.mention_counts ?? {}
+  const ts = new Date(brief.created_at)
+  const timeStr = ts.toLocaleTimeString('en-US', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: 'America/New_York',
+    hour12: true,
+  })
+
+  // Parse body as numbered list items if possible
+  const bodyLines = brief.body
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+
+  return (
+    <div className="rounded-2xl border border-[#0ea5e9]/20 bg-[#0ea5e9]/8 p-4">
+      {/* Header row */}
+      <div className="flex items-start justify-between gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Newspaper className="w-4 h-4 text-[#0ea5e9] shrink-0" />
+          <div>
+            <p className="text-sm font-bold text-[#0ea5e9] leading-tight">{brief.title}</p>
+            <p className="text-xs text-slate-500 mt-0.5">Reddit scan · {timeStr} ET</p>
+          </div>
+        </div>
+        <button
+          onClick={onDismiss}
+          className="p-1 rounded-md text-slate-500 hover:text-white hover:bg-white/8 shrink-0"
+          style={{ transition: 'color 0.15s, background 0.15s' }}
+          aria-label="Dismiss morning brief"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Ticker chips */}
+      {tickers.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {tickers.map(ticker => (
+            <span
+              key={ticker}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#0ea5e9]/15 border border-[#0ea5e9]/25 text-xs font-bold text-[#0ea5e9] font-mono"
+            >
+              ${ticker}
+              {mentionCounts[ticker] != null && (
+                <span className="font-normal text-slate-400">×{mentionCounts[ticker]}</span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Synthesis body */}
+      <div className="space-y-1.5">
+        {bodyLines.map((line, i) => (
+          <p key={i} className="text-xs text-slate-300 leading-relaxed">
+            {line}
+          </p>
+        ))}
       </div>
     </div>
   )
