@@ -68,6 +68,82 @@ def get_watchlist_tickers() -> list[str]:
         return []
 
 
+async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
+    """
+    Build a broad universe of tickers for sandbox scanning:
+    1. Polygon top gainers + losers (price momentum)
+    2. StockTwits trending (retail sentiment)
+    3. Tickers with recent signals in DB (already flagged by other workers)
+    4. Watchlist + portfolio (always included)
+
+    Returns deduplicated list, ETFs and crypto filtered out.
+    """
+    tickers: set[str] = set()
+
+    # 1. Watchlist + portfolio — always included
+    tickers.update(get_watchlist_tickers())
+
+    # 2. Polygon top gainers + losers
+    if POLYGON_KEY:
+        for direction in ["gainers", "losers"]:
+            try:
+                r = await client.get(
+                    f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/{direction}",
+                    params={"apiKey": POLYGON_KEY, "include_otc": False},
+                    timeout=10,
+                )
+                if r.status_code == 200:
+                    for item in (r.json().get("tickers") or [])[:15]:
+                        t = item.get("ticker", "")
+                        if t and 1 < len(t) <= 5 and t.isalpha():
+                            tickers.add(t.upper())
+            except Exception as e:
+                log.debug(f"Polygon {direction} fetch failed: {e}")
+
+    # 3. StockTwits trending
+    try:
+        r = await client.get(
+            "https://api.stocktwits.com/api/2/trending/symbols.json",
+            timeout=10,
+        )
+        if r.status_code == 200:
+            for s in (r.json().get("symbols") or [])[:20]:
+                t = s.get("symbol", "")
+                # Filter crypto (.X suffix) and ETFs
+                if t and "." not in t and 1 < len(t) <= 5 and t.isalpha():
+                    tickers.add(t.upper())
+    except Exception as e:
+        log.debug(f"StockTwits trending fetch failed: {e}")
+
+    # 4. Tickers with signals in last 24h (already flagged by other workers)
+    try:
+        from datetime import datetime, timezone, timedelta
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("ticker")
+            .gte("created_at", since)
+            .gte("severity", 6)
+            .execute()
+        )
+        for r in (res.data or []):
+            t = r.get("ticker", "")
+            if t and 1 < len(t) <= 5 and t.isalpha() and t not in ("REDDIT", "SYSTEM"):
+                tickers.add(t.upper())
+    except Exception as e:
+        log.debug(f"Signals universe fetch failed: {e}")
+
+    # Filter known ETFs and indices
+    ETF_FILTER = {"SPY", "QQQ", "IWM", "DIA", "VTI", "GLD", "SLV", "TLT", "HYG",
+                  "XLF", "XLE", "XLK", "XLV", "XLI", "XLP", "XLU", "XLB", "XLY",
+                  "ARKK", "ARKG", "SQQQ", "TQQQ", "UVXY", "VXX"}
+    tickers -= ETF_FILTER
+
+    result = sorted(tickers)
+    log.info(f"Sandbox scan universe: {len(result)} tickers")
+    return result
+
+
 async def get_current_price(client: httpx.AsyncClient, ticker: str) -> float | None:
     """Try snapshot first (paid), fall back to daily aggs (free)."""
     if not POLYGON_KEY:
@@ -510,7 +586,7 @@ async def run_once() -> dict:
                 today_entry_count = 0
 
             if today_entry_count < MAX_DAILY_ENTRIES and len(open_positions) < MAX_OPEN_POSITIONS:
-                tickers = get_watchlist_tickers()
+                tickers = await get_scan_universe(client)
                 entries = 0
                 slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
 
