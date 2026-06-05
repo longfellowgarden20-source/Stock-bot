@@ -14,31 +14,68 @@ interface AnalysisResult {
   sources: SourceLink[]
 }
 
-const SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; border: string }> = {
+const SECTION_CONFIG: Record<string, {
+  icon: React.ReactNode
+  color: string
+  bg: string
+  border: string
+  label: string
+}> = {
   "WHAT'S HAPPENING": {
     icon: <Activity className="w-3.5 h-3.5" />,
-    color: 'text-[#0ea5e9]',
-    border: 'border-[#0ea5e9]/40',
+    color: 'text-sky-400',
+    bg: 'bg-sky-500/8',
+    border: 'border-sky-500/25',
+    label: "What's Happening",
   },
   'KEY LEVELS': {
     icon: <TrendingUp className="w-3.5 h-3.5" />,
-    color: 'text-[#22c55e]',
-    border: 'border-[#22c55e]/40',
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/8',
+    border: 'border-emerald-500/25',
+    label: 'Key Levels',
   },
   'THESIS': {
     icon: <Zap className="w-3.5 h-3.5" />,
-    color: 'text-[#f59e0b]',
-    border: 'border-[#f59e0b]/40',
+    color: 'text-yellow-400',
+    bg: 'bg-yellow-500/8',
+    border: 'border-yellow-500/25',
+    label: 'Thesis',
   },
   'RISKS': {
     icon: <AlertTriangle className="w-3.5 h-3.5" />,
-    color: 'text-[#ef4444]',
-    border: 'border-[#ef4444]/40',
+    color: 'text-red-400',
+    bg: 'bg-red-500/8',
+    border: 'border-red-500/25',
+    label: 'Risks',
   },
   'TIMING': {
     icon: <Clock className="w-3.5 h-3.5" />,
     color: 'text-slate-300',
-    border: 'border-slate-500/40',
+    bg: 'bg-white/4',
+    border: 'border-white/10',
+    label: 'Timing',
+  },
+  'BULL CASE': {
+    icon: <TrendingUp className="w-3.5 h-3.5" />,
+    color: 'text-emerald-400',
+    bg: 'bg-emerald-500/8',
+    border: 'border-emerald-500/25',
+    label: 'Bull Case',
+  },
+  'BEAR CASE': {
+    icon: <AlertTriangle className="w-3.5 h-3.5" />,
+    color: 'text-red-400',
+    bg: 'bg-red-500/8',
+    border: 'border-red-500/25',
+    label: 'Bear Case',
+  },
+  'SUMMARY': {
+    icon: <Shield className="w-3.5 h-3.5" />,
+    color: 'text-slate-300',
+    bg: 'bg-white/4',
+    border: 'border-white/10',
+    label: 'Summary',
   },
 }
 
@@ -46,30 +83,46 @@ const SOURCE_TYPE_LABELS: Record<SourceLink['type'], string> = {
   news: 'News',
   sec_filing: 'SEC Filing',
   analyst: 'Analyst',
-  reddit: 'Reddit',
+  reddit: 'StockTwits / Reddit',
   other: 'Source',
 }
 
 function parseAnalysis(text: string): Array<{ header: string; body: string }> {
-  // Match numbered sections like "1. WHAT'S HAPPENING:" or "1. TIMING:"
-  const sectionRegex = /\d+\.\s+([\w'''\s]+?):\s*/g
+  // Try bold markdown headers: **HEADER**: or **HEADER**
+  const boldRegex = /\*\*([\w'\s]+?)\*\*\s*:?\s*/g
+  const boldMatches: Array<{ index: number; header: string; fullMatch: string }> = []
+  let m
+  while ((m = boldRegex.exec(text)) !== null) {
+    const h = m[1].trim().toUpperCase()
+    // Only treat as section header if it matches known keys or is short (< 5 words)
+    if (SECTION_CONFIG[h] || m[1].trim().split(' ').length <= 4) {
+      boldMatches.push({ index: m.index, header: h, fullMatch: m[0] })
+    }
+  }
+
+  // Try numbered sections: "1. HEADER:" or "**1. HEADER**:"
+  const numberedRegex = /(?:\*\*)?\d+\.\s+([\w'''\s]+?)(?:\*\*)?\s*:\s*/g
+  const numberedMatches: Array<{ index: number; header: string }> = []
+  while ((m = numberedRegex.exec(text)) !== null) {
+    numberedMatches.push({ index: m.index, header: m[1].trim().toUpperCase() })
+  }
+
+  const useMatches = boldMatches.length >= 2 ? boldMatches : numberedMatches.length >= 2 ? numberedMatches : []
+
+  if (useMatches.length === 0) {
+    // No sections found — split on double newlines into paragraphs
+    const paragraphs = text.split(/\n{2,}/).map(p => p.trim()).filter(Boolean)
+    if (paragraphs.length <= 1) return [{ header: '', body: text.trim() }]
+    return paragraphs.map(p => ({ header: '', body: p }))
+  }
+
   const sections: Array<{ header: string; body: string }> = []
-
-  let match
-  const matches: Array<{ index: number; header: string }> = []
-  while ((match = sectionRegex.exec(text)) !== null) {
-    matches.push({ index: match.index, header: match[1].trim().toUpperCase() })
-  }
-
-  if (matches.length === 0) {
-    return [{ header: '', body: text }]
-  }
-
-  for (let i = 0; i < matches.length; i++) {
-    const start = text.indexOf(':', text.indexOf(matches[i].header)) + 1
-    const end = i + 1 < matches.length ? matches[i + 1].index : text.length
-    const body = text.slice(start, end).trim()
-    sections.push({ header: matches[i].header, body })
+  for (let i = 0; i < useMatches.length; i++) {
+    const match = useMatches[i]
+    const contentStart = match.index + ('fullMatch' in match ? (match as any).fullMatch.length : 0)
+    const contentEnd = i + 1 < useMatches.length ? useMatches[i + 1].index : text.length
+    const body = text.slice(contentStart, contentEnd).replace(/\*\*/g, '').trim()
+    sections.push({ header: match.header, body })
   }
 
   return sections
@@ -81,8 +134,8 @@ function SkeletonBlock({ lines = 3 }: { lines?: number }) {
       {Array.from({ length: lines }).map((_, i) => (
         <div
           key={i}
-          className="h-3 rounded-full bg-white/8 animate-pulse"
-          style={{ width: i === lines - 1 ? '60%' : '100%', opacity: 1 - i * 0.1 }}
+          className="h-3 rounded bg-white/6 animate-pulse"
+          style={{ width: i === lines - 1 ? '55%' : `${95 - i * 5}%` }}
         />
       ))}
     </div>
@@ -123,7 +176,6 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
     return () => controller.abort()
   }, [signalId])
 
-  // Group sources by type
   const groupedSources: Partial<Record<SourceLink['type'], SourceLink[]>> = {}
   if (result?.sources) {
     for (const s of result.sources) {
@@ -132,95 +184,115 @@ export default function AnalysisPanel({ signalId }: { signalId: string }) {
     }
   }
   const hasSources = result?.sources && result.sources.length > 0
+  const sections = result ? parseAnalysis(result.analysis) : []
+  const hasSections = sections.some(s => s.header)
 
   return (
     <>
-      {/* Deep Analysis Card */}
-      <div className="bg-white/4 border border-white/10 rounded-2xl p-5 flex flex-col gap-4">
-        <div className="flex items-center gap-2">
-          <Zap className="w-4 h-4 text-[#0ea5e9]" />
-          <p className="text-sm font-bold text-white">Deep Analysis</p>
+      {/* Deep Analysis */}
+      <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+        {/* Header bar */}
+        <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07] bg-white/[0.02]">
+          <Zap className="w-3.5 h-3.5 text-sky-400" />
+          <span className="text-sm font-semibold text-white">Deep Analysis</span>
         </div>
 
-        {loading && (
-          <div className="flex flex-col gap-5">
-            {[4, 3, 3, 3, 2].map((lines, i) => (
-              <div key={i} className="flex flex-col gap-3">
-                <div className="h-3 w-32 rounded-full bg-white/10 animate-pulse" />
-                <SkeletonBlock lines={lines} />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {error && (
-          <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
-            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-            <span className="text-xs text-red-400">{error}</span>
-          </div>
-        )}
-
-        {result && !loading && (
-          <div className="flex flex-col gap-4">
-            {parseAnalysis(result.analysis).map((section, i) => {
-              const cfg = section.header ? SECTION_CONFIG[section.header] : null
-              if (!section.header) {
-                return (
-                  <p key={i} className="text-sm text-slate-300 leading-relaxed">
-                    {section.body}
-                  </p>
-                )
-              }
-              return (
-                <div
-                  key={i}
-                  className={`pl-3 border-l-2 ${cfg?.border ?? 'border-slate-500/40'}`}
-                >
-                  <div className={`flex items-center gap-1.5 mb-1 text-xs font-bold uppercase tracking-wide ${cfg?.color ?? 'text-slate-400'}`}>
-                    {cfg?.icon}
-                    {section.header}
-                  </div>
-                  <p className="text-sm text-slate-300 leading-relaxed">{section.body}</p>
+        <div className="p-4 flex flex-col gap-4">
+          {loading && (
+            <div className="flex flex-col gap-5">
+              {[4, 3, 3, 3, 2].map((lines, i) => (
+                <div key={i} className="flex flex-col gap-3">
+                  <div className="h-3 w-28 rounded bg-white/10 animate-pulse" />
+                  <SkeletonBlock lines={lines} />
                 </div>
-              )
-            })}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
 
-        <div className="pt-1 border-t border-white/6 flex items-center gap-1.5">
-          <span className="text-[10px] text-slate-600 font-mono">Powered by</span>
-          <span className="text-[10px] text-[#0ea5e9] font-bold font-mono">Groq AI</span>
-          <span className="text-[10px] text-slate-600 font-mono">· llama-3.3-70b-versatile</span>
+          {error && (
+            <div className="flex items-center gap-2 px-3 py-2.5 bg-red-500/10 border border-red-500/25 rounded-lg">
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+              <span className="text-sm text-red-400">{error}</span>
+            </div>
+          )}
+
+          {result && !loading && (
+            hasSections ? (
+              /* Sectioned layout */
+              <div className="grid gap-3 sm:grid-cols-2">
+                {sections.map((section, i) => {
+                  const cfg = section.header ? SECTION_CONFIG[section.header] : null
+                  if (!section.header) {
+                    return (
+                      <p key={i} className="sm:col-span-2 text-sm text-slate-300 leading-relaxed">
+                        {section.body}
+                      </p>
+                    )
+                  }
+                  return (
+                    <div
+                      key={i}
+                      className={`rounded-lg border p-3.5 flex flex-col gap-2 ${cfg?.bg ?? 'bg-white/3'} ${cfg?.border ?? 'border-white/10'}`}
+                    >
+                      {/* Section label */}
+                      <div className={`flex items-center gap-1.5 text-xs font-bold uppercase tracking-widest ${cfg?.color ?? 'text-slate-400'}`}>
+                        {cfg?.icon}
+                        {cfg?.label ?? section.header}
+                      </div>
+                      {/* Body */}
+                      <p className="text-sm text-slate-300 leading-relaxed">{section.body}</p>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              /* Unsectioned — render as paragraphs, never a wall of text */
+              <div className="flex flex-col gap-4">
+                {sections.map((s, i) => (
+                  <p key={i} className="text-sm text-slate-300 leading-relaxed">{s.body}</p>
+                ))}
+              </div>
+            )
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-4 py-2.5 border-t border-white/[0.06] flex items-center gap-1.5 bg-white/[0.01]">
+          <span className="text-[10px] text-slate-600">Powered by</span>
+          <span className="text-[10px] text-sky-500 font-semibold">Groq AI</span>
+          <span className="text-[10px] text-slate-600">· llama-3.3-70b-versatile</span>
         </div>
       </div>
 
-      {/* Source Links Card */}
+      {/* Sources */}
       {hasSources && (
-        <div className="bg-white/4 border border-white/10 rounded-2xl p-5 flex flex-col gap-3">
-          <div className="flex items-center gap-2">
-            <ExternalLink className="w-4 h-4 text-slate-400" />
-            <p className="text-sm font-bold text-white">Sources</p>
+        <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.07] bg-white/[0.02]">
+            <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+            <span className="text-sm font-semibold text-white">Sources</span>
           </div>
-          {(Object.entries(groupedSources) as [SourceLink['type'], SourceLink[]][]).map(([type, links]) => (
-            <div key={type} className="flex flex-col gap-1.5">
-              <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wide">
-                {SOURCE_TYPE_LABELS[type]}
-              </p>
-              {links.map((link, i) => (
-                <a
-                  key={i}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-xs text-[#0ea5e9] hover:text-white group"
-                  style={{ transitionProperty: 'color', transitionDuration: '0.15s' }}
-                >
-                  <ExternalLink className="w-3 h-3 shrink-0 opacity-60 group-hover:opacity-100" />
-                  <span className="truncate">{link.title}</span>
-                </a>
-              ))}
-            </div>
-          ))}
+          <div className="p-4 flex flex-col gap-4">
+            {(Object.entries(groupedSources) as [SourceLink['type'], SourceLink[]][]).map(([type, links]) => (
+              <div key={type} className="flex flex-col gap-1.5">
+                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-widest mb-1">
+                  {SOURCE_TYPE_LABELS[type]}
+                </p>
+                {links.map((link, i) => (
+                  <a
+                    key={i}
+                    href={link.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-2 text-sm text-sky-400 hover:text-white group"
+                    style={{ transition: 'color 0.1s' }}
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0 opacity-50 group-hover:opacity-100" />
+                    <span className="truncate">{link.title}</span>
+                  </a>
+                ))}
+              </div>
+            ))}
+          </div>
         </div>
       )}
     </>
