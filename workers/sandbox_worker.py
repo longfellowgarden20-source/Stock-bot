@@ -1188,14 +1188,17 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         if t1_hit:
             # Close half the position at Target 1
             half_shares = max(1, int(float(trade.get("shares") or 1) / 2))
-            half_pnl = half_shares * abs(price - entry) * (1 if direction == "long" else -1)
+            # Bug fix: correct P&L sign for both directions
+            half_pnl = half_shares * ((price - entry) if direction == "long" else (entry - price))
             update_account_balance(half_pnl)
-            log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (+${half_pnl:.2f})")
+            log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (${half_pnl:+.2f})")
             try:
+                remaining_shares = max(1, int(float(trade.get("shares") or 1)) - half_shares)
                 supabase().table("sandbox_trades").update({
                     "partial_exit_done": True,
                     "stop_loss": round(entry, 4),  # move stop to breakeven after partial
-                    "shares": max(1, int(float(trade.get("shares") or 1)) - half_shares),
+                    "shares": remaining_shares,
+                    "position_size": round(remaining_shares * price, 2),
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("id", trade["id"]).execute()
                 stop = entry  # updated for rest of this eval cycle
