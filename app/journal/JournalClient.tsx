@@ -1638,23 +1638,25 @@ export default function JournalClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-white/3 border border-white/8 rounded-2xl p-1">
-        {TAB_NAMES.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className={`flex-1 flex items-center justify-center gap-2 py-2 px-3 rounded-xl text-xs font-medium ${activeTab === tab
-              ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20'
-              : 'text-slate-500 hover:text-white hover:bg-white/5'
-              }`}
-            style={{ transition: 'background 0.15s, color 0.15s' }}
-          >
-            <span className="hidden sm:flex">{TAB_ICONS[tab]}</span>
-            <span className="hidden sm:inline">{tab}</span>
-            <span className="sm:hidden">{TAB_ICONS[tab]}</span>
-          </button>
-        ))}
+      <div className="overflow-x-auto scrollbar-none -mx-1 px-1">
+        <div className="flex gap-1 bg-white/3 border border-white/8 rounded-2xl p-1 min-w-max sm:min-w-0">
+          {TAB_NAMES.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveTab(tab)}
+              className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-medium min-w-[44px] sm:flex-1 ${activeTab === tab
+                ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20'
+                : 'text-slate-500 hover:text-white hover:bg-white/5'
+                }`}
+              style={{ transition: 'background 0.15s, color 0.15s' }}
+            >
+              <span className="hidden sm:flex">{TAB_ICONS[tab]}</span>
+              <span className="hidden sm:inline">{tab}</span>
+              <span className="sm:hidden">{TAB_ICONS[tab]}</span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Tab content */}

@@ -458,7 +458,7 @@ export default function DashboardClient({
       <QuickAddTicker open={addOpen} onClose={() => setAddOpen(false)} onAdded={refresh} />
 
       {/* Header */}
-      <div className="flex items-start sm:items-center justify-between flex-wrap gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-white tracking-tight">Signal Feed</h1>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -490,7 +490,7 @@ export default function DashboardClient({
             title={autoRefresh ? `Auto-refresh in ${countdown}s` : 'Auto-refresh off'}
           >
             {autoRefresh ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
-            {autoRefresh ? `${countdown}s` : 'Auto'}
+            <span className="hidden sm:inline">{autoRefresh ? `${countdown}s` : 'Auto'}</span>
           </button>
 
           {unread > 0 && (

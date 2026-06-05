@@ -83,8 +83,8 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
         </div>
       </aside>
 
-      {/* Mobile bottom bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#080d18] border-t border-white/8 px-1 pb-4">
+      {/* Mobile bottom bar — 5 primary links only; Admin/Sign Out live in desktop sidebar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#080d18] border-t border-white/8 px-1 pb-safe-bottom" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         {links.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href)
           return (
@@ -94,7 +94,7 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
               className={`flex-1 flex flex-col items-center gap-1 py-3 text-[10px] font-medium min-w-0 ${active ? 'text-[#0ea5e9]' : 'text-slate-500'}`}
             >
               <div className="relative">
-                <Icon className="w-4 h-4" />
+                <Icon className="w-5 h-5" />
                 {label === 'Signals' && unreadCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">{unreadCount}</span>
                 )}
@@ -103,10 +103,6 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
             </Link>
           )
         })}
-        <button onClick={signOut} className="flex-1 flex flex-col items-center gap-1 py-3.5 text-[10px] font-medium text-slate-500 min-w-0">
-          <LogOut className="w-4 h-4" />
-          <span className="text-[10px]">Out</span>
-        </button>
       </nav>
     </>
   )

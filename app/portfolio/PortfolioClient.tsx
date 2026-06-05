@@ -294,7 +294,7 @@ function HeatMapView({
 
   return (
     <div>
-      <div className="grid grid-cols-4 sm:grid-cols-6 gap-2" style={{ gridAutoRows: '120px' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-2" style={{ gridAutoRows: '120px' }}>
         {positions.map(({ pos, snap, currentPrice, value, dayDollarPnl }) => {
           const changePct = snap?.change_pct
           const colorClasses = getHeatMapClasses(changePct)

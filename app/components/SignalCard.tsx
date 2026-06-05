@@ -144,11 +144,11 @@ export default function SignalCard({
           )}
         </Link>
 
-        <div className="flex flex-col gap-1 shrink-0">
+        <div className="flex flex-col gap-0.5 shrink-0">
           {onToggleExpand && !isCompact && (
             <button
               onClick={(e) => { stop(e); onToggleExpand(signal.id) }}
-              className="p-2.5 rounded-lg text-slate-600 hover:text-white hover:bg-white/5 opacity-60 group-hover:opacity-100"
+              className="p-2.5 sm:p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-white hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label={expanded ? 'Collapse' : 'Expand'}
               title={expanded ? 'Collapse' : 'Expand'}
@@ -159,7 +159,7 @@ export default function SignalCard({
           {onTogglePin && (
             <button
               onClick={(e) => { stop(e); onTogglePin(signal.ticker) }}
-              className="p-2.5 rounded-lg text-slate-600 hover:text-yellow-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
+              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-yellow-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label={pinned ? 'Unpin' : 'Pin'}
               title={pinned ? 'Unpin ticker' : 'Pin ticker'}
@@ -170,7 +170,7 @@ export default function SignalCard({
           {onMuteTicker && (
             <button
               onClick={(e) => { stop(e); onMuteTicker(signal.ticker) }}
-              className="p-2.5 rounded-lg text-slate-600 hover:text-red-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
+              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
               style={{ transition: 'opacity 0.15s, color 0.15s' }}
               aria-label="Mute ticker"
               title="Mute ticker"
@@ -180,7 +180,7 @@ export default function SignalCard({
           )}
           <Link
             href={`/signals/${signal.id}`}
-            className="p-2.5 rounded-lg text-slate-600 hover:text-white"
+            className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-white"
             style={{ transition: 'color 0.15s' }}
             aria-label="Open"
           >
