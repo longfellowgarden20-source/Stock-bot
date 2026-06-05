@@ -20,7 +20,8 @@ body {
   color: #cbd5e1;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
-  font-size: 13px;
+  font-size: 14px;
+  line-height: 1.6;
 }
 
 /* Scrollbar */
@@ -88,8 +89,17 @@ body {
 /* Ticker chip */
 .ticker-chip {
   font-family: var(--font-geist-mono), monospace;
-  font-size: 11px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.04em;
   color: #f1f5f9;
+}
+
+/* Section header */
+.section-header {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #475569;
 }

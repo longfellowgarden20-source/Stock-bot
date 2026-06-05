@@ -40,21 +40,21 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
         <MarketStatus />
 
         {/* Nav links */}
-        <nav className="flex flex-col py-1 flex-1">
+        <nav className="flex flex-col py-2 flex-1">
           {links.map(({ href, label, icon: Icon }) => {
             const active = pathname.startsWith(href)
             return (
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-2.5 px-4 py-2 text-[11px] font-medium border-l-2 ${
+                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium border-l-2 ${
                   active
                     ? 'border-l-sky-400 text-sky-400 bg-sky-400/[0.06]'
                     : 'border-l-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
                 style={{ transition: 'background 0.1s, color 0.1s' }}
               >
-                <Icon className="w-3.5 h-3.5 shrink-0" />
+                <Icon className="w-4 h-4 shrink-0" />
                 {label}
                 {label === 'Signals' && unreadCount > 0 && (
                   <span className="ml-auto text-[10px] font-bold text-red-400 tabular-nums">{unreadCount}</span>
@@ -68,22 +68,22 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
         <div className="border-t border-white/[0.06]">
           <Link
             href="/admin"
-            className={`flex items-center gap-2.5 px-4 py-2 text-[11px] font-medium border-l-2 ${
+            className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium border-l-2 ${
               pathname.startsWith('/admin')
                 ? 'border-l-sky-400 text-sky-400 bg-sky-400/[0.06]'
                 : 'border-l-transparent text-slate-600 hover:text-slate-300 hover:bg-white/[0.03]'
             }`}
             style={{ transition: 'background 0.1s, color 0.1s' }}
           >
-            <Settings className="w-3.5 h-3.5 shrink-0" />
+            <Settings className="w-4 h-4 shrink-0" />
             Admin
           </Link>
           <button
             onClick={signOut}
-            className="w-full flex items-center gap-2.5 px-4 py-2 text-[11px] text-slate-600 hover:text-slate-300 hover:bg-white/[0.03] border-l-2 border-l-transparent"
+            className="w-full flex items-center gap-3 px-4 py-2.5 text-sm text-slate-600 hover:text-slate-300 hover:bg-white/[0.03] border-l-2 border-l-transparent"
             style={{ transition: 'color 0.1s, background 0.1s' }}
           >
-            <LogOut className="w-3.5 h-3.5" />
+            <LogOut className="w-4 h-4" />
             Sign Out
           </button>
         </div>

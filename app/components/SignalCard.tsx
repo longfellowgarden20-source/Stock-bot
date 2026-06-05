@@ -104,7 +104,7 @@ export default function SignalCard({
     <div
       className={[
         'group relative border-b border-white/[0.05] last:border-b-0',
-        isCompact ? 'py-2 px-3' : 'py-3 px-4',
+        isCompact ? 'py-3 px-4' : 'py-4 px-5',
         selected ? 'bg-sky-500/8' : 'hover:bg-white/[0.025]',
         focused ? 'bg-white/[0.03]' : '',
         isPulse ? 'pulse-red' : '',
@@ -138,39 +138,39 @@ export default function SignalCard({
 
         {/* Main content */}
         <Link href={`/signals/${signal.id}`} className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+          <div className="flex items-center gap-2.5 mb-1 flex-wrap">
             {/* Ticker */}
             <span className="ticker-chip">{signal.ticker}</span>
 
-            {pinned && <Pin className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />}
+            {pinned && <Pin className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
 
-            {/* Signal type — uppercase label, no badge */}
-            <span className={`text-[10px] font-semibold tracking-wider ${meta.color} opacity-80`}>
+            {/* Signal type */}
+            <span className={`text-[11px] font-semibold tracking-wider ${meta.color} opacity-90`}>
               {meta.label}
             </span>
 
-            {/* Severity — plain number, colored */}
-            <span className={`text-[10px] font-bold tabular-nums ml-auto ${severityLabel(signal.severity)}`}>
+            {/* Severity */}
+            <span className={`text-[11px] font-bold tabular-nums ml-auto ${severityLabel(signal.severity)}`}>
               {Number(signal.severity).toFixed(1)}
             </span>
 
             {/* Time */}
-            <span className="text-[10px] text-slate-600 tabular-nums">{timeAgo(signal.created_at)}</span>
+            <span className="text-[11px] text-slate-600 tabular-nums">{timeAgo(signal.created_at)}</span>
 
             {/* Unread dot */}
             {!signal.read && (
-              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+              <span className="w-2 h-2 rounded-full bg-sky-400 shrink-0" />
             )}
           </div>
 
           {/* Title */}
-          <p className={`${isCompact ? 'text-[11px]' : 'text-xs'} font-medium text-slate-200 leading-snug ${isCompact ? '' : 'mb-0.5'}`}>
+          <p className={`${isCompact ? 'text-xs' : 'text-sm'} font-semibold text-slate-100 leading-snug ${isCompact ? '' : 'mb-1'}`}>
             {signal.title}
           </p>
 
           {/* Body */}
           {!isCompact && (
-            <p className={`text-[11px] text-slate-500 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
+            <p className={`text-xs text-slate-500 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
               {signal.body}
             </p>
           )}
