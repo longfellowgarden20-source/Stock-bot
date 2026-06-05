@@ -139,9 +139,43 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
                   "ARKK", "ARKG", "SQQQ", "TQQQ", "UVXY", "VXX"}
     tickers -= ETF_FILTER
 
-    result = sorted(tickers)
-    log.info(f"Sandbox scan universe: {len(result)} tickers")
-    return result
+    # Score each ticker by signal activity in last 24h — more signals = higher score
+    # This lets us pass only the top 20 to Groq instead of all 50-100
+    scores: dict[str, float] = {}
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("ticker,severity,signal_type")
+            .gte("created_at", since)
+            .gte("severity", 5)
+            .execute()
+        )
+        signal_weights = {
+            "convergence": 10, "dark_pool": 8, "insider_buy": 8, "insider_sell": 8,
+            "options_unusual": 8, "short_squeeze": 7, "congress_trade": 7,
+            "volume_spike": 6, "analyst_change": 6, "news_breaking": 5,
+            "technical": 4, "sentiment_spike": 4, "earnings_upcoming": 4,
+            "price_move": 3, "macro": 2,
+        }
+        for row in (res.data or []):
+            t = row.get("ticker", "")
+            if t not in tickers:
+                continue
+            sev = float(row.get("severity") or 5)
+            weight = signal_weights.get(row.get("signal_type", ""), 3)
+            scores[t] = scores.get(t, 0) + (sev / 10) * weight
+    except Exception as e:
+        log.debug(f"Scoring failed: {e}")
+
+    # Watchlist/portfolio tickers always get a score boost so they're never dropped
+    for t in get_watchlist_tickers():
+        scores[t] = scores.get(t, 0) + 5
+
+    # Sort by score descending, take top 20
+    ranked = sorted(tickers, key=lambda t: scores.get(t, 0), reverse=True)[:MAX_DAILY_ENTRIES]
+    log.info(f"Sandbox scan universe: {len(tickers)} tickers → top {len(ranked)} by signal score")
+    return ranked
 
 
 async def get_current_price(client: httpx.AsyncClient, ticker: str) -> float | None:
