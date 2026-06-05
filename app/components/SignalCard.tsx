@@ -15,51 +15,51 @@ export type Signal = {
   read: boolean
 }
 
-const TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string }> = {
-  price_move:       { label: 'Price Move',         icon: TrendingUp,     color: 'text-[#0ea5e9]' },
-  volume_spike:     { label: 'Volume Spike',       icon: BarChart2,      color: 'text-purple-400' },
-  options_unusual:  { label: 'Unusual Options',    icon: Zap,            color: 'text-yellow-400' },
-  dark_pool:        { label: 'Dark Pool',          icon: DollarSign,     color: 'text-orange-400' },
-  insider_buy:      { label: 'Insider Buy',        icon: TrendingUp,     color: 'text-green-400' },
-  insider_sell:     { label: 'Insider Sell',       icon: TrendingDown,   color: 'text-red-400' },
-  news_breaking:    { label: 'Breaking News',      icon: Newspaper,      color: 'text-[#0ea5e9]' },
-  sec_filing:       { label: 'SEC Filing',         icon: FileText,       color: 'text-slate-300' },
-  sentiment_spike:  { label: 'Sentiment Spike',    icon: MessageSquare,  color: 'text-pink-400' },
-  short_squeeze:    { label: 'Short Squeeze',      icon: AlertTriangle,  color: 'text-orange-400' },
-  earnings_upcoming:{ label: 'Earnings',           icon: Calendar,       color: 'text-yellow-400' },
-  analyst_change:   { label: 'Analyst Change',     icon: Users,          color: 'text-[#0ea5e9]' },
-  congress_trade:   { label: 'Congress Trade',     icon: DollarSign,     color: 'text-green-400' },
-  technical:        { label: 'Technical',          icon: Activity,       color: 'text-cyan-400' },
-  macro:            { label: 'Macro',              icon: Globe,          color: 'text-indigo-400' },
-  convergence:      { label: 'Convergence',        icon: Layers,         color: 'text-red-400' },
+const TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string; accent: string }> = {
+  price_move:        { label: 'PRICE',     icon: TrendingUp,    color: 'text-sky-400',    accent: '#0ea5e9' },
+  volume_spike:      { label: 'VOLUME',    icon: BarChart2,     color: 'text-violet-400', accent: '#8b5cf6' },
+  options_unusual:   { label: 'OPTIONS',   icon: Zap,           color: 'text-yellow-400', accent: '#eab308' },
+  dark_pool:         { label: 'DARKPOOL',  icon: DollarSign,    color: 'text-orange-400', accent: '#f97316' },
+  insider_buy:       { label: 'INSIDER ▲', icon: TrendingUp,    color: 'text-emerald-400',accent: '#10b981' },
+  insider_sell:      { label: 'INSIDER ▼', icon: TrendingDown,  color: 'text-red-400',    accent: '#ef4444' },
+  news_breaking:     { label: 'NEWS',      icon: Newspaper,     color: 'text-sky-400',    accent: '#0ea5e9' },
+  sec_filing:        { label: 'SEC',       icon: FileText,      color: 'text-slate-400',  accent: '#64748b' },
+  sentiment_spike:   { label: 'SENTIMENT', icon: MessageSquare, color: 'text-pink-400',   accent: '#ec4899' },
+  short_squeeze:     { label: 'SQUEEZE',   icon: AlertTriangle, color: 'text-orange-400', accent: '#f97316' },
+  earnings_upcoming: { label: 'EARNINGS',  icon: Calendar,      color: 'text-yellow-400', accent: '#eab308' },
+  analyst_change:    { label: 'ANALYST',   icon: Users,         color: 'text-sky-400',    accent: '#0ea5e9' },
+  congress_trade:    { label: 'CONGRESS',  icon: DollarSign,    color: 'text-emerald-400',accent: '#10b981' },
+  technical:         { label: 'TECHNICAL', icon: Activity,      color: 'text-cyan-400',   accent: '#06b6d4' },
+  macro:             { label: 'MACRO',     icon: Globe,         color: 'text-indigo-400', accent: '#6366f1' },
+  convergence:       { label: 'CONVERGE',  icon: Layers,        color: 'text-red-400',    accent: '#ef4444' },
 }
 
 export function getTypeMeta(t: string) {
-  return TYPE_META[t] ?? { label: t.replace(/_/g, ' '), icon: Zap, color: 'text-slate-400' }
+  return TYPE_META[t] ?? { label: t.toUpperCase().replace(/_/g, ' '), icon: Zap, color: 'text-slate-400', accent: '#475569' }
 }
 
-function severityBorder(s: number) {
-  if (s >= 9) return 'border-red-500/40 bg-red-500/5'
-  if (s >= 7) return 'border-orange-500/40 bg-orange-500/5'
-  if (s >= 5) return 'border-yellow-500/30 bg-yellow-500/5'
-  return 'border-white/10 bg-white/3'
+function severityAccent(s: number): string {
+  if (s >= 9) return '#ef4444'
+  if (s >= 7) return '#f97316'
+  if (s >= 5) return '#eab308'
+  return '#334155'
 }
 
-function severityBadge(s: number) {
-  if (s >= 9) return 'bg-red-500/20 text-red-400'
-  if (s >= 7) return 'bg-orange-500/20 text-orange-400'
-  if (s >= 5) return 'bg-yellow-500/20 text-yellow-400'
-  return 'bg-slate-500/20 text-slate-400'
+function severityLabel(s: number): string {
+  if (s >= 9) return 'text-red-400'
+  if (s >= 7) return 'text-orange-400'
+  if (s >= 5) return 'text-yellow-400'
+  return 'text-slate-500'
 }
 
 export function timeAgo(dateStr: string) {
   const diff = Date.now() - new Date(dateStr).getTime()
   const mins = Math.floor(diff / 60000)
-  if (mins < 1) return 'just now'
-  if (mins < 60) return `${mins}m ago`
+  if (mins < 1) return 'now'
+  if (mins < 60) return `${mins}m`
   const hrs = Math.floor(mins / 60)
-  if (hrs < 24) return `${hrs}h ago`
-  return `${Math.floor(hrs / 24)}d ago`
+  if (hrs < 24) return `${hrs}h`
+  return `${Math.floor(hrs / 24)}d`
 }
 
 type Props = {
@@ -93,16 +93,7 @@ export default function SignalCard({
   const Icon = meta.icon
   const isPulse = signal.severity >= 9 && !signal.read
   const isCompact = density === 'compact'
-
-  const wrapperCls = [
-    'group relative block border rounded-2xl',
-    isCompact ? 'p-2.5' : 'p-4',
-    severityBorder(signal.severity),
-    isPulse ? 'pulse-red' : '',
-    selected ? 'ring-2 ring-[#0ea5e9]/60' : '',
-    focused ? 'ring-2 ring-white/40' : '',
-    'hover:brightness-110',
-  ].filter(Boolean).join(' ')
+  const accent = severityAccent(signal.severity)
 
   const stop = (e: MouseEvent) => {
     e.preventDefault()
@@ -110,48 +101,89 @@ export default function SignalCard({
   }
 
   return (
-    <div className={wrapperCls} style={{ transition: 'filter 0.15s' }} data-signal-id={signal.id}>
+    <div
+      className={[
+        'group relative border-b border-white/[0.05] last:border-b-0',
+        isCompact ? 'py-2 px-3' : 'py-3 px-4',
+        selected ? 'bg-sky-500/8' : 'hover:bg-white/[0.025]',
+        focused ? 'bg-white/[0.03]' : '',
+        isPulse ? 'pulse-red' : '',
+        'signal-row',
+      ].filter(Boolean).join(' ')}
+      style={{
+        borderLeftColor: accent,
+        borderLeftWidth: '2px',
+        borderLeftStyle: 'solid',
+        transition: 'background 0.1s',
+      }}
+      data-signal-id={signal.id}
+    >
       <div className="flex items-start gap-3">
+        {/* Checkbox */}
         {selectable && (
           <button
             onClick={(e) => { stop(e); onSelect?.(signal.id, e) }}
-            className="mt-1 w-6 h-6 rounded border border-white/20 hover:border-[#0ea5e9] flex items-center justify-center shrink-0"
-            style={{ transition: 'border-color 0.15s, background 0.15s', background: selected ? '#0ea5e9' : 'transparent' }}
+            className="mt-0.5 w-3.5 h-3.5 rounded-[2px] border border-white/20 hover:border-sky-400 flex items-center justify-center shrink-0"
+            style={{ background: selected ? '#0ea5e9' : 'transparent', transition: 'border-color 0.1s, background 0.1s' }}
             aria-label="Select signal"
           >
-            {selected && <span className="text-[10px] font-bold text-white leading-none">✓</span>}
+            {selected && <span className="text-[8px] font-bold text-white leading-none">✓</span>}
           </button>
         )}
 
-        <div className={`${isCompact ? 'w-7 h-7' : 'w-9 h-9'} rounded-xl flex items-center justify-center shrink-0 bg-white/5 border border-white/10`}>
-          <Icon className={`${isCompact ? 'w-3.5 h-3.5' : 'w-4 h-4'} ${meta.color}`} />
+        {/* Type icon — small, no background box */}
+        <div className="shrink-0 mt-0.5">
+          <Icon className={`${isCompact ? 'w-3 h-3' : 'w-3.5 h-3.5'} ${meta.color}`} />
         </div>
 
+        {/* Main content */}
         <Link href={`/signals/${signal.id}`} className="flex-1 min-w-0">
-          <div className={`flex items-center gap-2 flex-wrap ${isCompact ? '' : 'mb-1'}`}>
-            <span className="text-sm font-bold text-white font-mono">{signal.ticker}</span>
-            {pinned && <Pin className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
-            <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${severityBadge(signal.severity)}`}>
-              {Number(signal.severity).toFixed(1)}/10
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            {/* Ticker */}
+            <span className="ticker-chip">{signal.ticker}</span>
+
+            {pinned && <Pin className="w-2.5 h-2.5 text-yellow-400 fill-yellow-400" />}
+
+            {/* Signal type — uppercase label, no badge */}
+            <span className={`text-[10px] font-semibold tracking-wider ${meta.color} opacity-80`}>
+              {meta.label}
             </span>
-            <span className="text-xs text-slate-500">{meta.label}</span>
-            <span className="text-xs text-slate-600 ml-auto shrink-0">{timeAgo(signal.created_at)}</span>
-            {!signal.read && <span className="w-2 h-2 rounded-full bg-[#0ea5e9] shrink-0" />}
+
+            {/* Severity — plain number, colored */}
+            <span className={`text-[10px] font-bold tabular-nums ml-auto ${severityLabel(signal.severity)}`}>
+              {Number(signal.severity).toFixed(1)}
+            </span>
+
+            {/* Time */}
+            <span className="text-[10px] text-slate-600 tabular-nums">{timeAgo(signal.created_at)}</span>
+
+            {/* Unread dot */}
+            {!signal.read && (
+              <span className="w-1.5 h-1.5 rounded-full bg-sky-400 shrink-0" />
+            )}
           </div>
-          <p className={`${isCompact ? 'text-xs' : 'text-sm'} font-semibold text-slate-100 ${isCompact ? '' : 'mb-1'} leading-snug`}>{signal.title}</p>
+
+          {/* Title */}
+          <p className={`${isCompact ? 'text-[11px]' : 'text-xs'} font-medium text-slate-200 leading-snug ${isCompact ? '' : 'mb-0.5'}`}>
+            {signal.title}
+          </p>
+
+          {/* Body */}
           {!isCompact && (
-            <p className={`text-xs text-slate-400 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>{signal.body}</p>
+            <p className={`text-[11px] text-slate-500 leading-relaxed ${expanded ? '' : 'line-clamp-2'}`}>
+              {signal.body}
+            </p>
           )}
         </Link>
 
-        <div className="flex flex-col gap-0.5 shrink-0">
+        {/* Actions — only visible on hover */}
+        <div className="flex items-center gap-0 shrink-0 opacity-0 group-hover:opacity-100" style={{ transition: 'opacity 0.1s' }}>
           {onToggleExpand && !isCompact && (
             <button
               onClick={(e) => { stop(e); onToggleExpand(signal.id) }}
-              className="p-2.5 sm:p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-white hover:bg-white/5 opacity-60 group-hover:opacity-100"
-              style={{ transition: 'opacity 0.15s, color 0.15s' }}
+              className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-600 hover:text-white"
+              style={{ transition: 'color 0.1s' }}
               aria-label={expanded ? 'Collapse' : 'Expand'}
-              title={expanded ? 'Collapse' : 'Expand'}
             >
               {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
             </button>
@@ -159,10 +191,9 @@ export default function SignalCard({
           {onTogglePin && (
             <button
               onClick={(e) => { stop(e); onTogglePin(signal.ticker) }}
-              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-yellow-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
-              style={{ transition: 'opacity 0.15s, color 0.15s' }}
+              className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-600 hover:text-yellow-400"
+              style={{ transition: 'color 0.1s' }}
               aria-label={pinned ? 'Unpin' : 'Pin'}
-              title={pinned ? 'Unpin ticker' : 'Pin ticker'}
             >
               {pinned ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}
             </button>
@@ -170,18 +201,17 @@ export default function SignalCard({
           {onMuteTicker && (
             <button
               onClick={(e) => { stop(e); onMuteTicker(signal.ticker) }}
-              className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-red-400 hover:bg-white/5 opacity-60 group-hover:opacity-100"
-              style={{ transition: 'opacity 0.15s, color 0.15s' }}
+              className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-600 hover:text-red-400"
+              style={{ transition: 'color 0.1s' }}
               aria-label="Mute ticker"
-              title="Mute ticker"
             >
               <VolumeX className="w-3.5 h-3.5" />
             </button>
           )}
           <Link
             href={`/signals/${signal.id}`}
-            className="p-2.5 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-lg text-slate-600 hover:text-white"
-            style={{ transition: 'color 0.15s' }}
+            className="min-w-[36px] min-h-[36px] flex items-center justify-center text-slate-600 hover:text-white"
+            style={{ transition: 'color 0.1s' }}
             aria-label="Open"
           >
             <ArrowUpRight className="w-3.5 h-3.5" />
