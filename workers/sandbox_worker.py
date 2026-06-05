@@ -406,6 +406,26 @@ async def decide_entry(
     sandbox_lessons = await get_sandbox_lessons(ticker, limit=5)
     wins, total, win_rate = get_overall_win_rate()
 
+    # Fetch yesterday's self-critique — Groq reads its own rules before trading
+    try:
+        yesterday = (date.today() - timedelta(days=1)).isoformat()
+        critique_res = (
+            supabase().table("prediction_lessons")
+            .select("lesson,key_factors")
+            .eq("ticker", "GROQ_SELF")
+            .eq("date", yesterday)
+            .limit(1)
+            .execute()
+        )
+        self_critique = critique_res.data[0].get("lesson", "") if critique_res.data else ""
+        # Extract just the "tomorrow's adjustments" section if present
+        if "TOMORROW'S ADJUSTMENTS" in self_critique:
+            self_critique = self_critique.split("TOMORROW'S ADJUSTMENTS")[-1][:400]
+        else:
+            self_critique = self_critique[:300]
+    except Exception:
+        self_critique = ""
+
     # Get today's morning outlook to bias direction
     try:
         import morning_outlook_worker
@@ -449,10 +469,12 @@ async def decide_entry(
 
     today_str = date.today().isoformat()
 
+    critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
+
     prompt = f"""You are a paper trader. Decide whether to enter a trade on {ticker} today ({today_str}).
 
 Current price: ${price:.2f}
-
+{critique_block}
 TODAY'S MARKET OUTLOOK:
 {outlook_block}
 
@@ -794,6 +816,172 @@ def record_daily_performance() -> None:
         log.error(f"record_daily_performance failed: {e}")
 
 
+# ─── Nightly self-critique ────────────────────────────────────────────────────
+
+_critique_done_date: date | None = None
+
+async def run_nightly_critique() -> dict:
+    """
+    5pm ET: Groq reviews ALL of today's closed trades as a batch.
+    Identifies patterns in losses, blind spots, and rule violations.
+    Stores critique in prediction_lessons as ticker=GROQ_SELF so it's
+    injected into tomorrow's entry decisions.
+    """
+    global _critique_done_date
+    today = date.today()
+    if _critique_done_date == today:
+        return {"status": "skipped", "reason": "already ran today"}
+
+    today_str = today.isoformat()
+
+    # Fetch all trades closed today
+    try:
+        res = (
+            supabase().table("sandbox_trades")
+            .select("*")
+            .eq("status", "closed")
+            .eq("exit_date", today_str)
+            .execute()
+        )
+        trades = res.data or []
+    except Exception as e:
+        log.error(f"Critique fetch failed: {e}")
+        return {"status": "error", "reason": str(e)}
+
+    if not trades:
+        log.info("No closed trades today — skipping critique")
+        return {"status": "skipped", "reason": "no trades today"}
+
+    # Fetch yesterday's critique so Groq can see if it's repeating mistakes
+    try:
+        yesterday = (today - timedelta(days=1)).isoformat()
+        prev_res = (
+            supabase().table("prediction_lessons")
+            .select("lesson,key_factors")
+            .eq("ticker", "GROQ_SELF")
+            .eq("date", yesterday)
+            .limit(1)
+            .execute()
+        )
+        prev_critique = prev_res.data[0].get("lesson", "") if prev_res.data else ""
+    except Exception:
+        prev_critique = ""
+
+    # Get overall account state
+    wins_today = [t for t in trades if (t.get("pnl") or 0) > 0]
+    losses_today = [t for t in trades if (t.get("pnl") or 0) < 0]
+    gross_pnl = sum((t.get("pnl") or 0) for t in trades)
+    win_rate_today = len(wins_today) / len(trades) * 100 if trades else 0
+    _, total_trades, overall_win_rate = get_overall_win_rate()
+
+    # Build detailed trade log
+    trade_lines = []
+    for t in trades:
+        outcome = "WIN" if (t.get("pnl") or 0) > 0 else "LOSS"
+        pnl_pct = t.get("pnl_pct") or 0
+        direction = t.get("direction", "?")
+        ticker = t.get("ticker", "?")
+        entry = t.get("entry_price", 0)
+        exit_p = t.get("exit_price", 0)
+        stop = t.get("stop_loss", 0)
+        target = t.get("target_price", 0)
+        reason = t.get("exit_reason", "?")
+        thesis = (t.get("groq_thesis") or "")[:100]
+        conf = t.get("confidence_used", "?")
+        signals = t.get("signals_at_entry") or []
+        sig_str = ", ".join(f"{s.get('type','?')}({s.get('sev','?')})" for s in signals[:3])
+
+        trade_lines.append(
+            f"[{outcome}] {ticker} {direction.upper()} @ ${entry:.2f} → ${exit_p:.2f} "
+            f"({pnl_pct:+.1f}%) | conf={conf} | exit={reason}\n"
+            f"  Stop=${stop:.2f} Target=${target:.2f} | Signals: {sig_str or 'none'}\n"
+            f"  Thesis: {thesis}"
+        )
+
+    trade_block = "\n\n".join(trade_lines)
+
+    prompt = f"""You are reviewing your own trading decisions from today ({today_str}).
+
+TODAY'S RESULTS:
+{len(wins_today)}W / {len(losses_today)}L | Win rate: {win_rate_today:.1f}% | P&L: ${gross_pnl:+.2f}
+Overall account win rate: {overall_win_rate:.1f}% ({total_trades} total trades)
+
+TODAY'S TRADES:
+{trade_block}
+
+YESTERDAY'S SELF-CRITIQUE (check if you repeated the same mistakes):
+{prev_critique[:400] if prev_critique else "No prior critique."}
+
+Be brutally honest. Analyze your decisions as a batch — not one at a time. Answer:
+
+**PATTERN IN LOSSES**: What do the losing trades have in common? Wrong direction, too tight stops, bad timing, ignored market conditions, low conviction entries?
+
+**PATTERN IN WINS**: What made the winning trades work? Can you do more of this?
+
+**RULE VIOLATIONS**: Did you take trades that violated your own rules? Low R:R, traded against the morning outlook, entered when confidence was borderline?
+
+**REPEATED MISTAKES**: Compare to yesterday — are you making the same errors again?
+
+**TOMORROW'S ADJUSTMENTS**: Give 3 specific, concrete rule changes for tomorrow. Not generic advice — specific: "Don't short tech when QQQ pre-market is +0.5%+" or "Skip day trades on tickers with no signals in last 4h"
+
+**SELF-SCORE**: Rate today's decision quality 1-10 (separate from P&L — a lucky win on a bad setup is still bad trading).
+
+Be direct. You are critiquing yourself, not being polite."""
+
+    critique = await _call_groq(prompt, max_tokens=700)
+    if not critique:
+        log.warning("Nightly critique Groq call failed")
+        return {"status": "error", "reason": "groq failed"}
+
+    _critique_done_date = today
+
+    # Store as a special ticker "GROQ_SELF" so it's queryable but doesn't pollute ticker lessons
+    try:
+        supabase().table("prediction_lessons").upsert({
+            "ticker": "GROQ_SELF",
+            "date": today_str,
+            "bias": "long" if win_rate_today >= 50 else "short",
+            "actual_bias": "long" if gross_pnl >= 0 else "short",
+            "in_range": win_rate_today >= 50,
+            "lesson": critique[:2000],
+            "confidence_pct": int(win_rate_today),
+            "key_factors": {
+                "wins": len(wins_today),
+                "losses": len(losses_today),
+                "win_rate": round(win_rate_today, 1),
+                "gross_pnl": round(gross_pnl, 2),
+                "total_trades": len(trades),
+                "source": "nightly_critique",
+            },
+            "signals_used": None,
+        }, on_conflict="ticker,date").execute()
+        log.info(f"Nightly critique stored: {win_rate_today:.1f}% win rate today, ${gross_pnl:+.2f}")
+    except Exception as e:
+        log.error(f"Critique store failed: {e}")
+
+    # Also insert as a signal so it appears on the dashboard
+    insert_signal(
+        "GROQ_SELF",
+        "convergence",
+        6.0,
+        f"Groq Self-Critique {today_str} — {win_rate_today:.0f}% win rate",
+        critique[:1000],
+        {
+            "wins": len(wins_today),
+            "losses": len(losses_today),
+            "gross_pnl": round(gross_pnl, 2),
+            "critique_type": "nightly_self_review",
+        },
+    )
+
+    return {
+        "status": "ok",
+        "trades_reviewed": len(trades),
+        "win_rate": round(win_rate_today, 1),
+        "gross_pnl": round(gross_pnl, 2),
+    }
+
+
 # ─── Main run_once entry point ────────────────────────────────────────────────
 
 async def run_once() -> dict:
@@ -856,6 +1044,11 @@ async def run_once() -> dict:
                 await asyncio.sleep(1)
             record_daily_performance()
             return {"status": "ok", "action": "eod_close", "evaluated": closed}
+
+        # 5:00–5:15 ET: nightly self-critique
+        if hour == 17 and minute < 15:
+            critique_result = await run_nightly_critique()
+            return {"status": "ok", "action": "nightly_critique", **critique_result}
 
         # During market hours: re-evaluate open swing trades every 30 min
         if is_market_hours() and open_positions:
