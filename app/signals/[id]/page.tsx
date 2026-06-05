@@ -89,9 +89,60 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
         </div>
 
         {/* Signal title + body summary */}
-        <div className="bg-white/4 border border-white/10 rounded-2xl px-5 py-4">
-          <h2 className="text-base font-bold text-white leading-snug mb-1">{signal.title}</h2>
-          <p className="text-sm text-slate-400 leading-relaxed">{signal.body}</p>
+        <div className="bg-white/4 border border-white/10 rounded-2xl px-5 py-4 flex flex-col gap-3">
+          <div>
+            <h2 className="text-base font-bold text-white leading-snug mb-1">{signal.title}</h2>
+            <p className="text-sm text-slate-400 leading-relaxed">{signal.body}</p>
+          </div>
+
+          {/* StockTwits sentiment breakdown — only for sentiment_spike signals */}
+          {signal.signal_type === 'sentiment_spike' && signal.raw_data && (() => {
+            const rd = signal.raw_data as Record<string, unknown>
+            const bullish = Number(rd.bullish ?? 0)
+            const bearish = Number(rd.bearish ?? 0)
+            const total = Number(rd.total_messages ?? bullish + bearish)
+            const bull_pct = Number(rd.bull_pct ?? (total > 0 ? bullish / total * 100 : 50))
+            const bear_pct = 100 - bull_pct
+            const isBearish = bull_pct <= 50
+            const samples = Array.isArray(rd.samples) ? rd.samples as string[] : []
+
+            return (
+              <div className="border border-white/[0.07] rounded-xl p-4 flex flex-col gap-3">
+                <p className="text-[11px] text-slate-500 uppercase tracking-widest font-semibold">StockTwits Breakdown</p>
+
+                {/* Bar */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-between text-xs font-bold tabular-nums">
+                    <span className="text-emerald-400">{bull_pct.toFixed(1)}% Bullish ({bullish})</span>
+                    <span className="text-red-400">{bear_pct.toFixed(1)}% Bearish ({bearish})</span>
+                  </div>
+                  <div className="h-2.5 rounded-full overflow-hidden flex">
+                    <div className="bg-emerald-500/70 h-full rounded-l-full" style={{ width: `${bull_pct}%`, transition: 'width 0.4s' }} />
+                    <div className="bg-red-500/70 h-full rounded-r-full flex-1" />
+                  </div>
+                  <p className="text-[11px] text-slate-500">{total} posts analyzed</p>
+                </div>
+
+                {/* Dominant sentiment badge */}
+                <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border ${isBearish ? 'bg-red-500/8 border-red-500/20 text-red-400' : 'bg-emerald-500/8 border-emerald-500/20 text-emerald-400'}`}>
+                  <span className="text-xs font-bold uppercase tracking-wider">
+                    {isBearish ? `${bear_pct.toFixed(0)}% BEARISH` : `${bull_pct.toFixed(0)}% BULLISH`}
+                  </span>
+                  <span className="text-xs text-slate-500 ml-auto">retail sentiment on StockTwits</span>
+                </div>
+
+                {/* Sample posts */}
+                {samples.length > 0 && (
+                  <div className="flex flex-col gap-1.5">
+                    <p className="text-[10px] text-slate-600 uppercase tracking-wider">Sample posts</p>
+                    {samples.slice(0, 3).map((s, i) => (
+                      <p key={i} className="text-xs text-slate-400 border-l-2 border-white/10 pl-2.5 leading-relaxed">"{s}"</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
         </div>
 
         {/* TradingView Chart */}
