@@ -460,43 +460,43 @@ export default function DashboardClient({
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-white tracking-tight">Signal Feed</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h1 className="text-lg font-bold text-white tracking-tight">Signal Feed</h1>
+          <p className="text-xs text-slate-500 mt-0.5">
             {todaySignals} today · {unread} unread{muted.length > 0 ? ` · ${muted.length} muted` : ''}
             {pinned.length > 0 ? ` · ${pinned.length} pinned` : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-1.5 flex-wrap">
           {critical > 0 && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-xl">
-              <Zap className="w-4 h-4 text-red-400" />
-              <span className="text-sm font-bold text-red-400">{critical} critical</span>
+            <div className="flex items-center gap-1.5 px-2.5 py-1 bg-red-500/10 border border-red-500/25 rounded">
+              <Zap className="w-3.5 h-3.5 text-red-400" />
+              <span className="text-xs font-bold text-red-400">{critical} critical</span>
             </div>
           )}
 
           <button
             onClick={() => setSoundEnabled(s => !s)}
-            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5"
-            style={{ transition: 'color 0.15s, background 0.15s' }}
-            title={soundEnabled ? 'Mute alerts' : 'Sound on critical signals'}
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-white border border-white/[0.08] rounded hover:bg-white/[0.04]"
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title={soundEnabled ? 'Mute alerts' : 'Sound alerts'}
           >
             {soundEnabled ? <Volume2 className="w-3.5 h-3.5" /> : <VolumeX className="w-3.5 h-3.5" />}
           </button>
 
           <button
             onClick={() => setAutoRefresh(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border rounded-xl ${autoRefresh ? 'text-[#0ea5e9] border-[#0ea5e9]/30 bg-[#0ea5e9]/10' : 'text-slate-400 hover:text-white border-white/10 hover:bg-white/5'}`}
-            style={{ transition: 'color 0.15s, background 0.15s' }}
-            title={autoRefresh ? `Auto-refresh in ${countdown}s` : 'Auto-refresh off'}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs border rounded ${autoRefresh ? 'text-sky-400 border-sky-500/25 bg-sky-500/8' : 'text-slate-500 hover:text-white border-white/[0.08] hover:bg-white/[0.04]'}`}
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title={autoRefresh ? `Auto-refresh ${countdown}s` : 'Auto-refresh off'}
           >
             {autoRefresh ? <Pause className="w-3.5 h-3.5" /> : <Play className="w-3.5 h-3.5" />}
             <span className="hidden sm:inline">{autoRefresh ? `${countdown}s` : 'Auto'}</span>
           </button>
 
           {unread > 0 && (
-            <button onClick={markAllRead} aria-label="Mark all read" className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5" style={{ transition: 'color 0.15s, background 0.15s' }}>
+            <button onClick={markAllRead} className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-white border border-white/[0.08] rounded hover:bg-white/[0.04]" style={{ transition: 'color 0.1s, background 0.1s' }}>
               <CheckCheck className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">Mark all read</span>
+              <span className="hidden sm:inline">All read</span>
             </button>
           )}
 
@@ -505,33 +505,33 @@ export default function DashboardClient({
           <button
             onClick={exportCSV}
             disabled={filtered.length === 0}
-            className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-30"
-            style={{ transition: 'color 0.15s, background 0.15s' }}
-            title="Export filtered signals to CSV"
+            className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-white border border-white/[0.08] rounded hover:bg-white/[0.04] disabled:opacity-30"
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title="Export CSV"
           >
             <Download className="w-3.5 h-3.5" />
-            <span className="hidden sm:inline">Export CSV</span>
+            <span className="hidden sm:inline">CSV</span>
           </button>
 
           <button
             onClick={() => setHistoryMode(v => !v)}
-            className={`flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold border rounded-xl ${historyMode ? 'text-[#f59e0b] border-[#f59e0b]/30 bg-[#f59e0b]/10' : 'text-slate-400 hover:text-white border-white/10 hover:bg-white/5'}`}
-            style={{ transition: 'color 0.15s, background 0.15s' }}
-            title={historyMode ? 'Exit history mode' : 'Browse historical signals'}
+            className={`flex items-center gap-1.5 px-2.5 py-1 text-xs border rounded ${historyMode ? 'text-yellow-400 border-yellow-500/25 bg-yellow-500/8' : 'text-slate-500 hover:text-white border-white/[0.08] hover:bg-white/[0.04]'}`}
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title="History mode"
           >
             <History className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">History</span>
           </button>
 
-          <button onClick={refresh} disabled={refreshing || historyMode} className="flex items-center gap-1.5 px-3 py-2.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-xl hover:bg-white/5 disabled:opacity-50" style={{ transition: 'color 0.15s, background 0.15s' }}>
+          <button onClick={refresh} disabled={refreshing || historyMode} className="flex items-center gap-1.5 px-2.5 py-1 text-xs text-slate-500 hover:text-white border border-white/[0.08] rounded hover:bg-white/[0.04] disabled:opacity-40" style={{ transition: 'color 0.1s, background 0.1s' }}>
             {refreshing ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-            <span className="hidden sm:inline">{refreshing ? 'Scanning…' : 'Force scan'}</span>
+            <span className="hidden sm:inline">{refreshing ? 'Scanning…' : 'Refresh'}</span>
           </button>
 
           <button
             onClick={() => setHelpOpen(true)}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-500 hover:text-white border border-white/10 rounded-xl hover:bg-white/5"
-            style={{ transition: 'color 0.15s, background 0.15s' }}
+            className="hidden sm:flex items-center px-2.5 py-1 text-xs text-slate-600 hover:text-white border border-white/[0.08] rounded hover:bg-white/[0.04]"
+            style={{ transition: 'color 0.1s, background 0.1s' }}
             title="Keyboard shortcuts (?)"
           >
             <Keyboard className="w-3.5 h-3.5" />
@@ -619,24 +619,23 @@ export default function DashboardClient({
         </div>
       )}
 
-      {/* Search + filters (sticky on mobile/desktop) */}
-      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#0a0f1a]/95 backdrop-blur-md py-2 -my-2">
+      {/* Search + filters (sticky) */}
+      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#080c14]/95 backdrop-blur-md py-2 -my-2">
         {/* Search */}
         <div className="relative mb-2">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
           <input
             ref={searchRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search ticker, title, type… (press /)"
-            className="w-full pl-9 pr-9 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60"
-            style={{ transition: 'border-color 0.15s', fontSize: '16px' }}
+            placeholder="Search ticker or type… (press /)"
+            className="w-full pl-9 pr-9 py-2 bg-white/[0.04] border border-white/[0.08] rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-sky-500/50"
+            style={{ transition: 'border-color 0.1s', fontSize: '16px', lineHeight: '1.4' }}
           />
           {search && (
             <button
               onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-slate-500 hover:text-white hover:bg-white/5"
-              style={{ transition: 'color 0.15s, background 0.15s' }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-500 hover:text-white"
               aria-label="Clear search"
             >
               <X className="w-3.5 h-3.5" />
@@ -644,18 +643,18 @@ export default function DashboardClient({
           )}
         </div>
 
-        {/* Filter row */}
-        <div className="flex gap-2 flex-wrap items-center">
-          <Filter className="w-4 h-4 text-slate-500 shrink-0" />
+        {/* Filter row — all controls locked to small size regardless of body font */}
+        <div className="flex gap-1.5 flex-wrap items-center" style={{ fontSize: '12px' }}>
+          <Filter className="w-3.5 h-3.5 text-slate-600 shrink-0" />
 
           {/* Time range chips */}
-          <div className="flex bg-white/3 border border-white/10 rounded-lg overflow-hidden">
+          <div className="flex bg-white/[0.03] border border-white/[0.08] rounded overflow-hidden">
             {TIME_RANGES.map(r => (
               <button
                 key={r.id}
                 onClick={() => setTimeRange(r.id)}
-                className={`px-2.5 py-1.5 text-xs font-semibold ${timeRange === r.id ? 'bg-[#0ea5e9]/15 text-[#0ea5e9]' : 'text-slate-400 hover:text-white'}`}
-                style={{ transition: 'color 0.15s, background 0.15s' }}
+                className={`px-2.5 py-1 font-semibold ${timeRange === r.id ? 'bg-sky-500/15 text-sky-400' : 'text-slate-500 hover:text-slate-200'}`}
+                style={{ fontSize: '11px', transition: 'color 0.1s, background 0.1s' }}
               >
                 {r.label}
               </button>
@@ -666,11 +665,11 @@ export default function DashboardClient({
           <select
             value={typeFilter}
             onChange={e => setTypeFilter(e.target.value)}
-            className="px-3 py-1.5 text-xs font-medium bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#0ea5e9]/60 cursor-pointer"
-            style={{ fontSize: '16px' }}
+            className="px-2 py-1 bg-white/[0.04] border border-white/[0.08] rounded text-slate-300 focus:outline-none focus:border-sky-500/50 cursor-pointer"
+            style={{ fontSize: '12px', lineHeight: '1.4' }}
           >
             {SIGNAL_TYPES.map(t => (
-              <option key={t} value={t} className="bg-[#0a0f1a]">
+              <option key={t} value={t} className="bg-[#0d1220] text-slate-200">
                 {t === 'all' ? 'All types' : getTypeMeta(t).label}
               </option>
             ))}
@@ -680,53 +679,53 @@ export default function DashboardClient({
           <select
             value={severityFilter}
             onChange={e => setSeverityFilter(e.target.value)}
-            className="px-3 py-1.5 text-xs font-medium bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#0ea5e9]/60 cursor-pointer"
-            style={{ fontSize: '16px' }}
+            className="px-2 py-1 bg-white/[0.04] border border-white/[0.08] rounded text-slate-300 focus:outline-none focus:border-sky-500/50 cursor-pointer"
+            style={{ fontSize: '12px', lineHeight: '1.4' }}
           >
-            <option value="all" className="bg-[#0a0f1a]">All severity</option>
-            <option value="critical" className="bg-[#0a0f1a]">Critical (9-10)</option>
-            <option value="high" className="bg-[#0a0f1a]">High (7-10)</option>
-            <option value="medium" className="bg-[#0a0f1a]">Medium (5+)</option>
+            <option value="all" className="bg-[#0d1220]">All severity</option>
+            <option value="critical" className="bg-[#0d1220]">Critical 9+</option>
+            <option value="high" className="bg-[#0d1220]">High 7+</option>
+            <option value="medium" className="bg-[#0d1220]">Medium 5+</option>
           </select>
 
           {/* Sort */}
           <div className="relative">
-            <ArrowUpDown className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-500 pointer-events-none" />
+            <ArrowUpDown className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-slate-600 pointer-events-none" />
             <select
               value={sort}
               onChange={e => setSort(e.target.value as SortKey)}
-              className="pl-7 pr-3 py-1.5 text-xs font-medium bg-white/5 border border-white/10 rounded-lg text-white focus:outline-none focus:border-[#0ea5e9]/60 cursor-pointer"
-              style={{ fontSize: '16px' }}
+              className="pl-6 pr-2 py-1 bg-white/[0.04] border border-white/[0.08] rounded text-slate-300 focus:outline-none focus:border-sky-500/50 cursor-pointer"
+              style={{ fontSize: '12px', lineHeight: '1.4' }}
             >
-              <option value="newest" className="bg-[#0a0f1a]">Newest first</option>
-              <option value="oldest" className="bg-[#0a0f1a]">Oldest first</option>
-              <option value="severity_desc" className="bg-[#0a0f1a]">Severity high → low</option>
-              <option value="severity_asc" className="bg-[#0a0f1a]">Severity low → high</option>
-              <option value="ticker" className="bg-[#0a0f1a]">Ticker A → Z</option>
+              <option value="newest" className="bg-[#0d1220]">Newest</option>
+              <option value="oldest" className="bg-[#0d1220]">Oldest</option>
+              <option value="severity_desc" className="bg-[#0d1220]">Severity ↓</option>
+              <option value="severity_asc" className="bg-[#0d1220]">Severity ↑</option>
+              <option value="ticker" className="bg-[#0d1220]">Ticker A–Z</option>
             </select>
           </div>
 
-          {/* Density toggle */}
+          {/* Density */}
           <button
             onClick={() => setDensity(d => d === 'compact' ? 'comfortable' : 'compact')}
-            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-400 hover:text-white border border-white/10 rounded-lg hover:bg-white/5"
-            style={{ transition: 'color 0.15s, background 0.15s' }}
-            title={density === 'compact' ? 'Comfortable density' : 'Compact density'}
+            className="flex items-center gap-1 px-2 py-1 text-slate-500 hover:text-slate-200 border border-white/[0.08] rounded hover:bg-white/[0.04]"
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title={density === 'compact' ? 'Comfortable' : 'Compact'}
           >
             {density === 'compact' ? <Rows4 className="w-3.5 h-3.5" /> : <Rows3 className="w-3.5 h-3.5" />}
           </button>
 
-          {/* Group by ticker toggle */}
+          {/* Group by ticker */}
           <button
             onClick={() => setGroupByTicker(v => !v)}
-            className={`flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold border rounded-lg ${groupByTicker ? 'text-[#0ea5e9] border-[#0ea5e9]/30 bg-[#0ea5e9]/10' : 'text-slate-400 hover:text-white border-white/10 hover:bg-white/5'}`}
-            style={{ transition: 'color 0.15s, background 0.15s' }}
+            className={`flex items-center gap-1 px-2 py-1 border rounded ${groupByTicker ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' : 'text-slate-500 hover:text-slate-200 border-white/[0.08] hover:bg-white/[0.04]'}`}
+            style={{ transition: 'color 0.1s, background 0.1s' }}
             title={groupByTicker ? 'Ungroup' : 'Group by ticker'}
           >
             <Layers className="w-3.5 h-3.5" />
           </button>
 
-          <span className="text-xs text-slate-500 ml-auto">{filtered.length} signals</span>
+          <span className="text-slate-600 ml-auto tabular-nums" style={{ fontSize: '11px' }}>{filtered.length}</span>
         </div>
 
         {/* Selection actions row */}
