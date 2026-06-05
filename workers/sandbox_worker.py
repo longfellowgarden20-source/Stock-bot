@@ -406,6 +406,25 @@ async def decide_entry(
     sandbox_lessons = await get_sandbox_lessons(ticker, limit=5)
     wins, total, win_rate = get_overall_win_rate()
 
+    # Fetch user-injected brain notes — general + ticker-specific
+    try:
+        notes_res = supabase().table("brain_notes").select("content,ticker,category").execute()
+        notes = notes_res.data or []
+        general_notes = [n["content"] for n in notes if not n.get("ticker")]
+        ticker_notes = [n["content"] for n in notes if n.get("ticker") == ticker.upper()]
+        brain_block = ""
+        if general_notes or ticker_notes:
+            lines = []
+            if ticker_notes:
+                lines.append(f"NOTES ABOUT {ticker}:")
+                lines.extend(f"  - {n}" for n in ticker_notes)
+            if general_notes:
+                lines.append("GENERAL TRADING RULES (from user):")
+                lines.extend(f"  - {n}" for n in general_notes[:10])
+            brain_block = "\n".join(lines)
+    except Exception:
+        brain_block = ""
+
     # Fetch yesterday's self-critique — Groq reads its own rules before trading
     try:
         yesterday = (date.today() - timedelta(days=1)).isoformat()
@@ -470,10 +489,12 @@ async def decide_entry(
     today_str = date.today().isoformat()
 
     critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
+    user_brain_block = f"\nUSER-PROVIDED RULES AND OBSERVATIONS (MUST FOLLOW):\n{brain_block}" if brain_block else ""
 
     prompt = f"""You are a paper trader. Decide whether to enter a trade on {ticker} today ({today_str}).
 
 Current price: ${price:.2f}
+{user_brain_block}
 {critique_block}
 TODAY'S MARKET OUTLOOK:
 {outlook_block}

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { TrendingUp, LayoutDashboard, Briefcase, Search, Bookmark, LogOut, Bell, Settings, BookOpen, FlaskConical, Crosshair } from 'lucide-react'
+import { TrendingUp, LayoutDashboard, Briefcase, Search, Bookmark, LogOut, Bell, Settings, BookOpen, FlaskConical, Crosshair, Brain } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 
 const links = [
@@ -13,6 +13,7 @@ const links = [
   { href: '/journal', label: 'Journal', icon: BookOpen },
   { href: '/sandbox', label: 'Sandbox', icon: FlaskConical },
   { href: '/plays', label: 'Plays', icon: Crosshair },
+  { href: '/brain', label: 'Brain', icon: Brain },
 ]
 
 export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
