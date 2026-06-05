@@ -24,7 +24,7 @@ import asyncio
 import json
 import httpx
 from datetime import datetime, timezone, date, timedelta
-from db import supabase
+from db import supabase, insert_signal
 from market_hours import now_et, is_weekday, is_market_hours
 
 log = logging.getLogger("sandbox_worker")
@@ -484,7 +484,6 @@ def count_open_positions_by_sector(open_positions: list[dict]) -> dict[str, int]
 def has_earnings_soon(ticker: str, days: int = 2) -> bool:
     """#7 — True if ticker has earnings within N days."""
     try:
-        from datetime import datetime, timezone, timedelta
         since = datetime.now(timezone.utc).isoformat()
         until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
         res = (
@@ -541,7 +540,6 @@ def is_on_cooldown(ticker: str) -> bool:
 def has_minimum_signals(ticker: str) -> bool:
     """#5 — True if ticker has at least 1 signal with sev >= 6 in last 24h."""
     try:
-        from datetime import datetime, timezone, timedelta
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         res = (
             supabase().table("signals")
@@ -1317,6 +1315,8 @@ async def run_once() -> dict:
                         if trade:
                             res = supabase().table("sandbox_trades").insert(trade).execute()
                             if res.data:
+                                inserted = res.data[0]
+                                trade["id"] = inserted.get("id")  # add DB-generated id
                                 open_tickers.add(ticker)
                                 open_positions.append(trade)  # keep sector counts current
                                 entries += 1
