@@ -407,6 +407,200 @@ def update_account_balance(pnl_dollar: float) -> float:
         return STARTING_BALANCE
 
 
+# ─── Context helpers ──────────────────────────────────────────────────────────
+
+async def get_options_flow_context(ticker: str) -> str:
+    """#1 — Latest options flow signals for this ticker."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("signal_type,severity,title,body")
+            .eq("ticker", ticker.upper())
+            .in_("signal_type", ["options_unusual", "dark_pool"])
+            .gte("created_at", since)
+            .order("severity", desc=True)
+            .limit(3)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return "No recent options/dark pool flow."
+        lines = [f"[{r['signal_type']} sev={r['severity']}] {r['title']}" for r in rows]
+        return "\n".join(lines)
+    except Exception:
+        return "Options flow unavailable."
+
+
+async def get_technical_context(ticker: str) -> str:
+    """#2 — Latest technical indicator signals for this ticker."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("title,body,severity,created_at")
+            .eq("ticker", ticker.upper())
+            .eq("signal_type", "technical")
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(3)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return "No recent technical signals."
+        lines = [f"[sev={r['severity']}] {r['title']}" for r in rows]
+        return "\n".join(lines)
+    except Exception:
+        return "Technical data unavailable."
+
+
+async def get_convergence_context(ticker: str) -> str:
+    """#3 — Check if signal_engine fired a convergence signal recently."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("severity,title,body")
+            .eq("ticker", ticker.upper())
+            .eq("signal_type", "convergence")
+            .gte("created_at", since)
+            .order("severity", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            r = res.data[0]
+            return f"CONVERGENCE ALERT (sev={r['severity']}): {r['title']}\n{(r.get('body') or '')[:200]}"
+        return "No convergence signal in last 2h."
+    except Exception:
+        return ""
+
+
+async def get_volume_context(client: httpx.AsyncClient, ticker: str) -> str:
+    """#4 — Today's volume vs 20-day average."""
+    if not POLYGON_KEY:
+        return ""
+    try:
+        today = date.today()
+        start = (today - timedelta(days=25)).isoformat()
+        r = await client.get(
+            f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{today.isoformat()}",
+            params={"apiKey": POLYGON_KEY, "limit": 22, "sort": "desc"},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return ""
+        results = r.json().get("results", [])
+        if len(results) < 2:
+            return ""
+        today_vol = results[0].get("v", 0)
+        avg_vol = sum(r2.get("v", 0) for r2 in results[1:21]) / min(20, len(results) - 1)
+        if avg_vol <= 0:
+            return ""
+        ratio = today_vol / avg_vol
+        label = "HIGH volume" if ratio > 1.5 else "LOW volume" if ratio < 0.7 else "normal volume"
+        return f"Volume: {label} ({ratio:.1f}x 20-day avg)"
+    except Exception:
+        return ""
+
+
+def get_signal_freshness(ticker: str) -> tuple[bool, int]:
+    """#5/#12 — Returns (has_fresh_signal, hours_since_last_signal).
+    Fresh = qualifying signal within 4 hours."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+        res = (
+            supabase().table("signals")
+            .select("created_at")
+            .eq("ticker", ticker.upper())
+            .gte("severity", 6)
+            .gte("created_at", since)
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            t = datetime.fromisoformat(res.data[0]["created_at"].replace("Z", "+00:00"))
+            hours_ago = int((datetime.now(timezone.utc) - t).total_seconds() / 3600)
+            return True, hours_ago
+        return False, 99
+    except Exception:
+        return True, 0  # fail open
+
+
+def get_daily_pnl() -> float:
+    """#9 — Total P&L from trades closed today."""
+    try:
+        today_str = date.today().isoformat()
+        res = (
+            supabase().table("sandbox_trades")
+            .select("pnl")
+            .eq("status", "closed")
+            .eq("exit_date", today_str)
+            .execute()
+        )
+        return sum((r.get("pnl") or 0) for r in (res.data or []))
+    except Exception:
+        return 0.0
+
+
+def get_recent_win_rate(n: int = 10) -> float:
+    """#10 — Win rate over last N closed trades."""
+    try:
+        res = (
+            supabase().table("sandbox_trades")
+            .select("pnl")
+            .eq("status", "closed")
+            .order("updated_at", desc=True)
+            .limit(n)
+            .execute()
+        )
+        rows = res.data or []
+        if not rows:
+            return 0.0
+        wins = sum(1 for r in rows if (r.get("pnl") or 0) > 0)
+        return wins / len(rows) * 100
+    except Exception:
+        return 0.0
+
+
+def get_confidence_accuracy() -> str:
+    """#8 — Compare high vs low confidence call accuracy."""
+    try:
+        res = (
+            supabase().table("sandbox_trades")
+            .select("pnl,confidence_used")
+            .eq("status", "closed")
+            .not_.is_("confidence_used", "null")
+            .execute()
+        )
+        rows = res.data or []
+        if len(rows) < 10:
+            return ""
+        high = [r for r in rows if (r.get("confidence_used") or 0) >= 70]
+        low = [r for r in rows if (r.get("confidence_used") or 0) < 70]
+        high_wr = sum(1 for r in high if (r.get("pnl") or 0) > 0) / len(high) * 100 if high else 0
+        low_wr = sum(1 for r in low if (r.get("pnl") or 0) > 0) / len(low) * 100 if low else 0
+        return f"High-confidence (70%+) win rate: {high_wr:.0f}% ({len(high)} trades) | Low-confidence win rate: {low_wr:.0f}% ({len(low)} trades)"
+    except Exception:
+        return ""
+
+
+def send_push_notification(title: str, body: str, severity: float = 7.0) -> None:
+    """#14/#15 — Fire push notification via existing push infrastructure."""
+    try:
+        import threading
+        from db import _send_push_request
+        signal_row = {
+            "id": None, "ticker": "SANDBOX", "signal_type": "convergence",
+            "severity": severity, "title": title, "body": body,
+        }
+        threading.Thread(target=_send_push_request, args=(signal_row,), daemon=True).start()
+    except Exception as e:
+        log.debug(f"Push notification failed: {e}")
+
+
 # ─── Trade filters ────────────────────────────────────────────────────────────
 
 def is_choppy_market() -> bool:
@@ -569,9 +763,10 @@ async def decide_entry(
 
     # ── Pre-flight filters (fast, no Groq calls) ──────────────────────────────
 
-    # #5 — Require at least 1 signal sev >= 6 in last 24h
-    if not has_minimum_signals(ticker):
-        log.debug(f"Filter #5: {ticker} has no qualifying signals — skip")
+    # #5/#12 — Require fresh signal within 4 hours
+    has_fresh, hours_since = get_signal_freshness(ticker)
+    if not has_fresh:
+        log.debug(f"Filter #5/#12: {ticker} last signal {hours_since}h ago — stale, skip")
         return None
 
     # #7 — Skip if earnings within 2 days
@@ -596,10 +791,23 @@ async def decide_entry(
     if not price or price <= 0:
         return None
 
-    signals = await get_recent_signals(ticker, hours=24)
-    pred_lessons = await get_recent_lessons(ticker, limit=5)
-    sandbox_lessons = await get_sandbox_lessons(ticker, limit=5)
+    # Fetch all context in parallel
+    (
+        signals, pred_lessons, sandbox_lessons,
+        options_ctx, tech_ctx, convergence_ctx, volume_ctx,
+    ) = await asyncio.gather(
+        get_recent_signals(ticker, hours=24),
+        get_recent_lessons(ticker, limit=5),
+        get_sandbox_lessons(ticker, limit=5),
+        get_options_flow_context(ticker),
+        get_technical_context(ticker),
+        get_convergence_context(ticker),
+        get_volume_context(client, ticker),
+        return_exceptions=False,
+    )
     wins, total, win_rate = get_overall_win_rate()
+    recent_wr = get_recent_win_rate(10)
+    conf_accuracy = get_confidence_accuracy()
 
     # Fetch user-injected brain notes — general + ticker-specific
     try:
@@ -619,6 +827,42 @@ async def decide_entry(
             brain_block = "\n".join(lines)
     except Exception:
         brain_block = ""
+
+    # Fetch weekly review rules (written Sunday, read all week)
+    try:
+        week_start = (date.today() - timedelta(days=7)).isoformat()
+        weekly_res = (
+            supabase().table("prediction_lessons")
+            .select("lesson")
+            .eq("ticker", "GROQ_WEEKLY")
+            .gte("date", week_start)
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        weekly_rules = weekly_res.data[0].get("lesson", "") if weekly_res.data else ""
+        if "RULES FOR NEXT WEEK" in weekly_rules:
+            weekly_rules = weekly_rules.split("RULES FOR NEXT WEEK")[-1][:400]
+        else:
+            weekly_rules = weekly_rules[:300]
+
+        # Pattern mining rules
+        patterns_res = (
+            supabase().table("prediction_lessons")
+            .select("lesson")
+            .eq("ticker", "GROQ_PATTERNS")
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        pattern_rules = patterns_res.data[0].get("lesson", "") if patterns_res.data else ""
+        if "3 CONCRETE RULES" in pattern_rules:
+            pattern_rules = pattern_rules.split("3 CONCRETE RULES")[-1][:400]
+        else:
+            pattern_rules = pattern_rules[:300]
+    except Exception:
+        weekly_rules = ""
+        pattern_rules = ""
 
     # Fetch yesterday's self-critique — Groq reads its own rules before trading
     try:
@@ -713,20 +957,42 @@ async def decide_entry(
 
     today_str = date.today().isoformat()
 
+    # #10 — Hot streak scaling
+    risk_pct = RISK_PER_TRADE_PCT
+    if recent_wr >= 70 and total >= 10:
+        risk_pct = 1.5
+        log.debug(f"Hot streak: recent WR={recent_wr:.1f}% — scaling risk to 1.5%")
+
     critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
+    weekly_block = f"\nWEEKLY REVIEW RULES:\n{weekly_rules}" if weekly_rules else ""
+    pattern_block_str = f"\nHIGHEST WIN-RATE PATTERNS (follow these):\n{pattern_rules}" if pattern_rules else ""
     user_brain_block = f"\nUSER-PROVIDED RULES AND OBSERVATIONS (MUST FOLLOW):\n{brain_block}" if brain_block else ""
     sector_block = f"\nTicker sector: {ticker_sector}" + (f"\nRecent macro signals: {'; '.join(sector_signals)}" if sector_signals else "")
-    account_block = f"\nAccount: ${account_balance:,.0f} ({total_return_pct:+.1f}% total return) | Drawdown: {drawdown:.1f}%" + (f" | {streak_str}" if streak_str else "")
+    account_block = (
+        f"\nAccount: ${account_balance:,.0f} ({total_return_pct:+.1f}% total return) | Drawdown: {drawdown:.1f}%"
+        + (f" | {streak_str}" if streak_str else "")
+        + f" | Last 10 trades WR: {recent_wr:.0f}%"
+        + (f"\n{conf_accuracy}" if conf_accuracy else "")
+    )
+    convergence_note = f"\n⚡ {convergence_ctx}" if "CONVERGENCE ALERT" in convergence_ctx else ""
 
     prompt = f"""You are a paper trader managing a $50,000 paper account. Decide whether to enter a trade on {ticker} today ({today_str}).
 
-Current price: ${price:.2f}{sector_block}{account_block}
+Current price: ${price:.2f} | {volume_ctx}{sector_block}{account_block}
 {user_brain_block}
+{pattern_block_str}
+{weekly_block}
 {critique_block}
 TODAY'S MARKET OUTLOOK:
 {outlook_block}
+{convergence_note}
+OPTIONS / DARK POOL FLOW:
+{options_ctx}
 
-Recent signals (last 24h):
+TECHNICAL SIGNALS:
+{tech_ctx}
+
+Recent signals (last 24h) — most recent was {hours_since}h ago:
 {sig_block}
 
 Your past prediction accuracy for {ticker}:
@@ -737,7 +1003,7 @@ Your past sandbox trades for {ticker}:
 
 Your overall sandbox win rate: {win_rate:.1f}% ({wins}/{total} trades)
 Goal: 70%+ win rate. Be selective — quality over quantity.
-Rules: align direction with market outlook, respect your sector (don't fight macro), only trade what has conviction.
+Rules: align direction with market outlook, respect your sector, prioritize setups with convergence alerts and fresh options flow.
 
 Respond ONLY with valid JSON:
 {{
@@ -820,16 +1086,38 @@ Rules:
             log.debug(f"Filter #8: {ticker} short stop too wide ({stop_pct:.1f}% > {MAX_STOP_PCT}%) — skip")
             return None
 
-    # Position sizing — risk 1% of account
+    # Position sizing — scale up on hot streaks (#10)
     account_balance = get_account_balance()
-    shares, position_size, risk_amount = calculate_position_size(price, stop, account_balance)
+    effective_risk_pct = risk_pct  # may be 1.5% if on hot streak
+    risk_per_share = abs(price - stop)
+    if risk_per_share > 0:
+        dollar_risk = account_balance * (effective_risk_pct / 100)
+        shares = max(1, int(dollar_risk / risk_per_share))
+        max_shares = max(1, int(account_balance * (MAX_POSITION_PCT / 100) / price))
+        shares = min(shares, max_shares)
+    else:
+        shares = 1
+    position_size = round(shares * price, 2)
+    risk_amount = round(shares * risk_per_share, 2)
+
+    # #13 — Limit entry: set entry slightly better than current price
+    if direction == "long":
+        limit_entry = round(price * 0.997, 4)  # 0.3% below current
+    else:
+        limit_entry = round(price * 1.003, 4)  # 0.3% above current for short
+
+    # #11 — Calculate Target 1 (partial exit at halfway)
+    if direction == "long":
+        target1 = round(price + (target - price) * 0.5, 4)
+    else:
+        target1 = round(price - (price - target) * 0.5, 4)
 
     return {
         "ticker": ticker.upper(),
         "direction": direction,
         "trade_type": trade_type,
         "status": "open",
-        "entry_price": round(price, 4),
+        "entry_price": round(limit_entry, 4),  # #13 limit entry
         "stop_loss": round(stop, 4),
         "target_price": round(target, 4),
         "shares": shares,
@@ -840,6 +1128,8 @@ Rules:
         "entry_date": today_str,
         "groq_thesis": thesis,
         "signals_at_entry": [{"type": s["signal_type"], "sev": s["severity"], "title": s["title"]} for s in signals[:5]],
+        "target1": target1,  # #11 partial exit level
+        "partial_exit_done": False,
     }
 
 
@@ -890,13 +1180,35 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             except Exception as e:
                 log.debug(f"Trailing stop update failed for {ticker}: {e}")
 
+    # #11 — Partial exit at Target 1 (halfway)
+    target1 = float(trade.get("target1") or 0)
+    partial_done = trade.get("partial_exit_done", False)
+    if target1 > 0 and not partial_done:
+        t1_hit = (direction == "long" and price >= target1) or (direction == "short" and price <= target1)
+        if t1_hit:
+            # Close half the position at Target 1
+            half_shares = max(1, int(float(trade.get("shares") or 1) / 2))
+            half_pnl = half_shares * abs(price - entry) * (1 if direction == "long" else -1)
+            update_account_balance(half_pnl)
+            log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (+${half_pnl:.2f})")
+            try:
+                supabase().table("sandbox_trades").update({
+                    "partial_exit_done": True,
+                    "stop_loss": round(entry, 4),  # move stop to breakeven after partial
+                    "shares": max(1, int(float(trade.get("shares") or 1)) - half_shares),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("id", trade["id"]).execute()
+                stop = entry  # updated for rest of this eval cycle
+            except Exception as e:
+                log.debug(f"Partial exit update failed for {ticker}: {e}")
+
     # Auto-exit: stop hit (uses updated stop if trailing fired)
     if (direction == "long" and price <= stop) or (direction == "short" and price >= stop):
         exit_reason = "stop_hit" if abs(stop - entry) > 0.01 else "breakeven_stop"
         await close_trade(trade, price, exit_reason, f"Stop hit at ${price:.2f} (stop=${stop:.2f})")
         return
 
-    # Auto-exit: target hit
+    # Auto-exit: target hit — send push notification (#14)
     if (direction == "long" and price >= target) or (direction == "short" and price <= target):
         await close_trade(trade, price, "target_hit", f"Target hit at ${price:.2f}")
         return
@@ -989,6 +1301,14 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
     # Update account balance with real P&L
     new_balance = update_account_balance(pnl)
     log.info(f"Account balance: ${new_balance:,.2f}")
+
+    # #14 — Push notification on target hit or stop hit
+    outcome = "WIN" if pnl > 0 else "LOSS"
+    if exit_reason in ("target_hit", "stop_hit", "breakeven_stop"):
+        emoji = "🎯" if exit_reason == "target_hit" else "🛑" if exit_reason == "stop_hit" else "⚡"
+        push_title = f"{emoji} Sandbox {outcome}: {ticker} {direction.upper()}"
+        push_body = f"${entry:.2f} → ${exit_price:.2f} ({pnl_pct:+.1f}%) | {exit_reason.replace('_', ' ')} | Balance: ${new_balance:,.0f}"
+        send_push_notification(push_title, push_body, severity=8.0 if exit_reason == "target_hit" else 7.0)
 
     # Write lesson and equity snapshot asynchronously
     asyncio.create_task(_write_trade_lesson(trade, exit_price, exit_reason, pnl_pct))
@@ -1292,6 +1612,14 @@ async def run_once() -> dict:
             if is_in_dead_zone():
                 return {"status": "skipped", "reason": "dead zone 12-2pm ET"}
 
+            # #9 — Daily loss limit: stop trading if account down 2% today
+            daily_pnl = get_daily_pnl()
+            account_balance = get_account_balance()
+            daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
+            if daily_loss_pct <= -2.0:
+                log.info(f"Daily loss limit hit: {daily_loss_pct:.1f}% — stopping entries for today")
+                return {"status": "skipped", "reason": f"daily loss limit hit ({daily_loss_pct:.1f}%)"}
+
             # Count how many trades already entered today
             today_str = date.today().isoformat()
             try:
@@ -1338,6 +1666,25 @@ async def run_once() -> dict:
                     log.error(f"EOD evaluation failed for {trade['ticker']}: {e}")
                 await asyncio.sleep(1)
             record_daily_performance()
+
+            # #15 — Daily P&L push at 4pm close
+            try:
+                today_str = date.today().isoformat()
+                day_res = supabase().table("sandbox_trades").select("pnl,direction,ticker").eq("status", "closed").eq("exit_date", today_str).execute()
+                day_trades = day_res.data or []
+                if day_trades:
+                    day_wins = sum(1 for t in day_trades if (t.get("pnl") or 0) > 0)
+                    day_losses = len(day_trades) - day_wins
+                    day_pnl = sum((t.get("pnl") or 0) for t in day_trades)
+                    day_wr = day_wins / len(day_trades) * 100
+                    new_bal = get_account_balance()
+                    total_ret = (new_bal - STARTING_BALANCE) / STARTING_BALANCE * 100
+                    push_title = f"📊 Sandbox EOD: {day_wins}W/{day_losses}L ({day_wr:.0f}%)"
+                    push_body = f"Today: {'+' if day_pnl >= 0 else ''}${day_pnl:.0f} | Account: ${new_bal:,.0f} ({total_ret:+.1f}% total)"
+                    send_push_notification(push_title, push_body, severity=7.0)
+            except Exception as e:
+                log.debug(f"Daily P&L push failed: {e}")
+
             return {"status": "ok", "action": "eod_close", "evaluated": closed}
 
         # 5:00–5:15 ET: nightly self-critique
