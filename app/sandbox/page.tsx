@@ -12,25 +12,21 @@ export default async function SandboxPage() {
 
   const since30d = new Date(Date.now() - 30 * 86400_000).toISOString().split('T')[0]
 
-  const [{ data: openTrades }, { data: closedTrades }, { data: performance }] = await Promise.all([
-    supabase
-      .from('sandbox_trades')
-      .select('*')
-      .eq('status', 'open')
-      .order('entry_date', { ascending: false }),
-    supabase
-      .from('sandbox_trades')
-      .select('*')
-      .eq('status', 'closed')
-      .gte('entry_date', since30d)
-      .order('exit_date', { ascending: false })
-      .limit(100),
-    supabase
-      .from('sandbox_performance')
-      .select('*')
-      .order('date', { ascending: false })
-      .limit(30),
+  const [
+    { data: openTrades },
+    { data: closedTrades },
+    { data: performance },
+    { data: accountRows },
+    { data: equity },
+  ] = await Promise.all([
+    supabase.from('sandbox_trades').select('*').eq('status', 'open').order('entry_date', { ascending: false }),
+    supabase.from('sandbox_trades').select('*').eq('status', 'closed').gte('entry_date', since30d).order('exit_date', { ascending: false }).limit(100),
+    supabase.from('sandbox_performance').select('*').order('date', { ascending: false }).limit(30),
+    supabase.from('sandbox_account').select('*').limit(1),
+    supabase.from('sandbox_equity').select('*').order('date', { ascending: true }).limit(60),
   ])
+
+  const account = accountRows?.[0] ?? null
 
   return (
     <AppShell>
@@ -38,6 +34,8 @@ export default async function SandboxPage() {
         openTrades={openTrades ?? []}
         closedTrades={closedTrades ?? []}
         performance={performance ?? []}
+        account={account}
+        equity={equity ?? []}
       />
     </AppShell>
   )

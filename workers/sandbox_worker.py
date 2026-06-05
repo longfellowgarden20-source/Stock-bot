@@ -33,10 +33,16 @@ POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
 
 # Paper trading config
-SHARES_PER_TRADE = 100          # fixed lot size for simplicity
+STARTING_BALANCE   = 50_000.00  # $50k paper account
+RISK_PER_TRADE_PCT = 1.0        # risk 1% of account per trade ($500 on $50k)
+MAX_POSITION_PCT   = 10.0       # never put more than 10% of account in one trade
 MAX_OPEN_POSITIONS = 20         # max concurrent open positions
-MAX_DAILY_ENTRIES = 20          # max new entries per day
-MAX_SWING_DAYS = 20             # force-close swing trades after 20 trading days
+MAX_DAILY_ENTRIES  = 20         # max new entries per day
+MAX_SWING_DAYS     = 20         # force-close swing trades after 20 trading days
+
+# Confidence calibration thresholds — adjusted dynamically based on win rate
+BASE_CONFIDENCE_THRESHOLD = 50
+HIGH_BAR_CONFIDENCE       = 70   # used when win rate < 50%
 
 
 # ─── Groq call ────────────────────────────────────────────────────────────────
@@ -299,6 +305,87 @@ def get_overall_win_rate() -> tuple[int, int, float]:
         return 0, 0, 0.0
 
 
+def get_account_balance() -> float:
+    """Current sandbox account balance."""
+    try:
+        res = supabase().table("sandbox_account").select("balance").limit(1).execute()
+        if res.data:
+            return float(res.data[0]["balance"])
+    except Exception as e:
+        log.debug(f"Account balance fetch failed: {e}")
+    return STARTING_BALANCE
+
+
+def get_confidence_threshold(win_rate: float, total_trades: int) -> int:
+    """
+    Dynamic confidence threshold based on recent performance.
+    - New account (< 10 trades): use base threshold, learning mode
+    - Win rate < 40%: raise to 70, be very selective
+    - Win rate 40-50%: raise to 60, be selective
+    - Win rate > 50%: use base threshold 50, stay active
+    - Win rate > 65%: lower to 45, press the advantage
+    """
+    if total_trades < 10:
+        return BASE_CONFIDENCE_THRESHOLD
+    if win_rate < 40:
+        return HIGH_BAR_CONFIDENCE      # 70 — something is wrong, be selective
+    if win_rate < 50:
+        return 60                        # underperforming, tighten up
+    if win_rate >= 65:
+        return 45                        # on a roll, press the edge
+    return BASE_CONFIDENCE_THRESHOLD    # 50 — normal operation
+
+
+def calculate_position_size(entry: float, stop: float, account_balance: float) -> tuple[int, float, float]:
+    """
+    Kelly-inspired position sizing based on 1% account risk.
+    Returns (shares, position_size_dollars, risk_amount_dollars).
+    """
+    risk_per_share = abs(entry - stop)
+    if risk_per_share <= 0:
+        return 1, entry, entry
+
+    # Dollar risk = 1% of account
+    dollar_risk = account_balance * (RISK_PER_TRADE_PCT / 100)
+
+    # Shares = dollar risk / risk per share
+    shares = max(1, int(dollar_risk / risk_per_share))
+
+    # Cap position at MAX_POSITION_PCT of account
+    max_position_dollars = account_balance * (MAX_POSITION_PCT / 100)
+    max_shares_by_size = max(1, int(max_position_dollars / entry))
+    shares = min(shares, max_shares_by_size)
+
+    position_size = round(shares * entry, 2)
+    risk_amount = round(shares * risk_per_share, 2)
+    return shares, position_size, risk_amount
+
+
+def update_account_balance(pnl_dollar: float) -> float:
+    """Apply closed trade P&L to account balance. Returns new balance."""
+    try:
+        res = supabase().table("sandbox_account").select("*").limit(1).execute()
+        if not res.data:
+            return STARTING_BALANCE
+        acct = res.data[0]
+        new_balance = round(float(acct["balance"]) + pnl_dollar, 2)
+        peak = max(float(acct["peak_balance"]), new_balance)
+        wins = int(acct.get("winning_trades", 0)) + (1 if pnl_dollar > 0 else 0)
+        losses = int(acct.get("losing_trades", 0)) + (1 if pnl_dollar < 0 else 0)
+        supabase().table("sandbox_account").update({
+            "balance": new_balance,
+            "peak_balance": peak,
+            "total_trades": int(acct.get("total_trades", 0)) + 1,
+            "winning_trades": wins,
+            "losing_trades": losses,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", acct["id"]).execute()
+        return new_balance
+    except Exception as e:
+        log.error(f"update_account_balance failed: {e}")
+        return STARTING_BALANCE
+
+
 # ─── Entry decision ───────────────────────────────────────────────────────────
 
 async def decide_entry(
@@ -419,8 +506,12 @@ Rules:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
         return None
 
-    if not parsed.get("trade") or parsed.get("confidence", 0) < 50:
-        log.debug(f"Sandbox: passed on {ticker} (confidence={parsed.get('confidence')}, trade={parsed.get('trade')})")
+    # Dynamic confidence threshold based on win rate
+    conf_threshold = get_confidence_threshold(win_rate, total)
+    confidence = parsed.get("confidence", 0)
+
+    if not parsed.get("trade") or confidence < conf_threshold:
+        log.debug(f"Sandbox: passed on {ticker} (confidence={confidence} < threshold={conf_threshold}, win_rate={win_rate:.1f}%)")
         return None
 
     direction = parsed.get("direction", "long")
@@ -434,13 +525,12 @@ Rules:
         if stop >= price or target <= price:
             log.debug(f"Sandbox: invalid levels for {ticker} long — stop={stop}, price={price}, target={target}")
             return None
-        # Enforce minimum 1.5:1 R:R
         risk = price - stop
         reward = target - price
         if risk <= 0 or reward / risk < 1.5:
             log.debug(f"Sandbox: R:R too low for {ticker} long (risk={risk:.2f}, reward={reward:.2f})")
             return None
-    else:  # short
+    else:
         if stop <= price or target >= price:
             log.debug(f"Sandbox: invalid levels for {ticker} short — stop={stop}, price={price}, target={target}")
             return None
@@ -450,6 +540,10 @@ Rules:
             log.debug(f"Sandbox: R:R too low for {ticker} short (risk={risk:.2f}, reward={reward:.2f})")
             return None
 
+    # Position sizing — risk 1% of account
+    account_balance = get_account_balance()
+    shares, position_size, risk_amount = calculate_position_size(price, stop, account_balance)
+
     return {
         "ticker": ticker.upper(),
         "direction": direction,
@@ -458,7 +552,11 @@ Rules:
         "entry_price": round(price, 4),
         "stop_loss": round(stop, 4),
         "target_price": round(target, 4),
-        "shares": SHARES_PER_TRADE,
+        "shares": shares,
+        "position_size": position_size,
+        "risk_amount": risk_amount,
+        "account_balance_at_entry": account_balance,
+        "confidence_used": confidence,
         "entry_date": today_str,
         "groq_thesis": thesis,
         "signals_at_entry": [{"type": s["signal_type"], "sev": s["severity"], "title": s["title"]} for s in signals[:5]],
@@ -578,13 +676,18 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", trade["id"]).execute()
         outcome = "WIN" if pnl > 0 else "LOSS"
-        log.info(f"Sandbox closed {direction} {ticker}: {outcome} {pnl_pct:+.1f}% reason={exit_reason}")
+        log.info(f"Sandbox closed {direction} {ticker}: {outcome} {pnl_pct:+.1f}% (${pnl:+.2f}) reason={exit_reason}")
     except Exception as e:
         log.error(f"close_trade failed for {ticker}: {e}")
         return
 
-    # Write a lesson so future entry decisions can learn from this outcome
+    # Update account balance with real P&L
+    new_balance = update_account_balance(pnl)
+    log.info(f"Account balance: ${new_balance:,.2f}")
+
+    # Write lesson and equity snapshot asynchronously
     asyncio.create_task(_write_trade_lesson(trade, exit_price, exit_reason, pnl_pct))
+    asyncio.create_task(_record_equity_snapshot())
 
 
 async def _write_trade_lesson(trade: dict, exit_price: float, exit_reason: str, pnl_pct: float) -> None:
@@ -626,6 +729,35 @@ Write ONE specific sentence that captures what this trade teaches about trading 
         log.info(f"Sandbox lesson written for {ticker}: {lesson[:80]}")
     except Exception as e:
         log.debug(f"Lesson write failed for {ticker}: {e}")
+
+
+async def _record_equity_snapshot() -> None:
+    """Record today's account balance as an equity curve data point."""
+    try:
+        acct_res = supabase().table("sandbox_account").select("balance,peak_balance").limit(1).execute()
+        if not acct_res.data:
+            return
+        acct = acct_res.data[0]
+        balance = float(acct["balance"])
+        peak = float(acct["peak_balance"])
+        drawdown = ((peak - balance) / peak * 100) if peak > 0 else 0
+
+        today_str = date.today().isoformat()
+        # Get today's P&L
+        trades_today = supabase().table("sandbox_trades").select("pnl").eq("status", "closed").eq("exit_date", today_str).execute()
+        daily_pnl = sum((r.get("pnl") or 0) for r in (trades_today.data or []))
+
+        wins, total, win_rate = get_overall_win_rate()
+
+        supabase().table("sandbox_equity").upsert({
+            "date": today_str,
+            "balance": balance,
+            "daily_pnl": round(daily_pnl, 2),
+            "drawdown_pct": round(drawdown, 4),
+            "win_rate": round(win_rate, 2),
+        }, on_conflict="date").execute()
+    except Exception as e:
+        log.debug(f"Equity snapshot failed: {e}")
 
 
 # ─── Daily performance snapshot ───────────────────────────────────────────────

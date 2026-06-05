@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight } from 'lucide-react'
 
+const MAX_OPEN_POSITIONS = 20
+
 type SandboxTrade = {
   id: string
   ticker: string
@@ -320,17 +322,111 @@ function TradeRow({ trade, expanded, onToggle }: {
   )
 }
 
+type Account = {
+  balance: number
+  starting_balance: number
+  peak_balance: number
+  total_trades: number
+  winning_trades: number
+  losing_trades: number
+}
+
+type EquityPoint = {
+  date: string
+  balance: number
+  daily_pnl: number
+  drawdown_pct: number
+  win_rate: number | null
+}
+
+function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: number }) {
+  if (equity.length < 2) return (
+    <div className="h-24 flex items-center justify-center text-xs text-slate-600">
+      Equity curve appears after first closed trade
+    </div>
+  )
+
+  const balances = equity.map(e => e.balance)
+  const minB = Math.min(...balances, starting * 0.95)
+  const maxB = Math.max(...balances, starting * 1.05)
+  const range = maxB - minB || 1
+
+  const W = 600; const H = 96
+  const PAD = { top: 8, bottom: 20, left: 48, right: 8 }
+  const cW = W - PAD.left - PAD.right
+  const cH = H - PAD.top - PAD.bottom
+
+  const toX = (i: number) => PAD.left + (i / (equity.length - 1)) * cW
+  const toY = (b: number) => PAD.top + cH - ((b - minB) / range) * cH
+
+  const points = equity.map((e, i) => `${toX(i)},${toY(e.balance)}`).join(' ')
+  const startY = toY(starting)
+  const lastBal = balances[balances.length - 1]
+  const isUp = lastBal >= starting
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 280 }}>
+        {/* Starting balance line */}
+        <line x1={PAD.left} y1={startY} x2={W - PAD.right} y2={startY} stroke="rgba(255,255,255,0.12)" strokeWidth="1" strokeDasharray="4 3" />
+        <text x={PAD.left - 4} y={startY + 4} textAnchor="end" fontSize="8" fill="#475569">${(starting / 1000).toFixed(0)}k</text>
+
+        {/* Fill */}
+        <polygon
+          points={`${toX(0)},${startY} ${points} ${toX(equity.length - 1)},${startY}`}
+          fill={isUp ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}
+        />
+
+        {/* Line */}
+        <polyline points={points} fill="none" stroke={isUp ? '#10b981' : '#ef4444'} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* End dot */}
+        <circle cx={toX(equity.length - 1)} cy={toY(lastBal)} r="4" fill={isUp ? '#10b981' : '#ef4444'} />
+
+        {/* Y axis labels */}
+        {[minB, (minB + maxB) / 2, maxB].map((b, i) => (
+          <text key={i} x={PAD.left - 4} y={toY(b) + 4} textAnchor="end" fontSize="8" fill="#334155">
+            ${(b / 1000).toFixed(1)}k
+          </text>
+        ))}
+
+        {/* X axis labels */}
+        {[0, Math.floor(equity.length / 2), equity.length - 1].map(i => {
+          if (i >= equity.length) return null
+          const d = equity[i].date
+          return <text key={i} x={toX(i)} y={H - 2} textAnchor="middle" fontSize="8" fill="#334155">{d.slice(5)}</text>
+        })}
+      </svg>
+    </div>
+  )
+}
+
 export default function SandboxClient({
   openTrades,
   closedTrades,
   performance,
+  account,
+  equity,
 }: {
   openTrades: SandboxTrade[]
   closedTrades: SandboxTrade[]
   performance: Performance[]
+  account: Account | null
+  equity: EquityPoint[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance'>('open')
+
+  const starting = account?.starting_balance ?? 50000
+  const balance = account?.balance ?? starting
+  const peak = account?.peak_balance ?? starting
+  const totalPnl = balance - starting
+  const totalPnlPct = (totalPnl / starting) * 100
+  const drawdown = peak > 0 ? ((peak - balance) / peak) * 100 : 0
+  const winRate = account && account.total_trades > 0
+    ? (account.winning_trades / account.total_trades) * 100
+    : 0
+  const confThreshold = winRate < 40 ? 70 : winRate < 50 ? 60 : winRate >= 65 ? 45 : 50
 
   const stats = useMemo(() => {
     const wins = closedTrades.filter(t => (t.pnl ?? 0) > 0).length
@@ -347,7 +443,7 @@ export default function SandboxClient({
     return { wins, losses, total, winRate, grossPnl, avgWin, avgLoss }
   }, [closedTrades])
 
-  const winRateColor = stats.winRate >= 70 ? 'text-emerald-400' : stats.winRate >= 50 ? 'text-yellow-400' : 'text-red-400'
+  const winRateColor = winRate >= 70 ? 'text-emerald-400' : winRate >= 50 ? 'text-yellow-400' : 'text-red-400'
 
   return (
     <div className="max-w-4xl mx-auto flex flex-col gap-5">
@@ -356,41 +452,83 @@ export default function SandboxClient({
         <FlaskConical className="w-5 h-5 text-purple-400 shrink-0" />
         <div>
           <h1 className="text-lg font-bold text-white">Groq Sandbox</h1>
-          <p className="text-xs text-slate-500">Paper trading engine — goal: 70% win rate</p>
+          <p className="text-xs text-slate-500">$50,000 paper account — goal: 70% win rate, profitable over time</p>
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Account balance hero */}
+      <div className="border border-white/[0.07] rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
+        <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
+          <div>
+            <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-1">Account Balance</p>
+            <p className={`text-4xl font-bold tabular-nums ${pnlColor(totalPnl)}`}>
+              ${balance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </p>
+            <div className="flex items-center gap-3 mt-1">
+              <span className={`text-sm font-semibold tabular-nums ${pnlColor(totalPnl)}`}>
+                {totalPnl >= 0 ? '+' : ''}${totalPnl.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+              <span className={`text-sm font-semibold tabular-nums ${pnlColor(totalPnlPct)}`}>
+                ({totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%)
+              </span>
+              <span className="text-xs text-slate-600">from $50,000 start</span>
+            </div>
+          </div>
+          <div className="flex flex-col gap-1 text-right">
+            <div className="flex items-center gap-2 justify-end">
+              <span className="text-[11px] text-slate-500">Win Rate</span>
+              <span className={`text-sm font-bold tabular-nums ${winRateColor}`}>{winRate.toFixed(1)}%</span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <span className="text-[11px] text-slate-500">Trades</span>
+              <span className="text-sm font-bold text-white tabular-nums">
+                {account?.winning_trades ?? 0}W / {account?.losing_trades ?? 0}L
+              </span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <span className="text-[11px] text-slate-500">Max Drawdown</span>
+              <span className="text-sm font-bold text-red-400 tabular-nums">{drawdown.toFixed(2)}%</span>
+            </div>
+            <div className="flex items-center gap-2 justify-end">
+              <span className="text-[11px] text-slate-500">Conf. Threshold</span>
+              <span className="text-sm font-bold text-purple-400 tabular-nums">{confThreshold}%</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Equity curve */}
+        <EquityCurve equity={equity} starting={starting} />
+      </div>
+
+      {/* Stats grid */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         {[
-          { label: 'Win Rate', value: `${stats.winRate.toFixed(1)}%`, sub: 'Goal: 70%', color: winRateColor },
-          { label: 'Total Trades', value: stats.total, sub: `${stats.wins}W · ${stats.losses}L`, color: 'text-white' },
-          { label: 'Gross P&L', value: `${stats.grossPnl >= 0 ? '+' : ''}$${stats.grossPnl.toFixed(0)}`, sub: 'paper money', color: pnlColor(stats.grossPnl) },
-          { label: 'Avg Win / Loss', value: `${stats.avgWin >= 0 ? '+' : ''}${stats.avgWin.toFixed(1)}% / ${stats.avgLoss.toFixed(1)}%`, sub: `R:R ${stats.avgLoss !== 0 ? Math.abs(stats.avgWin / stats.avgLoss).toFixed(2) : '—'}`, color: 'text-white' },
+          { label: 'Win Rate', value: `${winRate.toFixed(1)}%`, sub: 'Goal: 70%', color: winRateColor },
+          { label: 'Open Positions', value: openTrades.length, sub: `${MAX_OPEN_POSITIONS} max`, color: 'text-sky-400' },
+          { label: 'Avg Win / Loss', value: `${stats.avgWin.toFixed(1)}% / ${Math.abs(stats.avgLoss).toFixed(1)}%`, sub: `R:R ${stats.avgLoss !== 0 ? Math.abs(stats.avgWin / stats.avgLoss).toFixed(2) : '—'}`, color: 'text-white' },
+          { label: 'Peak Balance', value: `$${(peak / 1000).toFixed(1)}k`, sub: `${drawdown.toFixed(1)}% from peak`, color: 'text-slate-300' },
         ].map(s => (
           <div key={s.label} className="border border-white/[0.07] rounded-xl p-3.5 flex flex-col gap-1" style={{ background: 'rgba(255,255,255,0.02)' }}>
             <p className="text-[11px] text-slate-500 uppercase tracking-wider">{s.label}</p>
-            <p className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
+            <p className={`text-lg font-bold tabular-nums ${s.color}`}>{s.value}</p>
             <p className="text-[11px] text-slate-600">{s.sub}</p>
           </div>
         ))}
       </div>
 
-      {/* Progress bar */}
-      <div className="border border-white/[0.07] rounded-xl p-4 flex flex-col gap-2" style={{ background: 'rgba(255,255,255,0.02)' }}>
-        <div className="flex items-center justify-between text-xs">
-          <span className="text-slate-500 flex items-center gap-1.5"><Target className="w-3.5 h-3.5" /> Progress to 70% win rate</span>
-          <span className={`font-bold ${winRateColor}`}>{stats.winRate.toFixed(1)}% / 70%</span>
+      {/* Confidence calibration status */}
+      <div className={`border rounded-xl px-4 py-3 flex items-center gap-3 text-xs ${winRate < 50 && (account?.total_trades ?? 0) >= 10 ? 'border-yellow-500/20 bg-yellow-500/5' : 'border-white/[0.07]'}`} style={{ background: winRate >= 50 || (account?.total_trades ?? 0) < 10 ? 'rgba(255,255,255,0.02)' : undefined }}>
+        <Brain className="w-4 h-4 text-purple-400 shrink-0" />
+        <div className="flex-1">
+          <span className="text-slate-300 font-medium">Confidence threshold: </span>
+          <span className="text-purple-400 font-bold">{confThreshold}%</span>
+          {winRate < 40 && (account?.total_trades ?? 0) >= 10 && <span className="text-yellow-400 ml-2">— Win rate low, being selective</span>}
+          {winRate >= 40 && winRate < 50 && (account?.total_trades ?? 0) >= 10 && <span className="text-yellow-400 ml-2">— Underperforming, tightened up</span>}
+          {winRate >= 65 && <span className="text-emerald-400 ml-2">— On a roll, pressing the edge</span>}
+          {winRate >= 50 && winRate < 65 && <span className="text-slate-500 ml-2">— Normal operation</span>}
+          {(account?.total_trades ?? 0) < 10 && <span className="text-slate-500 ml-2">— Learning mode (need 10+ trades)</span>}
         </div>
-        <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
-          <div
-            className={`h-full rounded-full ${stats.winRate >= 70 ? 'bg-emerald-400' : stats.winRate >= 50 ? 'bg-yellow-400' : 'bg-red-400'}`}
-            style={{ width: `${Math.min(100, (stats.winRate / 70) * 100).toFixed(1)}%`, transition: 'width 0.4s' }}
-          />
-        </div>
-        {stats.total < 10 && (
-          <p className="text-[11px] text-slate-600">Need 10+ closed trades for a meaningful win rate. Currently {stats.total}.</p>
-        )}
+        <span className="text-slate-600 tabular-nums">{account?.total_trades ?? 0} trades</span>
       </div>
 
       {/* Tabs */}
