@@ -28,6 +28,12 @@ FRED_BASE = "https://api.stlouisfed.org/fred"
 _signal_cooldown: dict[str, float] = {}
 _COOLDOWN = 86400 * 2  # 48h between macro signals of the same kind
 
+# Latest readings cache — read by morning_outlook_worker
+_latest: dict[str, float | None] = {"vix": None, "uup": None, "ten_y": None, "two_y": None}
+
+def get_latest_readings() -> dict[str, float | None]:
+    return dict(_latest)
+
 
 def _on_cooldown(kind: str) -> bool:
     last = _signal_cooldown.get(kind, 0)
@@ -39,9 +45,26 @@ def _mark(kind: str) -> None:
 
 
 async def fetch_polygon_close(client: httpx.AsyncClient, ticker: str) -> float | None:
-    """Most recent close — used for VIX, UUP, TLT."""
+    """Most recent price — tries snapshot first (real-time), falls back to daily close."""
     if not POLYGON_KEY:
         return None
+    # Try snapshot for real-time price (works pre-market too)
+    try:
+        r = await client.get(
+            f"{POLYGON_BASE}/v2/snapshot/locale/us/markets/stocks/tickers/{ticker}",
+            params={"apiKey": POLYGON_KEY},
+            timeout=8,
+        )
+        if r.status_code == 200:
+            d = r.json()
+            if d.get("status") == "OK" and "ticker" in d:
+                t = d["ticker"]
+                p = (t.get("lastTrade") or {}).get("p") or (t.get("day") or {}).get("c")
+                if p:
+                    return float(p)
+    except Exception:
+        pass
+    # Fallback: daily agg
     today = date.today()
     start = (today - timedelta(days=5)).isoformat()
     try:
@@ -96,12 +119,12 @@ async def fetch_fred_series(client: httpx.AsyncClient, series_id: str) -> list[t
 
 async def check_vix(client: httpx.AsyncClient) -> None:
     """VIX — implied volatility index."""
-    # Polygon symbol for VIX is "I:VIX" on some plans, or via VIXY ETF
     vix_close = await fetch_polygon_close(client, "I:VIX")
     if vix_close is None:
         vix_close = await fetch_polygon_close(client, "VIXY")
     if vix_close is None:
         return
+    _latest["vix"] = vix_close
 
     if vix_close >= 30 and not _on_cooldown("vix_high"):
         _mark("vix_high")
@@ -131,6 +154,7 @@ async def check_yields(client: httpx.AsyncClient) -> None:
         return
 
     ten_latest = ten_y[0][1]
+    _latest["ten_y"] = ten_latest
     ten_prior = ten_y[1][1] if len(ten_y) > 1 else None
 
     if ten_latest >= 4.75 and not _on_cooldown("yields_high"):
@@ -153,6 +177,7 @@ async def check_yields(client: httpx.AsyncClient) -> None:
     # Curve inversion check (2s10s)
     if two_y:
         two_latest = two_y[0][1]
+        _latest["two_y"] = two_latest
         spread = ten_latest - two_latest
         two_prior = two_y[1][1] if len(two_y) > 1 else None
         prior_spread = (ten_prior - two_prior) if (ten_prior is not None and two_prior is not None) else None
@@ -180,6 +205,7 @@ async def check_dollar(client: httpx.AsyncClient) -> None:
     uup_close = await fetch_polygon_close(client, "UUP")
     if uup_close is None:
         return
+    _latest["uup"] = uup_close
     # UUP ranges roughly 24-32; signal extremes
     if uup_close >= 31 and not _on_cooldown("dollar_strong"):
         _mark("dollar_strong")
@@ -216,5 +242,9 @@ async def main_loop():
             log.info(f"Macro tick: {result}")
         except Exception as e:
             log.error(f"Macro loop error: {e}")
-        # Daily — macro doesn't move intraday for our purposes
-        await asyncio.sleep(6 * 3600)
+        # Poll every 2 min pre-market (4–10am ET), every 30 min otherwise
+        from market_hours import now_et, is_weekday
+        et = now_et()
+        total_min = et.hour * 60 + et.minute
+        is_premarket_window = is_weekday() and (240 <= total_min <= 600)  # 4am–10am ET
+        await asyncio.sleep(120 if is_premarket_window else 1800)

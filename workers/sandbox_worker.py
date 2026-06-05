@@ -319,6 +319,13 @@ async def decide_entry(
     sandbox_lessons = await get_sandbox_lessons(ticker, limit=5)
     wins, total, win_rate = get_overall_win_rate()
 
+    # Get today's morning outlook to bias direction
+    try:
+        import morning_outlook_worker
+        outlook = morning_outlook_worker.get_todays_outlook()
+    except Exception:
+        outlook = None
+
     # Build signal summary
     sig_lines = [f"- [{s['signal_type']} sev={s['severity']}] {s['title']}" for s in signals]
     sig_block = "\n".join(sig_lines) if sig_lines else "No recent signals."
@@ -344,11 +351,23 @@ async def decide_entry(
             sandbox_lines.append(f"  Note: {t['groq_exit_note'][:100]}")
     sandbox_block = "\n".join(sandbox_lines) if sandbox_lines else "No sandbox history for this ticker."
 
+    # Morning outlook block
+    if outlook:
+        direction_str = outlook.get("direction", "neutral").upper()
+        spy_str = f" (SPY {outlook['spy_change']:+.2f}%)" if outlook.get("spy_change") is not None else ""
+        vix_str = f", VIX {outlook['vix']:.1f}" if outlook.get("vix") is not None else ""
+        outlook_block = f"Today's market outlook: {direction_str}{spy_str}{vix_str}\n{outlook.get('analysis', '')[:300]}"
+    else:
+        outlook_block = "No morning outlook available."
+
     today_str = date.today().isoformat()
 
     prompt = f"""You are a paper trader. Decide whether to enter a trade on {ticker} today ({today_str}).
 
 Current price: ${price:.2f}
+
+TODAY'S MARKET OUTLOOK:
+{outlook_block}
 
 Recent signals (last 24h):
 {sig_block}
@@ -361,6 +380,7 @@ Your past sandbox trades for {ticker}:
 
 Your overall sandbox win rate: {win_rate:.1f}% ({wins}/{total} trades)
 Goal: achieve 70%+ win rate across 20 trades per day. Take trades with a clear edge — you need volume to learn fast, but quality matters more than quantity.
+Important: align your trade direction with the market outlook unless {ticker}-specific signals strongly disagree.
 
 Respond ONLY with valid JSON:
 {{
@@ -533,10 +553,11 @@ Exit if: thesis is broken, new bearish signals, or P&L at risk of turning from w
 
 
 async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_note: str) -> None:
-    """Mark a trade as closed, compute P&L, write exit note."""
+    """Mark a trade as closed, compute P&L, write exit note, then write a lesson."""
     entry = float(trade["entry_price"])
     direction = trade["direction"]
     shares = float(trade.get("shares") or SHARES_PER_TRADE)
+    ticker = trade["ticker"]
 
     if direction == "long":
         pnl = (exit_price - entry) * shares
@@ -557,9 +578,54 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", trade["id"]).execute()
         outcome = "WIN" if pnl > 0 else "LOSS"
-        log.info(f"Sandbox closed {direction} {trade['ticker']}: {outcome} {pnl_pct:+.1f}% reason={exit_reason}")
+        log.info(f"Sandbox closed {direction} {ticker}: {outcome} {pnl_pct:+.1f}% reason={exit_reason}")
     except Exception as e:
-        log.error(f"close_trade failed for {trade['ticker']}: {e}")
+        log.error(f"close_trade failed for {ticker}: {e}")
+        return
+
+    # Write a lesson so future entry decisions can learn from this outcome
+    asyncio.create_task(_write_trade_lesson(trade, exit_price, exit_reason, pnl_pct))
+
+
+async def _write_trade_lesson(trade: dict, exit_price: float, exit_reason: str, pnl_pct: float) -> None:
+    """Ask Groq to write a one-sentence lesson from this closed trade and store it."""
+    ticker = trade["ticker"]
+    direction = trade["direction"]
+    entry = float(trade["entry_price"])
+    stop = float(trade["stop_loss"])
+    target = float(trade["target_price"])
+    is_win = pnl_pct > 0
+    outcome = "WIN" if is_win else "LOSS"
+
+    prompt = f"""A sandbox trade on {ticker} just closed.
+
+Trade: {direction.upper()} @ ${entry:.2f} | Stop ${stop:.2f} | Target ${target:.2f}
+Exit: ${exit_price:.2f} via {exit_reason} | Result: {outcome} {pnl_pct:+.1f}%
+Original thesis: "{trade.get('groq_thesis', 'N/A')}"
+
+Write ONE specific sentence that captures what this trade teaches about trading {ticker} — what setup to repeat or what mistake to avoid next time. Be concrete, not generic. Start with "Next time" or "Avoid" or "Look for"."""
+
+    try:
+        lesson = await _call_groq(prompt, max_tokens=80)
+        if not lesson:
+            return
+        lesson = lesson.strip().replace('"', '').replace('\n', ' ')[:200]
+
+        # Store in prediction_lessons so ALL Groq workers can read it
+        supabase().table("prediction_lessons").upsert({
+            "ticker": ticker.upper(),
+            "date": date.today().isoformat(),
+            "bias": direction,
+            "actual_bias": direction if is_win else ("short" if direction == "long" else "long"),
+            "in_range": is_win,
+            "lesson": lesson,
+            "confidence_pct": min(99, max(1, int(abs(pnl_pct) * 5))),
+            "key_factors": {"exit_reason": exit_reason, "pnl_pct": round(pnl_pct, 2), "source": "sandbox"},
+            "signals_used": trade.get("signals_at_entry"),
+        }, on_conflict="ticker,date").execute()
+        log.info(f"Sandbox lesson written for {ticker}: {lesson[:80]}")
+    except Exception as e:
+        log.debug(f"Lesson write failed for {ticker}: {e}")
 
 
 # ─── Daily performance snapshot ───────────────────────────────────────────────

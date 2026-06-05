@@ -7,7 +7,7 @@ const WORKERS = [
   'price', 'news', 'sec', 'reddit', 'engine',
   'options', 'congress', 'squeeze',
   'technical', 'earnings', 'analyst', 'macro', 'darkpool', 'sector',
-  'intelligence', 'prediction', 'sandbox',
+  'intelligence', 'prediction', 'sandbox', 'morning_outlook',
 ] as const
 
 type WorkerName = typeof WORKERS[number]
