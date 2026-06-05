@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useMemo, useEffect } from 'react'
-import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle } from 'lucide-react'
+import Link from 'next/link'
+import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight } from 'lucide-react'
 
 type SandboxTrade = {
   id: string
@@ -268,6 +269,17 @@ function TradeRow({ trade, expanded, onToggle }: {
               </p>
             ) : null
           })()}
+
+          {/* View Trade button */}
+          <Link
+            href={`/sandbox/${trade.id}`}
+            onClick={e => e.stopPropagation()}
+            className="flex items-center justify-center gap-2 py-2 rounded-lg text-xs font-semibold text-sky-400 border border-sky-500/25 bg-sky-500/8 hover:bg-sky-500/15 w-full"
+            style={{ transition: 'background 0.1s' }}
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" />
+            Deep Analysis + P&L Chart
+          </Link>
 
           {/* Groq thesis */}
           {trade.groq_thesis && (
