@@ -34,7 +34,8 @@ POLYGON_BASE = "https://api.polygon.io"
 
 # Paper trading config
 SHARES_PER_TRADE = 100          # fixed lot size for simplicity
-MAX_OPEN_POSITIONS = 5          # never hold more than 5 sandbox positions at once
+MAX_OPEN_POSITIONS = 20         # max concurrent open positions
+MAX_DAILY_ENTRIES = 20          # max new entries per day
 MAX_SWING_DAYS = 20             # force-close swing trades after 20 trading days
 
 
@@ -249,7 +250,7 @@ Your past sandbox trades for {ticker}:
 {sandbox_block}
 
 Your overall sandbox win rate: {win_rate:.1f}% ({wins}/{total} trades)
-Goal: achieve 70%+ win rate. Be selective — only take high-conviction setups.
+Goal: achieve 70%+ win rate across 20 trades per day. Take trades with a clear edge — you need volume to learn fast, but quality matters more than quantity.
 
 Respond ONLY with valid JSON:
 {{
@@ -263,13 +264,14 @@ Respond ONLY with valid JSON:
 }}
 
 Rules:
-- trade: false if no clear edge. Being wrong costs you — missing a trade costs nothing.
+- trade: false only if there is truly no edge. You want to be active — 20 trades a day is the goal.
 - direction: long if bullish signals dominate, short if bearish
 - trade_type: day if catalyst is today only, swing if multi-day thesis
 - stop_loss: the price that proves you wrong — must be realistic (not too tight, not too wide)
 - target_price: your exit target — minimum 1.5x the distance from entry to stop
-- confidence: below 60 = pass on the trade
-- If your past sandbox trades on this ticker have been mostly losses, be more selective"""
+- confidence: below 50 = pass on the trade. 50-65 = take small setups. 65+ = strong conviction.
+- If your past sandbox trades on this ticker have been mostly losses, tighten your stop and lower your target
+- Learn from your mistakes — if you keep getting stopped out, widen stops slightly next time"""
 
     raw = await _call_groq(prompt, max_tokens=300)
     if not raw:
@@ -287,7 +289,7 @@ Rules:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
         return None
 
-    if not parsed.get("trade") or parsed.get("confidence", 0) < 60:
+    if not parsed.get("trade") or parsed.get("confidence", 0) < 50:
         log.debug(f"Sandbox: passed on {ticker} (confidence={parsed.get('confidence')}, trade={parsed.get('trade')})")
         return None
 
@@ -496,13 +498,24 @@ async def run_once() -> dict:
 
     async with httpx.AsyncClient(timeout=15) as client:
 
-        # 9:30–10:00 ET: scan for new entries
-        if (hour == 9 and minute >= 30) or (hour == 10 and minute <= 30):
-            if len(open_positions) < MAX_OPEN_POSITIONS:
+        # 9:30am–12:30pm ET: scan for new entries — wide window to find up to 20 trades
+        in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
+        if in_entry_window:
+            # Count how many trades already entered today
+            today_str = date.today().isoformat()
+            try:
+                today_entries_res = supabase().table("sandbox_trades").select("id").eq("entry_date", today_str).execute()
+                today_entry_count = len(today_entries_res.data or [])
+            except Exception:
+                today_entry_count = 0
+
+            if today_entry_count < MAX_DAILY_ENTRIES and len(open_positions) < MAX_OPEN_POSITIONS:
                 tickers = get_watchlist_tickers()
                 entries = 0
+                slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
+
                 for ticker in tickers:
-                    if len(open_tickers) >= MAX_OPEN_POSITIONS:
+                    if entries >= slots_left:
                         break
                     if ticker in open_tickers:
                         continue
@@ -518,7 +531,7 @@ async def run_once() -> dict:
                         log.error(f"Entry decision failed for {ticker}: {e}")
                     await asyncio.sleep(2)  # rate limit Groq
 
-                return {"status": "ok", "action": "entry_scan", "entries": entries, "open": len(open_tickers)}
+                return {"status": "ok", "action": "entry_scan", "entries": entries, "today_total": today_entry_count + entries, "open": len(open_tickers)}
 
         # 4:00–4:15 ET: close all day trades + evaluate swings + record performance
         if hour == 16 and minute < 15:
