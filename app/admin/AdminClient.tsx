@@ -95,6 +95,7 @@ export default function AdminClient({
     sector:       { label: 'Sector Rotation',   interval: '1 hr' },
     intelligence: { label: 'Intelligence',      interval: '30 min' },
     prediction:   { label: 'EOD Predictions',   interval: '30 min' },
+    sandbox:      { label: 'Sandbox Trader',    interval: '30 min' },
   }
 
   const getLastRun = (name: WorkerName): string => {
