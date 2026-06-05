@@ -402,16 +402,16 @@ async def _store_lesson(pred: dict, actual_close: float, in_range: bool, actual_
 
 
 def _is_market_open_et() -> bool:
-    """True if current time is between 9:15am and 10:00am ET — the prediction window."""
+    """True if current time is between 9:15am and 10:30am ET — the prediction window."""
     try:
         import zoneinfo
         et = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        total = et.hour * 60 + et.minute
     except Exception:
         from datetime import timezone as tz
         utc = datetime.now(tz.utc)
-        et_hour = (utc.hour - 4) % 24
-        return 9 <= et_hour < 10
-    return (et.hour == 9 and et.minute >= 15) or (et.hour == 10 and et.minute == 0)
+        total = (utc.hour * 60 + utc.minute - 240) % (24 * 60)  # subtract 4h for ET
+    return 9 * 60 + 15 <= total <= 10 * 60 + 30
 
 
 def _is_after_close_et() -> bool:

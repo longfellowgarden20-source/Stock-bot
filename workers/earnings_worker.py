@@ -223,10 +223,17 @@ async def generate_prep_brief(client: httpx.AsyncClient, ticker: str, earnings_d
     if eps_est:
         eps_q = eps_est.get("epsAvg") or eps_est.get("eps_avg")
         rev_q = eps_est.get("revenueAvg") or eps_est.get("revenue_avg")
-        if eps_q:
-            eps_str = f"${eps_q:.2f}"
-        if rev_q:
-            rev_str = f"${rev_q/1e9:.2f}B" if rev_q > 1e9 else f"${rev_q/1e6:.0f}M"
+        try:
+            if eps_q is not None:
+                eps_str = f"${float(eps_q):.2f}"
+        except (TypeError, ValueError):
+            pass
+        try:
+            if rev_q is not None:
+                rv = float(rev_q)
+                rev_str = f"${rv/1e9:.2f}B" if rv > 1e9 else f"${rv/1e6:.0f}M"
+        except (TypeError, ValueError):
+            pass
 
     hist_str = f"{hist_move:.1f}% average post-earnings move" if hist_move else "historical move data unavailable"
     news_str = "\n".join(f"  - {h}" for h in headlines) if headlines else "  No recent news."
@@ -263,8 +270,16 @@ Be direct, trader-focused, specific to {ticker}. Max 200 words. No generic fille
 
     _prep_alerted[dedup_key] = datetime.now(timezone.utc).timestamp()
 
-    beat_count = sum(1 for s in surprises if s.get("actual") is not None and s.get("estimate") is not None and s.get("actual", 0) >= s.get("estimate", 0))
-    miss_count = len(surprises) - beat_count
+    beat_count = 0
+    miss_count = 0
+    for s in surprises:
+        actual = s.get("actual")
+        estimate = s.get("estimate")
+        if actual is not None and estimate is not None:
+            if actual >= estimate:
+                beat_count += 1
+            else:
+                miss_count += 1
 
     insert_signal(
         ticker,

@@ -116,11 +116,11 @@ async def check_watchlist_sentiment(client: httpx.AsyncClient, watchlist: list[s
         # Strong bullish signal
         if bull_pct >= 70 and total >= 8:
             sev = 7.0 if bull_pct >= 80 else 5.5
+            sample = f" Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else ""
             insert_signal(
                 ticker, "sentiment_spike", sev,
                 f"{ticker} StockTwits {bull_pct:.0f}% bullish ({total} posts)",
-                f"Strong bullish sentiment on StockTwits: {bull_pct:.0f}% of {total} recent posts are bullish. "
-                f"Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else "",
+                f"Strong bullish sentiment on StockTwits: {bull_pct:.0f}% of {total} recent posts are bullish.{sample}",
                 {"source": "stocktwits", "bull_pct": bull_pct, "total_messages": total,
                  "bullish": s["bullish"], "bearish": s["bearish"], "samples": s["sample_messages"]},
             )
@@ -130,11 +130,11 @@ async def check_watchlist_sentiment(client: httpx.AsyncClient, watchlist: list[s
         elif bull_pct <= 30 and total >= 8:
             sev = 7.0 if bull_pct <= 20 else 5.5
             bear_pct = 100 - bull_pct
+            sample = f" Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else ""
             insert_signal(
                 ticker, "sentiment_spike", sev,
                 f"{ticker} StockTwits {bear_pct:.0f}% bearish ({total} posts)",
-                f"Strong bearish sentiment on StockTwits: {bear_pct:.0f}% of {total} recent posts are bearish. "
-                f"Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else "",
+                f"Strong bearish sentiment on StockTwits: {bear_pct:.0f}% of {total} recent posts are bearish.{sample}",
                 {"source": "stocktwits", "bull_pct": bull_pct, "total_messages": total,
                  "bullish": s["bullish"], "bearish": s["bearish"], "samples": s["sample_messages"]},
             )
