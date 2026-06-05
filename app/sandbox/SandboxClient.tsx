@@ -167,7 +167,7 @@ export default function SandboxClient({
 
   const stats = useMemo(() => {
     const wins = closedTrades.filter(t => (t.pnl ?? 0) > 0).length
-    const losses = closedTrades.filter(t => (t.pnl ?? 0) <= 0).length
+    const losses = closedTrades.filter(t => (t.pnl ?? 0) < 0).length
     const total = closedTrades.length
     const winRate = total > 0 ? (wins / total) * 100 : 0
     const grossPnl = closedTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0)
@@ -175,7 +175,7 @@ export default function SandboxClient({
       ? closedTrades.filter(t => (t.pnl ?? 0) > 0).reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / wins
       : 0
     const avgLoss = losses > 0
-      ? closedTrades.filter(t => (t.pnl ?? 0) <= 0).reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses
+      ? closedTrades.filter(t => (t.pnl ?? 0) < 0).reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses
       : 0
     return { wins, losses, total, winRate, grossPnl, avgWin, avgLoss }
   }, [closedTrades])

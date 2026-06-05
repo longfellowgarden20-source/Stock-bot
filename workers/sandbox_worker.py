@@ -384,7 +384,7 @@ Rules:
         risk = price - stop
         reward = target - price
         if risk <= 0 or reward / risk < 1.5:
-            log.debug(f"Sandbox: R:R too low for {ticker} ({reward/risk:.2f}:1)")
+            log.debug(f"Sandbox: R:R too low for {ticker} long (risk={risk:.2f}, reward={reward:.2f})")
             return None
     else:  # short
         if stop <= price or target >= price:
@@ -393,7 +393,7 @@ Rules:
         risk = stop - price
         reward = price - target
         if risk <= 0 or reward / risk < 1.5:
-            log.debug(f"Sandbox: R:R too low for {ticker} short ({reward/risk:.2f}:1)")
+            log.debug(f"Sandbox: R:R too low for {ticker} short (risk={risk:.2f}, reward={reward:.2f})")
             return None
 
     return {
@@ -449,8 +449,11 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         await close_trade(trade, price, "day_close", f"Day trade closed at EOD ${price:.2f}")
         return
 
-    # Force-exit: max hold period exceeded
-    trading_days_held = (today - entry_date).days  # approximate
+    # Force-exit: max hold period exceeded — count actual trading days (weekdays only)
+    trading_days_held = sum(
+        1 for i in range((today - entry_date).days)
+        if (entry_date + timedelta(days=i + 1)).weekday() < 5
+    )
     if trading_days_held >= MAX_SWING_DAYS:
         await close_trade(trade, price, "max_hold", f"Max hold period reached — exited at ${price:.2f}")
         return
