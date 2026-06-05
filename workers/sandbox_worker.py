@@ -676,7 +676,7 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
     """Mark a trade as closed, compute P&L, write exit note, then write a lesson."""
     entry = float(trade["entry_price"])
     direction = trade["direction"]
-    shares = float(trade.get("shares") or SHARES_PER_TRADE)
+    shares = float(trade.get("shares") or 1)
     ticker = trade["ticker"]
 
     if direction == "long":

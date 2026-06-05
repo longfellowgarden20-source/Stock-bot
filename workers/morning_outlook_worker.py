@@ -200,14 +200,20 @@ Keep it tight — 150 words max. Write for an active trader making decisions in 
         log.warning("Morning outlook Groq call failed")
         return None
 
-    # Parse directional lean from response
+    # Parse directional lean from the market direction section specifically
     text_lower = analysis.lower()
-    if "bearish" in text_lower or "red" in text_lower.split("market direction")[-1][:100] if "market direction" in text_lower else "":
-        direction = "bearish"
-    elif "bullish" in text_lower or "green" in text_lower.split("market direction")[-1][:100] if "market direction" in text_lower else "":
-        direction = "bullish"
+    direction = "neutral"
+    if "market direction" in text_lower:
+        mkt_section = text_lower.split("market direction")[-1][:150]
+        if "bearish" in mkt_section or "red" in mkt_section:
+            direction = "bearish"
+        elif "bullish" in mkt_section or "green" in mkt_section:
+            direction = "bullish"
     else:
-        direction = "neutral"
+        if "bearish" in text_lower:
+            direction = "bearish"
+        elif "bullish" in text_lower:
+            direction = "bullish"
 
     outlook_data = {
         "date": today.isoformat(),
