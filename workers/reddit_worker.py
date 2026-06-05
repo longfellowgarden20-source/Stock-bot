@@ -1,338 +1,284 @@
 """
-Reddit opportunity scanner — scrapes 5 major stock subreddits using Reddit's public JSON API
-(no credentials required). Extracts ALL ticker mentions, runs Groq synthesis on top 10,
-and inserts a morning brief convergence signal.
+StockTwits sentiment worker — replaces Reddit (which blocks unauthenticated requests).
+
+StockTwits is a trader-focused social platform where every post is tagged to a ticker
+and users self-label bullish/bearish. No auth required for the public API.
 
 Schedule:
-- Every 30 min: mention counting + individual sentiment_spike for watchlist tickers
-- Once per day 6:00–6:30 AM ET (weekdays): full Groq synthesis → Morning Brief
+- Every 30 min: fetch trending tickers + watchlist sentiment spikes
+- Every 2 hours during market hours (6,8,10,12,14,16,18 ET): Groq synthesis brief
 """
-import os
-import re
 import logging
 import httpx
 import asyncio
-from datetime import date, datetime
-from db import get_watchlist_tickers, insert_signal, supabase
+from datetime import datetime, date
+from db import get_watchlist_tickers, insert_signal
 from market_hours import now_et, is_weekday
 
-log = logging.getLogger("reddit_worker")
+log = logging.getLogger("reddit_worker")  # keep name for main.py compatibility
 
-REDDIT_USER_AGENT = os.environ.get("REDDIT_USER_AGENT", "StockBot/1.0 (personal trading tool)")
+STOCKTWITS_BASE = "https://api.stocktwits.com/api/2"
 
-def _groq_keys() -> list[str]:
-    """Reddit worker uses GROQ_BACKUP_API_KEY as primary, falls back to full pool."""
-    keys = []
-    seen = set()
-    for name in ["GROQ_BACKUP_API_KEY", "GROQ_API_KEY"] + [f"GROQ_API_KEY_{i}" for i in range(2, 6)]:
-        k = os.environ.get(name, "").strip()
-        if k and k not in seen:
-            keys.append(k)
-            seen.add(k)
-    return keys
+_last_brief_hour: int = -1
 
-SUBREDDITS = ["wallstreetbets", "stocks", "investing", "options", "pennystocks"]
 
-# Common false positives to filter — words that look like tickers but aren't
-FALSE_POSITIVES = {
-    'A', 'I', 'AT', 'IT', 'ARE', 'BE', 'GO', 'ON', 'OR', 'SO', 'US', 'AN', 'IN',
-    'AS', 'IS', 'TO', 'FOR', 'THE', 'ETF', 'CEO', 'IPO', 'SEC', 'AI', 'EV', 'ER',
-    'DD', 'OG', 'RH', 'WSB', 'LOL', 'IMO', 'TBH', 'YOLO', 'FOMO', 'OTC', 'ATH',
-    'ATL', 'PE', 'EPS', 'GDP', 'CPI', 'FED', 'IMF', 'SPAC', 'SPY', 'QQQ', 'IWM',
-    'UP', 'DOWN', 'NEW', 'ALL', 'TOO', 'BOT', 'BUY', 'PUT', 'CALL', 'DIP', 'RUN',
-    'NOW', 'OUT', 'OFF', 'HOW', 'NOT', 'BUT', 'YET', 'BOX', 'APP', 'WAS', 'HAS',
-    'DID', 'CAN', 'MAY', 'DAY', 'WAY', 'BIG', 'LOW', 'HIGH', 'LONG', 'HOLD',
-    'NEXT', 'LAST', 'GOOD', 'VERY', 'WELL', 'WILL', 'JUST', 'LIKE', 'MORE',
-    'MUCH', 'SOME', 'MOST', 'OVER', 'INTO', 'FROM', 'WITH', 'THAT', 'THIS',
-    'THEN', 'THAN', 'WHEN', 'WHAT', 'ALSO', 'EACH', 'BEEN', 'WERE', 'THEY',
-    'HAVE', 'DOES', 'SAID', 'TIME', 'YEAR', 'PART', 'MAKE', 'MADE', 'BACK',
-    'AFTER', 'ABOUT', 'ABOVE', 'ACROSS', 'AGAIN', 'PRICE', 'STOCK', 'TRADE',
-    'PUTS', 'CALLS', 'BEAR', 'BULL', 'MOON', 'LOSS', 'GAIN', 'CASH', 'RISK',
-    'NEWS', 'RATE', 'FUND', 'BANK', 'DEBT', 'REAL', 'SOLD', 'SELL', 'FIRE',
-    'SURE', 'OPEN', 'FREE', 'MOVE', 'FEEL', 'KNOW', 'KEEP', 'GIVE', 'COME',
-    'TAKE', 'LOOK', 'PLAY', 'MEAN', 'SAME', 'WANT', 'NEED', 'WENT', 'DONE',
-    'STAY', 'WEEK', 'ZERO', 'PLUS', 'MAIN', 'SIDE', 'TERM', 'DATA', 'HUGE',
-    'FULL', 'HALF', 'LESS', 'ELSE', 'BOTH', 'EVEN', 'ONLY', 'ONCE', 'NEAR',
-    'AWAY', 'HARD', 'EASY', 'FAST', 'SLOW', 'SAFE', 'FEEL', 'LIVE', 'LOVE',
-    'HELP', 'PLAN', 'BEST', 'PAST', 'AREA', 'BASE', 'CASE', 'IDEA', 'KIND',
-    'MIND', 'FORM', 'LIST', 'BOOK', 'READ', 'SHOW', 'SORT', 'STOP', 'WAIT',
-}
+# ─── StockTwits fetch ─────────────────────────────────────────────────────────
 
-# Ticker regex: $TICKER or standalone uppercase 1-5 chars
-TICKER_PATTERN = re.compile(r'(?:\$([A-Z]{1,5})\b|\b([A-Z]{2,5})\b)')
-
-_morning_done: date | None = None
-
-# ─── Reddit public JSON fetch (no credentials needed) ───────────────────────
-
-async def fetch_subreddit_posts(
-    client: httpx.AsyncClient, sub: str, limit: int = 100
-) -> list[dict]:
-    """Fetch posts using Reddit's public .json endpoint — no OAuth required."""
+async def fetch_trending(client: httpx.AsyncClient) -> list[dict]:
+    """Top trending tickers on StockTwits right now."""
     try:
-        r = await client.get(
-            f"https://www.reddit.com/r/{sub}/hot.json",
-            headers={"User-Agent": REDDIT_USER_AGENT},
-            params={"limit": limit},
-            timeout=15,
-        )
-        if r.status_code == 429:
-            log.warning(f"Reddit rate limited on /r/{sub}, backing off")
-            await asyncio.sleep(10)
-            return []
+        r = await client.get(f"{STOCKTWITS_BASE}/trending/symbols.json", timeout=10)
         if r.status_code != 200:
-            log.warning(f"Reddit /r/{sub} returned {r.status_code}")
+            log.warning(f"StockTwits trending returned {r.status_code}")
             return []
-        posts = [c["data"] for c in r.json().get("data", {}).get("children", []) if c.get("kind") == "t3"]
-        for p in posts:
-            p["_sub"] = sub
-        return posts
+        symbols = r.json().get("symbols", [])
+        return symbols[:30]
     except Exception as e:
-        log.error(f"Fetch /r/{sub} error: {e}")
+        log.error(f"StockTwits trending fetch failed: {e}")
         return []
 
 
-# ─── Ticker extraction ───────────────────────────────────────────────────────
+async def fetch_ticker_stream(client: httpx.AsyncClient, ticker: str) -> list[dict]:
+    """Recent messages for a specific ticker."""
+    try:
+        r = await client.get(
+            f"{STOCKTWITS_BASE}/streams/symbol/{ticker}.json",
+            params={"limit": 30},
+            timeout=10,
+        )
+        if r.status_code == 429:
+            log.debug(f"StockTwits rate limited on {ticker}")
+            return []
+        if r.status_code != 200:
+            return []
+        return r.json().get("messages", [])
+    except Exception as e:
+        log.debug(f"StockTwits stream failed for {ticker}: {e}")
+        return []
 
-def extract_tickers_from_text(text: str) -> list[str]:
-    """Extract potential ticker symbols from text."""
-    found = []
-    for m in TICKER_PATTERN.finditer(text):
-        ticker = (m.group(1) or m.group(2)).upper()
-        if ticker not in FALSE_POSITIVES and len(ticker) >= 2:
-            found.append(ticker)
-    return found
 
-
-def build_mention_map(all_posts: list[dict]) -> dict[str, dict]:
+def parse_sentiment(messages: list[dict]) -> dict:
     """
-    Returns a map: ticker -> {
-        count: int,
-        upvotes: int,
-        titles: list[str],
-        subreddits: set[str],
+    Count bullish/bearish sentiment from StockTwits messages.
+    Returns {bullish, bearish, neutral, total, bull_pct, sample_messages}.
+    """
+    bullish = 0
+    bearish = 0
+    neutral = 0
+    samples = []
+
+    for m in messages:
+        sentiment = (m.get("entities") or {}).get("sentiment") or {}
+        label = (sentiment.get("basic") or "").lower()
+        body = (m.get("body") or "")[:120]
+
+        if label == "bullish":
+            bullish += 1
+        elif label == "bearish":
+            bearish += 1
+        else:
+            neutral += 1
+
+        if body and len(samples) < 3:
+            samples.append(body)
+
+    total = bullish + bearish + neutral
+    bull_pct = round(bullish / total * 100, 1) if total > 0 else 50.0
+
+    return {
+        "bullish": bullish,
+        "bearish": bearish,
+        "neutral": neutral,
+        "total": total,
+        "bull_pct": bull_pct,
+        "sample_messages": samples,
     }
+
+
+# ─── Sentiment spike detection ────────────────────────────────────────────────
+
+async def check_watchlist_sentiment(client: httpx.AsyncClient, watchlist: list[str]) -> int:
     """
-    mentions: dict[str, dict] = {}
-    for post in all_posts:
-        text = f"{post.get('title', '')} {post.get('selftext', '')}"
-        tickers_in_post = set(extract_tickers_from_text(text))
-        for ticker in tickers_in_post:
-            if ticker not in mentions:
-                mentions[ticker] = {
-                    "count": 0,
-                    "upvotes": 0,
-                    "titles": [],
-                    "subreddits": set(),
-                }
-            rec = mentions[ticker]
-            rec["count"] += 1
-            rec["upvotes"] += max(0, post.get("score", 0))
-            if len(rec["titles"]) < 3:
-                title = post.get("title", "")[:120]
-                if title and title not in rec["titles"]:
-                    rec["titles"].append(title)
-            rec["subreddits"].add(post.get("_sub", "unknown"))
-    return mentions
+    For each watchlist ticker, fetch StockTwits stream and emit a signal
+    if sentiment is strongly skewed (>70% bull or >70% bear) with enough volume.
+    """
+    emitted = 0
+    for ticker in watchlist:
+        messages = await fetch_ticker_stream(client, ticker)
+        if len(messages) < 5:
+            await asyncio.sleep(0.5)
+            continue
+
+        s = parse_sentiment(messages)
+        bull_pct = s["bull_pct"]
+        total = s["total"]
+
+        # Strong bullish signal
+        if bull_pct >= 70 and total >= 8:
+            sev = 7.0 if bull_pct >= 80 else 5.5
+            insert_signal(
+                ticker, "sentiment_spike", sev,
+                f"{ticker} StockTwits {bull_pct:.0f}% bullish ({total} posts)",
+                f"Strong bullish sentiment on StockTwits: {bull_pct:.0f}% of {total} recent posts are bullish. "
+                f"Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else "",
+                {"source": "stocktwits", "bull_pct": bull_pct, "total_messages": total,
+                 "bullish": s["bullish"], "bearish": s["bearish"], "samples": s["sample_messages"]},
+            )
+            emitted += 1
+
+        # Strong bearish signal
+        elif bull_pct <= 30 and total >= 8:
+            sev = 7.0 if bull_pct <= 20 else 5.5
+            bear_pct = 100 - bull_pct
+            insert_signal(
+                ticker, "sentiment_spike", sev,
+                f"{ticker} StockTwits {bear_pct:.0f}% bearish ({total} posts)",
+                f"Strong bearish sentiment on StockTwits: {bear_pct:.0f}% of {total} recent posts are bearish. "
+                f"Sample: \"{s['sample_messages'][0]}\"" if s['sample_messages'] else "",
+                {"source": "stocktwits", "bull_pct": bull_pct, "total_messages": total,
+                 "bullish": s["bullish"], "bearish": s["bearish"], "samples": s["sample_messages"]},
+            )
+            emitted += 1
+
+        await asyncio.sleep(0.5)  # gentle rate limiting
+
+    return emitted
 
 
-# ─── Groq synthesis ──────────────────────────────────────────────────────────
+# ─── Groq brief ───────────────────────────────────────────────────────────────
 
-async def groq_morning_brief(
-    client: httpx.AsyncClient,
-    top_tickers: list[dict],
-    date_str: str,
-) -> str | None:
+async def groq_sentiment_brief(trending: list[dict], watchlist_data: list[dict]) -> str | None:
     from groq_pool import call_llm
 
-    ticker_lines = []
-    for item in top_tickers:
-        ticker = item["ticker"]
-        count = item["count"]
-        subs = ", ".join(sorted(item["subreddits"]))
-        titles = "; ".join(f'"{t}"' for t in item["titles"])
-        ticker_lines.append(f"{ticker}: {count} mentions across {subs}\n  Sample posts: {titles}")
-    ticker_data = "\n\n".join(ticker_lines)
+    trend_lines = []
+    for s in trending[:15]:
+        symbol = s.get("symbol", "")
+        name = s.get("title", "")
+        watchlist_count = s.get("watchlist_count", 0)
+        trend_lines.append(f"- {symbol} ({name}) — {watchlist_count:,} watching")
 
-    prompt = f"""You are a trading analyst reviewing retail sentiment from Reddit. Here are the top mentioned tickers today with sample posts:
+    watch_lines = []
+    for w in watchlist_data:
+        ticker = w["ticker"]
+        s = w["sentiment"]
+        if s["total"] >= 3:
+            watch_lines.append(
+                f"- {ticker}: {s['bull_pct']:.0f}% bullish ({s['total']} posts) — "
+                f"Sample: \"{s['sample_messages'][0]}\"" if s["sample_messages"] else f"- {ticker}: {s['bull_pct']:.0f}% bullish ({s['total']} posts)"
+            )
 
-{ticker_data}
+    trend_block = "\n".join(trend_lines) if trend_lines else "No trending data."
+    watch_block = "\n".join(watch_lines) if watch_lines else "No watchlist data."
 
-For each ticker, write ONE sentence explaining: what retail traders are saying and why it might be worth watching. Be specific — mention the actual catalyst or thesis being discussed. If the ticker seems like noise/meme, say so. Format as a numbered list. Be direct and trader-focused."""
+    try:
+        import zoneinfo
+        et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
+        time_str = et_now.strftime("%I:%M %p ET")
+    except Exception:
+        time_str = "market hours"
+
+    prompt = f"""You are a trading analyst reviewing retail trader sentiment from StockTwits at {time_str}.
+
+TOP TRENDING TICKERS ON STOCKTWITS RIGHT NOW:
+{trend_block}
+
+YOUR WATCHLIST SENTIMENT:
+{watch_block}
+
+Write a concise market sentiment brief:
+1. What are retail traders most excited or worried about right now?
+2. Any of your watchlist tickers showing unusual sentiment worth acting on?
+3. Any trending tickers outside your watchlist that look interesting?
+
+Format as 3-4 short paragraphs. Be specific — mention actual tickers and sentiment direction. Trader-focused, no fluff."""
 
     return await call_llm(
         prompt,
         primary_env_vars=["CEREBRAS_API_KEY_2"],
-        max_tokens=600,
+        max_tokens=500,
         temperature=0.3,
-        system="You are an experienced trader writing internal morning briefings. Direct, specific, never generic.",
+        system="You are an experienced trader writing internal sentiment briefings. Direct, specific, never generic.",
     )
 
 
-# ─── Core scan logic ─────────────────────────────────────────────────────────
-
-async def scan_reddit(client: httpx.AsyncClient) -> dict:
-    """Fetch posts from all subreddits using public JSON API, build mention map."""
-    all_posts: list[dict] = []
-    for sub in SUBREDDITS:
-        posts = await fetch_subreddit_posts(client, sub, 100)
-        all_posts.extend(posts)
-        await asyncio.sleep(2)  # be polite — Reddit rate limits unauthenticated requests
-
-    log.info(f"Reddit: fetched {len(all_posts)} posts from {len(SUBREDDITS)} subs")
-    mentions = build_mention_map(all_posts)
-
-    # Filter to tickers mentioned 3+ times
-    qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
-    return {"mentions": qualified, "total_posts": len(all_posts)}
-
-
-def emit_sentiment_spikes(mentions: dict[str, dict], watchlist: list[str]) -> int:
-    """Insert sentiment_spike signals for watchlist tickers that appear in top mentions."""
-    baseline = 2.0
-    emitted = 0
-    for ticker in watchlist:
-        rec = mentions.get(ticker.upper())
-        if not rec:
-            continue
-        count = rec["count"]
-        if count < max(5, baseline * 3):
-            continue
-        ratio = count / baseline
-        sev = 7 if count >= 15 else 5
-        insert_signal(
-            ticker,
-            "sentiment_spike",
-            sev,
-            f"{ticker} reddit mentions spiking",
-            (
-                f"Mentioned {count}x across {', '.join(sorted(rec['subreddits']))} "
-                f"({ratio:.1f}x baseline). Sample: {rec['titles'][0] if rec['titles'] else 'N/A'}"
-            ),
-            {
-                "mentions": count,
-                "baseline": baseline,
-                "ratio": ratio,
-                "upvotes": rec["upvotes"],
-                "subreddits": sorted(rec["subreddits"]),
-                "sample_titles": rec["titles"],
-            },
-        )
-        emitted += 1
-    return emitted
-
-
-async def morning_brief(client: httpx.AsyncClient) -> dict:
-    """
-    Full morning scan with Groq synthesis. Runs once per day 6:00–6:30 AM ET on weekdays.
-    Inserts a single 'REDDIT' convergence signal with the AI synthesis.
-    """
-    global _morning_done
+async def run_brief(client: httpx.AsyncClient) -> dict:
+    """Full sentiment brief — trending + watchlist + Groq synthesis."""
     today = now_et().date()
-    if _morning_done == today:
-        return {"status": "skipped", "reason": "already ran today"}
 
-    # Mark immediately to prevent double-fire in same 30-min window
-    _morning_done = today
+    trending = await fetch_trending(client)
+    watchlist = get_watchlist_tickers()
 
-    log.info("Running morning Reddit brief...")
-    scan = await scan_reddit(client)
-    if "error" in scan or not scan.get("mentions"):
-        _morning_done = None  # allow retry
-        return {"status": "skipped", "reason": scan.get("error", "no posts fetched")}
+    # Fetch sentiment for watchlist tickers (up to 10 to avoid rate limits)
+    watchlist_data = []
+    for ticker in watchlist[:10]:
+        messages = await fetch_ticker_stream(client, ticker)
+        if messages:
+            s = parse_sentiment(messages)
+            watchlist_data.append({"ticker": ticker, "sentiment": s})
+        await asyncio.sleep(0.5)
 
-    mentions = scan["mentions"]
-    if not mentions:
-        return {"status": "skipped", "reason": "no mentions found"}
-
-    # Top 10 tickers by mention count
-    top_10 = sorted(mentions.items(), key=lambda x: x[1]["count"], reverse=True)[:10]
-
-    top_tickers_data = [
-        {
-            "ticker": ticker,
-            "count": rec["count"],
-            "upvotes": rec["upvotes"],
-            "titles": rec["titles"],
-            "subreddits": sorted(rec["subreddits"]),
-        }
-        for ticker, rec in top_10
-    ]
-
-    date_str = today.strftime("%B %d, %Y")
-    synthesis = await groq_morning_brief(client, top_tickers_data, date_str)
+    synthesis = await groq_sentiment_brief(trending, watchlist_data)
 
     if not synthesis:
-        synthesis = "\n".join(
-            f"{i+1}. {item['ticker']}: {item['count']} mentions across Reddit."
-            for i, item in enumerate(top_tickers_data)
-        )
+        # Fallback: plain text summary without Groq
+        lines = [f"Trending: {', '.join(s.get('symbol','') for s in trending[:10])}"]
+        for w in watchlist_data:
+            s = w["sentiment"]
+            lines.append(f"{w['ticker']}: {s['bull_pct']:.0f}% bullish ({s['total']} posts)")
+        synthesis = "\n".join(lines)
 
-    n = len(top_10)
     try:
         import zoneinfo
         et_now = datetime.now(zoneinfo.ZoneInfo("America/New_York"))
         hour_label = et_now.strftime("%-I%p").lower()
     except Exception:
-        hour_label = date_str
+        hour_label = today.isoformat()
+
+    trending_tickers = [s.get("symbol", "") for s in trending[:10] if s.get("symbol")]
 
     insert_signal(
-        "REDDIT",
+        "REDDIT",  # keep ticker as REDDIT for journal briefs tab compatibility
         "convergence",
         6,
-        f"Reddit Sentiment — {hour_label} — Top {n} tickers",
+        f"StockTwits Sentiment — {hour_label} — {len(trending_tickers)} trending",
         synthesis,
         {
-            "tickers": [t for t, _ in top_10],
-            "mention_counts": {t: r["count"] for t, r in top_10},
-            "sample_posts": {t: r["titles"] for t, r in top_10},
-            "subreddits_scanned": SUBREDDITS,
+            "tickers": trending_tickers,
+            "mention_counts": {s.get("symbol", ""): s.get("watchlist_count", 0) for s in trending[:10]},
+            "sample_posts": {w["ticker"]: w["sentiment"]["sample_messages"] for w in watchlist_data},
+            "source": "stocktwits",
             "scan_type": "sentiment_brief",
             "date": today.isoformat(),
         },
     )
-    log.info(f"Reddit brief inserted: top tickers = {[t for t, _ in top_10]}")
-    return {"status": "ok", "tickers": [t for t, _ in top_10], "date": today.isoformat()}
+
+    log.info(f"StockTwits brief inserted: trending={trending_tickers[:5]}")
+    return {"status": "ok", "trending": trending_tickers, "watchlist_coverage": len(watchlist_data)}
 
 
-# ─── Public entry points ─────────────────────────────────────────────────────
+# ─── Public entry points ──────────────────────────────────────────────────────
 
 async def run_once() -> dict:
-    """Manual trigger — always does the full morning brief scan."""
-    async with httpx.AsyncClient() as client:
-        scan = await scan_reddit(client)
-        if "error" in scan:
-            return {"status": "skipped", "reason": scan["error"]}
-
-        mentions = scan["mentions"]
+    """Manual trigger — always runs a full brief."""
+    async with httpx.AsyncClient(timeout=15) as client:
         watchlist = get_watchlist_tickers()
-        spikes = emit_sentiment_spikes(mentions, watchlist)
-
-        # Always run brief on manual trigger
-        global _morning_done
-        _morning_done = None  # force re-run
-        brief = await morning_brief(client)
+        spikes = await check_watchlist_sentiment(client, watchlist)
+        brief = await run_brief(client)
 
     return {
         "status": "ok",
-        "total_posts": scan["total_posts"],
-        "tickers_found": len(mentions),
         "sentiment_spikes": spikes,
-        "morning_brief": brief,
+        "brief": brief,
     }
-
-
-_last_brief_hour: int = -1
 
 
 async def main_loop():
     global _last_brief_hour
-    log.info("Reddit worker started")
+    log.info("StockTwits sentiment worker started")
+
     while True:
         try:
             et = now_et()
-            # Brief runs every 2 hours during extended market hours (6am–8pm ET), weekdays only
-            # Fires at 6, 8, 10, 12, 14, 16, 18 ET — deduped by hour so it only fires once per slot
             brief_hours = {6, 8, 10, 12, 14, 16, 18}
             should_brief = (
                 is_weekday()
@@ -341,25 +287,18 @@ async def main_loop():
                 and et.hour != _last_brief_hour
             )
 
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(timeout=15) as client:
                 if should_brief:
                     _last_brief_hour = et.hour
-                    result = await morning_brief(client)
-                    log.info(f"Reddit brief ({et.hour}h): {result}")
+                    result = await run_brief(client)
+                    log.info(f"StockTwits brief ({et.hour}h): {result}")
 
-                # Always do mention counting + sentiment spikes every 30 min
-                all_posts: list[dict] = []
-                for sub in SUBREDDITS:
-                    posts = await fetch_subreddit_posts(client, sub, 100)
-                    all_posts.extend(posts)
-                    await asyncio.sleep(2)
-                mentions = build_mention_map(all_posts)
-                qualified = {k: v for k, v in mentions.items() if v["count"] >= 3}
+                # Always check watchlist sentiment every 30 min
                 watchlist = get_watchlist_tickers()
-                spikes = emit_sentiment_spikes(qualified, watchlist)
-                log.info(f"Reddit tick: {len(qualified)} qualified tickers, {spikes} spikes")
+                spikes = await check_watchlist_sentiment(client, watchlist)
+                log.info(f"StockTwits tick: {spikes} sentiment spikes emitted")
 
         except Exception as e:
-            log.error(f"Reddit loop error: {e}")
+            log.error(f"StockTwits loop error: {e}")
 
-        await asyncio.sleep(1800)  # 30 min
+        await asyncio.sleep(1800)
