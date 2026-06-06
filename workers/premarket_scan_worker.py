@@ -319,8 +319,8 @@ RULES:
             if text.startswith("json"):
                 text = text[4:]
         picks = json.loads(text.strip())
-        if not isinstance(picks, list):
-            raise ValueError("Expected JSON array")
+        if not isinstance(picks, list) or len(picks) == 0:
+            raise ValueError("Expected non-empty JSON array")
     except Exception as e:
         log.warning(f"Pre-market scan parse failed: {e}\nRaw: {raw[:300]}")
         return None

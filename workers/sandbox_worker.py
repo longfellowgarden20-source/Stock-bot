@@ -1636,8 +1636,13 @@ ENTRY RULES:
                 log.debug(f"Filter #8: {ticker} already has open {existing_dir} — blocking opposite {direction}")
                 return None
 
-    # R:R minimum — convergence plays need 3:1, standard 2:1
-    min_rr = 2.5 if is_convergence else 2.0
+    # R:R minimum — convergence plays need 3:1 (matches prompt), standard 2:1
+    min_rr = 3.0 if is_convergence else 2.0
+
+    # #13 — Reject negative or zero stop/target (Groq parse error)
+    if stop <= 0 or target <= 0:
+        log.debug(f"Sandbox: invalid levels for {ticker} — stop={stop} target={target} must be > 0")
+        return None
 
     if direction == "long":
         if stop >= price or target <= price:
@@ -1791,9 +1796,9 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
                 "peak_pnl_pct": round(pnl_pct, 4),
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", trade["id"]).execute()
-            trade["peak_pnl_pct"] = pnl_pct  # update local copy
+            trade["peak_pnl_pct"] = pnl_pct  # only update local after DB confirms
         except Exception:
-            pass
+            pass  # DB failed — local copy not updated either (consistent)
 
     # #10 — Tiered trailing stop: escalate as trade moves in our favour
     # Tier 1: +2% → breakeven  Tier 2: +4% → +1.5%  Tier 3: +6% → +3%
@@ -1877,7 +1882,7 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             overshoot = abs(price - target) / abs(target - entry) if abs(target - entry) > 0 else 0
             if overshoot > 0.20:
                 # Target exceeded by >20% — trail stop to target price, let it run
-                new_trailing_stop = target if direction == "long" else target
+                new_trailing_stop = target  # same for both: lock in at target level
                 if (direction == "long" and stop < new_trailing_stop) or (direction == "short" and stop > new_trailing_stop):
                     try:
                         supabase().table("sandbox_trades").update({
