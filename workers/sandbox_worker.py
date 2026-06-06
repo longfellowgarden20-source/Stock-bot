@@ -34,20 +34,26 @@ POLYGON_BASE = "https://api.polygon.io"
 
 # Paper trading config
 STARTING_BALANCE   = 50_000.00  # $50k paper account
-RISK_PER_TRADE_PCT = 1.0        # risk 1% of account per trade ($500 on $50k)
-MAX_POSITION_PCT   = 10.0       # never put more than 10% of account in one trade
-MAX_OPEN_POSITIONS = 20         # max concurrent open positions
-MAX_DAILY_ENTRIES  = 20         # max new entries per day
+MAX_POSITION_PCT   = 15.0       # never put more than 15% of account in one trade
+MAX_OPEN_POSITIONS = 10         # sniper mode — fewer, better positions
+MAX_DAILY_ENTRIES  = 8          # max 8 trades/day — only the best setups
 MAX_SWING_DAYS     = 20         # force-close swing trades after 20 trading days
-MAX_STOP_PCT       = 8.0        # #8 — reject if stop > 8% from entry
-MAX_POSITIONS_PER_SECTOR = 3    # #6 — max 3 positions per sector
-COOLDOWN_DAYS      = 5          # #9 — ban ticker N days after 2 consecutive losses
-BREAKEVEN_TRIGGER  = 2.0        # #10 — move stop to breakeven after +2% gain
-VIX_REGIME_LIMIT   = 28.0       # #1 — skip entries when VIX above this
+MAX_STOP_PCT       = 6.0        # tighter stops — bad setups rejected faster
+MAX_POSITIONS_PER_SECTOR = 2    # max 2 per sector — avoid concentration
+COOLDOWN_DAYS      = 5          # ban ticker N days after 2 consecutive losses
+BREAKEVEN_TRIGGER  = 2.0        # move stop to breakeven after +2% gain
+VIX_REGIME_LIMIT   = 28.0       # skip entries when VIX above this
 
-# Confidence calibration thresholds — adjusted dynamically based on win rate
-BASE_CONFIDENCE_THRESHOLD = 50
-HIGH_BAR_CONFIDENCE       = 70   # used when win rate < 50%
+# ── Sniper position sizing — scales with signal conviction ──────────────────
+RISK_PCT_BASE        = 1.0   # 1 qualifying signal  → 1% risk  ($500)
+RISK_PCT_MULTI       = 1.5   # 2+ signals           → 1.5% risk ($750)
+RISK_PCT_CONVERGENCE = 3.0   # convergence alert    → 3% risk  ($1,500) — full send
+RISK_PCT_HOT_STREAK  = 0.5   # bonus when WR >= 70% over last 10 trades
+
+# Confidence thresholds — high bar by default
+BASE_CONFIDENCE_THRESHOLD = 65   # raised from 50 — sniper mode
+HIGH_BAR_CONFIDENCE       = 75   # used when win rate < 50%
+CONVERGENCE_MIN_CONFIDENCE = 55  # convergence overrides normal bar (signal does the work)
 
 # Sector mapping for correlation limit (#6)
 SECTOR_MAP: dict[str, str] = {
@@ -505,6 +511,48 @@ async def get_volume_context(client: httpx.AsyncClient, ticker: str) -> str:
         return ""
 
 
+def score_setup_conviction(signals: list[dict], convergence_ctx: str, recent_wr: float) -> tuple[float, str, bool]:
+    """
+    Score how convicted Groq should be in this setup.
+    Returns (risk_pct, conviction_label, is_convergence).
+
+    Sniper philosophy:
+    - Convergence alert = full send at 3% risk
+    - 2+ high-quality signals = 1.5% risk
+    - 1 signal = 1% risk
+    - Hot streak bonus = +0.5%
+    """
+    is_convergence = "CONVERGENCE ALERT" in convergence_ctx
+
+    # Count high-quality signals (sev >= 7)
+    high_quality = [s for s in signals if float(s.get("severity") or 0) >= 7]
+    # Extra weight for dark pool + options (smart money signals)
+    smart_money = [s for s in signals if s.get("signal_type") in ("dark_pool", "options_unusual", "congress_trade", "insider_buy", "insider_sell")]
+
+    if is_convergence:
+        risk_pct = RISK_PCT_CONVERGENCE
+        label = "CONVERGENCE — full send 3%"
+    elif len(smart_money) >= 1 and len(high_quality) >= 2:
+        risk_pct = RISK_PCT_MULTI + 0.5  # smart money + multiple signals = 2%
+        label = f"SMART MONEY + {len(high_quality)} signals — 2% risk"
+    elif len(high_quality) >= 2:
+        risk_pct = RISK_PCT_MULTI
+        label = f"{len(high_quality)} signals — 1.5% risk"
+    elif len(smart_money) >= 1:
+        risk_pct = RISK_PCT_MULTI
+        label = f"smart money signal — 1.5% risk"
+    else:
+        risk_pct = RISK_PCT_BASE
+        label = "standard setup — 1% risk"
+
+    # Hot streak bonus
+    if recent_wr >= 70:
+        risk_pct = min(risk_pct + RISK_PCT_HOT_STREAK, RISK_PCT_CONVERGENCE)
+        label += " +streak bonus"
+
+    return round(risk_pct, 2), label, is_convergence
+
+
 def get_signal_freshness(ticker: str) -> tuple[bool, int]:
     """#5/#12 — Returns (has_fresh_signal, hours_since_last_signal).
     Fresh = qualifying signal within 4 hours."""
@@ -957,11 +1005,8 @@ async def decide_entry(
 
     today_str = date.today().isoformat()
 
-    # #10 — Hot streak scaling
-    risk_pct = RISK_PER_TRADE_PCT
-    if recent_wr >= 70 and total >= 10:
-        risk_pct = 1.5
-        log.debug(f"Hot streak: recent WR={recent_wr:.1f}% — scaling risk to 1.5%")
+    # Score conviction — determines position size and confidence bar
+    risk_pct, conviction_label, is_convergence = score_setup_conviction(signals, convergence_ctx, recent_wr)
 
     critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
     weekly_block = f"\nWEEKLY REVIEW RULES:\n{weekly_rules}" if weekly_rules else ""
@@ -976,34 +1021,45 @@ async def decide_entry(
     )
     convergence_note = f"\n⚡ {convergence_ctx}" if "CONVERGENCE ALERT" in convergence_ctx else ""
 
-    prompt = f"""You are a paper trader managing a $50,000 paper account. Decide whether to enter a trade on {ticker} today ({today_str}).
+    # Regime-specific playbook instruction
+    if is_convergence:
+        playbook = "CONVERGENCE DETECTED — this is a full-send setup. Be aggressive. Set a wider target (3:1 R:R minimum). This is your highest conviction trade type."
+    elif risk_pct >= 2.0:
+        playbook = "Strong signal cluster detected. Be bold — set target at 2.5:1 R:R minimum. This setup has real edge."
+    else:
+        playbook = "Standard setup. Be selective — only take if you genuinely see an edge. Pass if uncertain."
 
-Current price: ${price:.2f} | {volume_ctx}{sector_block}{account_block}
+    prompt = f"""You are a sophisticated sniper trader managing a $50,000 paper account. Your goal: high win rate AND maximum profit.
+
+PHILOSOPHY: Pass on 80% of setups. When everything lines up — convergence + options flow + sector alignment — go in hard and set aggressive targets. Don't be afraid to be bold when the data supports it.
+
+CURRENT SETUP: {ticker} @ ${price:.2f} | {volume_ctx}
+CONVICTION LEVEL: {conviction_label}
+{playbook}
+{sector_block}{account_block}
 {user_brain_block}
 {pattern_block_str}
 {weekly_block}
 {critique_block}
-TODAY'S MARKET OUTLOOK:
+MARKET OUTLOOK:
 {outlook_block}
 {convergence_note}
-OPTIONS / DARK POOL FLOW:
+SMART MONEY FLOW:
 {options_ctx}
 
-TECHNICAL SIGNALS:
+TECHNICAL:
 {tech_ctx}
 
-Recent signals (last 24h) — most recent was {hours_since}h ago:
+SIGNALS (last 24h — freshest {hours_since}h ago):
 {sig_block}
 
-Your past prediction accuracy for {ticker}:
+PAST ACCURACY FOR {ticker}:
 {pred_block}
 
-Your past sandbox trades for {ticker}:
+PAST SANDBOX TRADES FOR {ticker}:
 {sandbox_block}
 
-Your overall sandbox win rate: {win_rate:.1f}% ({wins}/{total} trades)
-Goal: 70%+ win rate. Be selective — quality over quantity.
-Rules: align direction with market outlook, respect your sector, prioritize setups with convergence alerts and fresh options flow.
+WIN RATE: {win_rate:.1f}% overall | {recent_wr:.0f}% last 10 trades ({wins}/{total} total)
 
 Respond ONLY with valid JSON:
 {{
@@ -1013,18 +1069,17 @@ Respond ONLY with valid JSON:
   "stop_loss": <price float>,
   "target_price": <price float>,
   "confidence": <integer 1-100>,
-  "thesis": "<2 sentence reason for the trade — specific, not generic>"
+  "thesis": "<2 sentence reason — specific prices, specific catalysts, not generic>"
 }}
 
-Rules:
-- trade: false only if there is truly no edge. You want to be active — 20 trades a day is the goal.
-- direction: long if bullish signals dominate, short if bearish
-- trade_type: day if catalyst is today only, swing if multi-day thesis
-- stop_loss: the price that proves you wrong — must be realistic (not too tight, not too wide)
-- target_price: your exit target — minimum 1.5x the distance from entry to stop
-- confidence: below 50 = pass on the trade. 50-65 = take small setups. 65+ = strong conviction.
-- If your past sandbox trades on this ticker have been mostly losses, tighten your stop and lower your target
-- Learn from your mistakes — if you keep getting stopped out, widen stops slightly next time"""
+ENTRY RULES:
+- PASS if confidence < {CONVERGENCE_MIN_CONFIDENCE if is_convergence else BASE_CONFIDENCE_THRESHOLD} — don't force trades
+- CONVERGENCE setups: target must be 3:1 R:R minimum — go big or pass
+- Standard setups: target 2:1 R:R minimum
+- Stop must be at a real technical level (support/resistance), not arbitrary
+- Direction MUST align with market outlook unless you have a very specific counter-thesis
+- If you've been losing on this ticker recently, pass unless signals are overwhelming
+- Be specific in your thesis — vague reasoning = bad trade"""
 
     raw = await _call_groq(prompt, max_tokens=300)
     if not raw:
@@ -1042,12 +1097,15 @@ Rules:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
         return None
 
-    # Dynamic confidence threshold based on win rate
-    conf_threshold = get_confidence_threshold(win_rate, total)
-    confidence = parsed.get("confidence", 0)
+    # Confidence threshold — convergence plays get lower bar (signal does the work)
+    if is_convergence:
+        conf_threshold = CONVERGENCE_MIN_CONFIDENCE
+    else:
+        conf_threshold = get_confidence_threshold(win_rate, total)
 
+    confidence = parsed.get("confidence", 0)
     if not parsed.get("trade") or confidence < conf_threshold:
-        log.debug(f"Sandbox: passed on {ticker} (confidence={confidence} < threshold={conf_threshold}, win_rate={win_rate:.1f}%)")
+        log.debug(f"Sandbox: passed on {ticker} (confidence={confidence} < {conf_threshold}, conviction={conviction_label})")
         return None
 
     direction = parsed.get("direction", "long")
@@ -1056,34 +1114,34 @@ Rules:
     target = float(parsed.get("target_price") or 0)
     thesis = str(parsed.get("thesis", ""))[:500]
 
-    # Validate stop and target make sense for the direction
+    # R:R minimum — convergence plays need 3:1, standard 2:1
+    min_rr = 2.5 if is_convergence else 2.0
+
     if direction == "long":
         if stop >= price or target <= price:
-            log.debug(f"Sandbox: invalid levels for {ticker} long — stop={stop}, price={price}, target={target}")
+            log.debug(f"Sandbox: invalid levels for {ticker} long")
             return None
         risk = price - stop
         reward = target - price
-        if risk <= 0 or reward / risk < 1.5:
-            log.debug(f"Sandbox: R:R too low for {ticker} long (risk={risk:.2f}, reward={reward:.2f})")
+        if risk <= 0 or reward / risk < min_rr:
+            log.debug(f"Sandbox: R:R {reward/risk:.2f} < {min_rr} for {ticker} long — skip")
             return None
-        # #8 — reject if stop > MAX_STOP_PCT% from entry
         stop_pct = (risk / price) * 100
         if stop_pct > MAX_STOP_PCT:
-            log.debug(f"Filter #8: {ticker} stop too wide ({stop_pct:.1f}% > {MAX_STOP_PCT}%) — skip")
+            log.debug(f"Filter #8: {ticker} stop too wide ({stop_pct:.1f}%) — skip")
             return None
     else:
         if stop <= price or target >= price:
-            log.debug(f"Sandbox: invalid levels for {ticker} short — stop={stop}, price={price}, target={target}")
+            log.debug(f"Sandbox: invalid levels for {ticker} short")
             return None
         risk = stop - price
         reward = price - target
-        if risk <= 0 or reward / risk < 1.5:
-            log.debug(f"Sandbox: R:R too low for {ticker} short (risk={risk:.2f}, reward={reward:.2f})")
+        if risk <= 0 or reward / risk < min_rr:
+            log.debug(f"Sandbox: R:R {reward/risk:.2f} < {min_rr} for {ticker} short — skip")
             return None
-        # #8 — reject if stop > MAX_STOP_PCT% from entry
         stop_pct = (risk / price) * 100
         if stop_pct > MAX_STOP_PCT:
-            log.debug(f"Filter #8: {ticker} short stop too wide ({stop_pct:.1f}% > {MAX_STOP_PCT}%) — skip")
+            log.debug(f"Filter #8: {ticker} short stop too wide ({stop_pct:.1f}%) — skip")
             return None
 
     # Position sizing — scale up on hot streaks (#10)
@@ -1128,8 +1186,10 @@ Rules:
         "entry_date": today_str,
         "groq_thesis": thesis,
         "signals_at_entry": [{"type": s["signal_type"], "sev": s["severity"], "title": s["title"]} for s in signals[:5]],
-        "target1": target1,  # #11 partial exit level
+        "target1": target1,
         "partial_exit_done": False,
+        "conviction_label": conviction_label,
+        "is_convergence": is_convergence,
     }
 
 
@@ -1651,7 +1711,8 @@ async def run_once() -> dict:
                                 open_tickers.add(ticker)
                                 open_positions.append(trade)  # keep sector counts current
                                 entries += 1
-                                log.info(f"Sandbox entered {trade['direction']} {ticker} @ ${trade['entry_price']:.2f} ({trade['trade_type']})")
+                                conviction = trade.get("conviction_label", "standard")
+                                log.info(f"Sandbox entered {trade['direction']} {ticker} @ ${trade['entry_price']:.2f} ({trade['trade_type']}) | {conviction} | risk=${trade.get('risk_amount', 0):.0f}")
                     except Exception as e:
                         log.error(f"Entry decision failed for {ticker}: {e}")
                     await asyncio.sleep(2)

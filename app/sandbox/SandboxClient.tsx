@@ -114,23 +114,28 @@ function PriceBar({ entry, stop, target, current, direction }: {
   )
 }
 
-function TradeRow({ trade, expanded, onToggle }: {
+function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
   trade: SandboxTrade
   expanded: boolean
   onToggle: () => void
+  preloadedPrice?: number | null
 }) {
   const isOpen = trade.status === 'open'
-  const [livePrice, setLivePrice] = useState<number | null>(null)
+  const [livePrice, setLivePrice] = useState<number | null>(preloadedPrice ?? null)
   const [priceLoading, setPriceLoading] = useState(false)
 
   useEffect(() => {
+    if (preloadedPrice != null) {
+      setLivePrice(preloadedPrice)
+      return
+    }
     if (!isOpen || !expanded) return
     setPriceLoading(true)
     fetchLatestPrice(trade.ticker).then(p => {
       setLivePrice(p)
       setPriceLoading(false)
     })
-  }, [isOpen, expanded, trade.ticker])
+  }, [isOpen, expanded, trade.ticker, preloadedPrice])
 
   // Compute live P&L for open trades
   const livePnlPct = useMemo(() => {
@@ -202,13 +207,24 @@ function TradeRow({ trade, expanded, onToggle }: {
               {displayPnlPct >= 0 ? '+' : ''}{displayPnlPct.toFixed(2)}%
             </span>
           ) : (
-            <span className="text-xs text-slate-600">pending</span>
+            <span className="text-xs text-slate-600 animate-pulse">fetching…</span>
           )}
           {isClosed && trade.pnl != null && (
             <span className={`text-xs tabular-nums ${pnlColor(trade.pnl)}`}>
               ${trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(0)}
             </span>
           )}
+          {isOpen && livePrice != null && trade.pnl == null && (() => {
+            const entry = Number(trade.entry_price)
+            const dollarPnl = trade.direction === 'long'
+              ? (livePrice - entry) * Number(trade.shares || 1)
+              : (entry - livePrice) * Number(trade.shares || 1)
+            return (
+              <span className={`text-xs tabular-nums ${pnlColor(dollarPnl)}`}>
+                ${dollarPnl >= 0 ? '+' : ''}{dollarPnl.toFixed(0)}
+              </span>
+            )
+          })()}
           {trade.exit_reason && (
             <span className="text-[10px] text-slate-500 hidden sm:block">{exitReasonLabel(trade.exit_reason)}</span>
           )}
@@ -416,6 +432,24 @@ export default function SandboxClient({
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance'>('open')
+  const [livePrices, setLivePrices] = useState<Record<string, number>>({})
+
+  // Fetch current prices for all open trades on mount
+  useEffect(() => {
+    if (openTrades.length === 0) return
+    const uniqueTickers = [...new Set(openTrades.map(t => t.ticker))]
+    Promise.all(
+      uniqueTickers.map(ticker =>
+        fetchLatestPrice(ticker).then(price => ({ ticker, price }))
+      )
+    ).then(results => {
+      const prices: Record<string, number> = {}
+      for (const { ticker, price } of results) {
+        if (price != null) prices[ticker] = price
+      }
+      setLivePrices(prices)
+    })
+  }, [openTrades])
 
   const starting = account?.starting_balance ?? 50000
   const balance = account?.balance ?? starting
@@ -442,6 +476,31 @@ export default function SandboxClient({
       : 0
     return { wins, losses, total, winRate, grossPnl, avgWin, avgLoss }
   }, [closedTrades])
+
+  // Unrealized P&L across all open trades using pre-fetched prices
+  const unrealizedPnl = useMemo(() => {
+    let total = 0
+    let priced = 0
+    for (const t of openTrades) {
+      const price = livePrices[t.ticker]
+      if (price == null) continue
+      const entry = Number(t.entry_price)
+      const shares = Number(t.shares || 1)
+      const pnl = t.direction === 'long' ? (price - entry) * shares : (entry - price) * shares
+      total += pnl
+      priced++
+    }
+    return { total, priced }
+  }, [openTrades, livePrices])
+
+  const openWinning = useMemo(() => {
+    return openTrades.filter(t => {
+      const price = livePrices[t.ticker]
+      if (price == null) return false
+      const entry = Number(t.entry_price)
+      return t.direction === 'long' ? price > entry : price < entry
+    }).length
+  }, [openTrades, livePrices])
 
   const winRateColor = winRate >= 70 ? 'text-emerald-400' : winRate >= 50 ? 'text-yellow-400' : 'text-red-400'
 
@@ -498,6 +557,22 @@ export default function SandboxClient({
 
         {/* Equity curve */}
         <EquityCurve equity={equity} starting={starting} />
+
+        {/* Unrealized P&L strip — only when open positions have prices */}
+        {unrealizedPnl.priced > 0 && (
+          <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
+            <span className="text-slate-500">
+              Unrealized P&L — {unrealizedPnl.priced}/{openTrades.length} positions priced
+              {openWinning > 0 && <span className="text-emerald-400 ml-1">({openWinning} winning)</span>}
+              {openTrades.length - openWinning - (openTrades.length - unrealizedPnl.priced) > 0 && (
+                <span className="text-red-400 ml-1">({openTrades.length - openWinning - (openTrades.length - unrealizedPnl.priced)} losing)</span>
+              )}
+            </span>
+            <span className={`font-bold tabular-nums text-sm ${pnlColor(unrealizedPnl.total)}`}>
+              {unrealizedPnl.total >= 0 ? '+' : ''}${unrealizedPnl.total.toFixed(0)}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Stats grid */}
@@ -555,7 +630,7 @@ export default function SandboxClient({
               <p className="text-xs text-slate-600">Groq scans for entries at 9:30am ET on weekdays.</p>
             </div>
           ) : openTrades.map(t => (
-            <TradeRow key={t.id} trade={t} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} />
+            <TradeRow key={t.id} trade={t} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} preloadedPrice={livePrices[t.ticker] ?? null} />
           ))}
         </div>
       )}
