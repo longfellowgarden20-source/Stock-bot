@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import Groq from 'groq-sdk'
+import getGroqClient from '@/lib/groq-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,7 +118,7 @@ Give a comprehensive, specific trade analysis. Cover ALL of these sections:
 
 Be specific with prices. No generic advice. Write for an active trader who will act on this today.`
 
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY })
+    const groq = getGroqClient()
     const completion = await groq.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: prompt }],

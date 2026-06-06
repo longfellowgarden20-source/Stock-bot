@@ -18,8 +18,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'No trades provided' }, { status: 400 })
   }
 
-  const groqApiKey = process.env.GROQ_API_KEY
-  if (!groqApiKey) return NextResponse.json({ error: 'GROQ_API_KEY not set' }, { status: 500 })
+  const groqKeys = [
+    process.env.GROQ_API_KEY,
+    process.env.GROQ_BACKUP_API_KEY,
+    process.env.GROQ_API_KEY_2,
+    process.env.GROQ_API_KEY_3,
+  ].filter(Boolean) as string[]
+  if (groqKeys.length === 0) return NextResponse.json({ error: 'No GROQ keys configured' }, { status: 500 })
+  // Round-robin: use request timestamp to spread load
+  const groqApiKey = groqKeys[Math.floor(Date.now() / 1000) % groqKeys.length]
 
   const closedTrades = trades.filter((t) => t.pnl != null)
   const winCount = closedTrades.filter((t) => (t.pnl as number) > 0).length
