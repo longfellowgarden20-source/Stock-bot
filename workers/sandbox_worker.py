@@ -1027,9 +1027,9 @@ def get_brier_score() -> str:
 
 def get_signal_freshness(ticker: str) -> tuple[bool, int]:
     """#5/#12 — Returns (has_fresh_signal, hours_since_last_signal).
-    Fresh = qualifying signal within 4 hours."""
+    Fresh = qualifying signal within 24 hours (was 4h, too aggressive on signal-sparse days)."""
     try:
-        since = (datetime.now(timezone.utc) - timedelta(hours=4)).isoformat()
+        since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         res = (
             supabase().table("signals")
             .select("created_at")
