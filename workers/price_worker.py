@@ -20,6 +20,8 @@ log = logging.getLogger("price_worker")
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
+FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+FINNHUB_BASE = "https://finnhub.io/api/v1"
 
 # QUICK WIN #2: Per-ticker alert thresholds with 1h caching
 WATCHLIST_CACHE = {}
@@ -59,29 +61,44 @@ async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
     except Exception:
         pass
 
-    # Fallback: daily aggregates (free tier) — get today + yesterday for change_pct
+    # Fallback 1: daily aggregates (Polygon free tier)
     try:
         today = date.today()
         start = (today - timedelta(days=5)).isoformat()
         agg_url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{today.isoformat()}"
         r = await client.get(agg_url, params={"apiKey": POLYGON_KEY, "limit": 3, "sort": "desc"}, timeout=10)
-        if r.status_code != 200:
-            log.warning(f"{ticker}: aggs fallback status {r.status_code}")
-            return None
-        results = r.json().get("results", [])
-        if not results:
-            return None
-        today_bar = results[0]
-        prev_bar = results[1] if len(results) > 1 else {}
-        # Wrap into snapshot-compatible shape
-        return {
-            "day": {"c": today_bar.get("c"), "v": today_bar.get("v"), "o": today_bar.get("o")},
-            "prevDay": {"c": prev_bar.get("c")},
-            "lastTrade": {"p": today_bar.get("c")},  # use close as last price
-        }
+        if r.status_code == 200:
+            results = r.json().get("results", [])
+            if results:
+                today_bar = results[0]
+                prev_bar = results[1] if len(results) > 1 else {}
+                return {
+                    "day": {"c": today_bar.get("c"), "v": today_bar.get("v"), "o": today_bar.get("o")},
+                    "prevDay": {"c": prev_bar.get("c")},
+                    "lastTrade": {"p": today_bar.get("c")},
+                }
     except Exception as e:
-        log.error(f"{ticker}: aggs fallback failed — {e}")
-        return None
+        log.debug(f"{ticker}: Polygon aggs fallback failed — {e}")
+
+    # Fallback 2: Finnhub quote (unlimited free tier, 60 calls/min)
+    if FINNHUB_KEY:
+        try:
+            fh_url = f"{FINNHUB_BASE}/quote"
+            r = await client.get(fh_url, params={"symbol": ticker.upper(), "token": FINNHUB_KEY}, timeout=10)
+            if r.status_code == 200:
+                data = r.json()
+                if data.get("c"):  # current price exists
+                    log.info(f"{ticker}: using Finnhub (Polygon rate limited)")
+                    return {
+                        "day": {"c": data.get("c"), "v": data.get("v"), "o": data.get("o")},
+                        "prevDay": {"c": data.get("pc")},  # previous close
+                        "lastTrade": {"p": data.get("c")},
+                    }
+        except Exception as e:
+            log.debug(f"{ticker}: Finnhub fallback failed — {e}")
+
+    log.error(f"{ticker}: All price sources exhausted (Polygon + Finnhub failed)")
+    return None
 
 
 # Avg volume cache — refreshed once per day per ticker

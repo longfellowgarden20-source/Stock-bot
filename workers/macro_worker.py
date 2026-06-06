@@ -225,12 +225,49 @@ async def check_dollar(client: httpx.AsyncClient) -> None:
         )
 
 
+async def check_credit_spreads(client: httpx.AsyncClient) -> None:
+    """High-yield credit spread (HYG implied spread from FRED)."""
+    if not FRED_KEY:
+        return
+    # BAMLH0A0HYM2 = US High Yield OAS (Option-Adjusted Spread)
+    hyg_spreads = await fetch_fred_series(client, "BAMLH0A0HYM2")
+    if not hyg_spreads:
+        return
+    current_spread = hyg_spreads[0][1]
+    if current_spread >= 700 and not _on_cooldown("credit_stress"):
+        _mark("credit_stress")
+        insert_signal(
+            "HYG", "macro", 7,
+            f"Credit stress — HY spreads at {current_spread:.0f} bps",
+            f"High-yield spreads at {current_spread:.0f} bps, indicating credit stress. Watch for flight-to-quality into treasuries.",
+            {"indicator": "hy_spreads", "value": current_spread, "regime": "stress"},
+        )
+
+async def check_inflation(client: httpx.AsyncClient) -> None:
+    """Inflation proxy via commodity prices."""
+    if not FRED_KEY:
+        return
+    # DCOILWTICO = crude oil price
+    crude = await fetch_fred_series(client, "DCOILWTICO")
+    if crude:
+        crude_price = crude[0][1]
+        if crude_price >= 110 and not _on_cooldown("inflation_crude"):
+            _mark("inflation_crude")
+            insert_signal(
+                "XLE", "macro", 6,
+                f"Oil spike — {crude_price:.0f}/bbl inflation pressure",
+                f"Crude oil at ${crude_price:.0f}/barrel. Watch for inflation spillovers; energy sector favors.",
+                {"indicator": "crude", "value": crude_price, "regime": "elevated"},
+            )
+
 async def run_once() -> dict:
     fired_before = len(_signal_cooldown)
     async with httpx.AsyncClient() as client:
         await check_vix(client)
         await check_yields(client)
         await check_dollar(client)
+        await check_credit_spreads(client)
+        await check_inflation(client)
     return {"status": "ok", "signals_tracked": len(_signal_cooldown), "new": len(_signal_cooldown) - fired_before}
 
 
