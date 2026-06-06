@@ -162,6 +162,94 @@ def get_portfolio_tickers() -> list[str]:
     return sorted({row["ticker"].upper() for row in (res.data or [])})
 
 
+# #30 — Intraday unusual print detection via Polygon trades API
+# Fires when: multiple large prints cluster within a 5-minute window
+# Uses REST /v3/trades (no WebSocket required — Polygon free tier has REST access)
+_last_print_scan_time: dict[str, float] = {}
+_print_scan_cooldown: float = 600  # 10 min cooldown per ticker
+
+
+async def scan_unusual_prints(client: httpx.AsyncClient, tickers: list[str]) -> int:
+    """
+    For each ticker, fetch recent trades and look for:
+    - 3+ large prints (>$100k notional) within a 5-minute window
+    - Single print > $1M notional
+    Emits a 'technical' signal with subtype 'unusual_prints' when detected.
+    """
+    import time
+    from datetime import datetime, timezone, timedelta
+    if not POLYGON_KEY:
+        return 0
+
+    fired = 0
+    now_ts = time.monotonic()
+    now_utc = datetime.now(timezone.utc)
+
+    for ticker in tickers[:20]:  # cap to 20 tickers per run to respect rate limits
+        # Cooldown check — don't hammer same ticker
+        last = _last_print_scan_time.get(ticker, 0)
+        if now_ts - last < _print_scan_cooldown:
+            continue
+
+        try:
+            window_start = (now_utc - timedelta(minutes=5)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            r = await client.get(
+                f"{POLYGON_BASE}/v3/trades/{ticker}",
+                params={
+                    "apiKey": POLYGON_KEY,
+                    "timestamp.gte": window_start,
+                    "order": "desc",
+                    "limit": 200,
+                },
+                timeout=8,
+            )
+            if r.status_code != 200:
+                continue
+            trades_data = r.json().get("results", [])
+            if not trades_data:
+                continue
+
+            # Compute notional for each print
+            large_prints = []
+            for t in trades_data:
+                price = float(t.get("price") or 0)
+                size = int(t.get("size") or 0)
+                notional = price * size
+                if notional >= 100_000:
+                    large_prints.append({"price": price, "size": size, "notional": notional})
+
+            trigger = False
+            reason = ""
+            if any(p["notional"] >= 1_000_000 for p in large_prints):
+                trigger = True
+                big = max(large_prints, key=lambda x: x["notional"])
+                reason = f"Single print ${big['notional']:,.0f} ({big['size']:,} shares @ ${big['price']:.2f})"
+            elif len(large_prints) >= 3:
+                total_notional = sum(p["notional"] for p in large_prints)
+                trigger = True
+                reason = f"{len(large_prints)} large prints totalling ${total_notional:,.0f} in last 5 min"
+
+            if trigger:
+                _last_print_scan_time[ticker] = now_ts
+                sev = 8 if any(p["notional"] >= 1_000_000 for p in large_prints) else 7
+                insert_signal(
+                    ticker,
+                    "technical",
+                    sev,
+                    f"{ticker} unusual print cluster detected",
+                    reason,
+                    {"source": "tape_reading", "prints": large_prints[:5], "window_minutes": 5},
+                )
+                fired += 1
+                log.info(f"Unusual print detected: {ticker} — {reason}")
+
+        except Exception as e:
+            log.debug(f"Print scan failed for {ticker}: {e}")
+        await asyncio.sleep(0.2)  # ~5 req/sec
+
+    return fired
+
+
 async def run_once() -> dict:
     if not POLYGON_KEY:
         return {"status": "skipped", "reason": "POLYGON_API_KEY not set"}
@@ -177,6 +265,7 @@ async def run_once() -> dict:
     ordered_tickers = portfolio_tickers + remaining
 
     processed = 0
+    unusual_print_signals = 0
     async with httpx.AsyncClient() as client:
         for i in range(0, len(ordered_tickers), 10):
             batch = ordered_tickers[i:i+10]
@@ -185,7 +274,15 @@ async def run_once() -> dict:
             if i + 10 < len(ordered_tickers):
                 await asyncio.sleep(2)
 
-    return {"status": "ok", "processed": processed, "portfolio_first": portfolio_tickers}
+        # #30 — Intraday tape reading: scan for unusual print clusters during market hours
+        try:
+            from market_hours import is_market_hours
+            if is_market_hours():
+                unusual_print_signals = await scan_unusual_prints(client, ordered_tickers)
+        except Exception as e:
+            log.debug(f"Unusual print scan failed: {e}")
+
+    return {"status": "ok", "processed": processed, "portfolio_first": portfolio_tickers, "unusual_prints": unusual_print_signals}
 
 
 async def run_portfolio_only() -> dict:

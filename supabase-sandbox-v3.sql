@@ -24,3 +24,21 @@ ALTER TABLE sandbox_account
 
 CREATE UNIQUE INDEX IF NOT EXISTS sandbox_account_single
   ON sandbox_account (is_primary) WHERE is_primary = true;
+
+-- #1: mtm_balance on equity snapshots
+ALTER TABLE sandbox_equity ADD COLUMN IF NOT EXISTS mtm_balance numeric(14,2);
+
+-- #2: user notes on trades
+ALTER TABLE sandbox_trades ADD COLUMN IF NOT EXISTS user_note text;
+
+-- #12: thesis validation field
+ALTER TABLE sandbox_trades ADD COLUMN IF NOT EXISTS thesis_correct boolean;
+
+-- #26: structured thesis JSON
+ALTER TABLE sandbox_trades ADD COLUMN IF NOT EXISTS thesis_structured jsonb;
+
+-- #27: model used for entry
+ALTER TABLE sandbox_trades ADD COLUMN IF NOT EXISTS model_used text;
+
+-- #8: scale-in tracking
+ALTER TABLE sandbox_trades ADD COLUMN IF NOT EXISTS scaled_in boolean DEFAULT false;

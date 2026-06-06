@@ -243,26 +243,89 @@ async def run_premarket_scan(client: httpx.AsyncClient) -> dict | None:
     except Exception:
         win_rate, total_trades = 0.0, 0
 
-    # Build the candidate block for Groq
-    candidate_lines = []
-    for c in candidates:
-        t = c["ticker"]
-        price_info = prices.get(t)
-        p_str = f"${price_info['price']:.2f} ({price_info['change_pct']:+.1f}% pre-mkt)" if price_info else "price N/A"
-        gap_str = f" {price_info['gap_label']}" if price_info and price_info.get("gap_label") else ""
-        past = perf.get(t, {})
-        past_str = f"{past.get('wins',0)}W/{past.get('losses',0)}L" if past else "no history"
-        sig_str = " | ".join(f"{s['type']}(sev={s['sev']:.0f})" for s in c["signals"][:3])
-        candidate_lines.append(f"  {t:6s} score={c['score']:.1f} | {p_str}{gap_str} | {past_str} | {sig_str}")
+    # #5 — Brain notes: inject user rules into pre-market scan
+    try:
+        notes_res = supabase().table("brain_notes").select("content,ticker,category").execute()
+        notes_data = notes_res.data or []
+        general_notes = [n["content"] for n in notes_data if not n.get("ticker")]
+        brain_block = ""
+        if general_notes:
+            brain_block = "\nUSER TRADING RULES (MUST FOLLOW when picking setups):\n" + \
+                "\n".join(f"  - {n}" for n in general_notes[:10])
+    except Exception:
+        brain_block = ""
 
-    candidates_block = "\n".join(candidate_lines)
     outlook_str = (
         f"{outlook.get('direction','?').upper()} — {outlook.get('analysis','')[:300]}"
         if outlook else "No morning outlook available."
     )
     critique_block = f"\nYESTERDAY'S SELF-CRITIQUE (follow these rules today):\n{critique}" if critique else ""
 
-    prompt = f"""It is pre-market on {today.strftime('%A, %B %d, %Y')}. You are planning today's paper trades BEFORE the market opens.
+    # #29 — Two-stage scan: score top 10 independently, then curator picks TOP 5
+    # Stage 1: score each candidate with a small Groq call
+    async def _score_candidate(c: dict) -> dict | None:
+        t = c["ticker"]
+        price_info = prices.get(t)
+        p_str = f"${price_info['price']:.2f} ({price_info['change_pct']:+.1f}% pre-mkt)" if price_info else "price N/A"
+        gap_str = f" {price_info.get('gap_label', '')}" if price_info else ""
+        past = perf.get(t, {})
+        past_str = f"{past.get('wins',0)}W/{past.get('losses',0)}L" if past else "no history"
+        sig_str = " | ".join(f"{s['type']}(sev={s['sev']:.0f})" for s in c["signals"][:4])
+        score_prompt = f"""Pre-market score for {t}: {p_str}{gap_str} | Past: {past_str} | Signals: {sig_str}
+Outlook: {outlook_str[:100]}
+
+Rate this setup 1-10 (conviction to enter today). Reply ONLY: {{"score": <int>, "direction": "long"|"short", "reason": "<10 words max>"}}"""
+        raw_s = await _call_groq(score_prompt, max_tokens=60)
+        if not raw_s:
+            return None
+        try:
+            text_s = raw_s.strip()
+            if "```" in text_s:
+                parts_s = text_s.split("```")
+                text_s = parts_s[1][4:] if parts_s[1].startswith("json") else parts_s[1]
+            scored = json.loads(text_s.strip())
+            return {
+                "ticker": t,
+                "score": int(scored.get("score", 0)),
+                "direction": str(scored.get("direction", "long")),
+                "reason": str(scored.get("reason", ""))[:100],
+                "signals": c["signals"][:3],
+                "price_info": price_info,
+                "past": past,
+            }
+        except Exception:
+            return None
+
+    # Score top 10 candidates concurrently (with rate limiting)
+    top_candidates = candidates[:10]
+    scored_results = []
+    for c in top_candidates:
+        result = await _score_candidate(c)
+        if result and result["score"] >= 5:
+            scored_results.append(result)
+        await asyncio.sleep(0.15)  # ~6 calls/sec to respect Groq rate limit
+
+    scored_results.sort(key=lambda x: x["score"], reverse=True)
+    top_scored = scored_results[:8]
+
+    if not top_scored:
+        log.info("Pre-market stage-1 scoring: no candidates above threshold")
+        return None
+
+    # Stage 2: curator picks from pre-scored candidates
+    scored_lines = []
+    for s in top_scored:
+        price_info = s.get("price_info")
+        p_str = f"${price_info['price']:.2f} ({price_info['change_pct']:+.1f}%)" if price_info else "N/A"
+        past = s.get("past", {})
+        past_str = f"{past.get('wins',0)}W/{past.get('losses',0)}L" if past else "no history"
+        scored_lines.append(
+            f"  {s['ticker']:6s} stage1={s['score']}/10 {s['direction'].upper()} | {p_str} | {past_str} | reason: {s['reason']}"
+        )
+    scored_block = "\n".join(scored_lines)
+
+    prompt = f"""It is pre-market on {today.strftime('%A, %B %d, %Y')}. You are CURATING the final game plan from pre-scored setups.
+{brain_block}
 
 MORNING OUTLOOK:
 {outlook_str}
@@ -270,17 +333,10 @@ MORNING OUTLOOK:
 OVERALL WIN RATE: {win_rate:.1f}% ({total_trades} trades)
 {critique_block}
 
-CANDIDATE TICKERS (ranked by overnight signal activity):
-{candidates_block}
+PRE-SCORED CANDIDATES (already individually evaluated):
+{scored_block}
 
-Your job: Pick your TOP {MAX_PLAN_PICKS} highest-conviction setups for today. Be a sniper — only pick setups where the signals genuinely support a trade. Pass on the rest.
-
-For each pick, provide:
-- Why this ticker TODAY (specific catalyst, not generic)
-- Direction (long/short) — must align with morning outlook unless you have a specific counter-thesis
-- Key price levels to watch at open (entry zone, stop, target)
-- Trade type (day/swing)
-- Conviction score 1-10
+Your job: Pick the TOP {MAX_PLAN_PICKS} setups from these pre-scored candidates. Add specific price levels. Be a sniper.
 
 Respond ONLY with valid JSON array:
 [
@@ -299,15 +355,13 @@ Respond ONLY with valid JSON array:
 
 RULES:
 - Return EXACTLY {MAX_PLAN_PICKS} picks or fewer if fewer quality setups exist
-- Skip any ticker where the thesis is vague or signals are weak
-- Direction must be consistent with the morning outlook unless you have a strong counter-thesis
 - Stop must be at a real technical level, not arbitrary
 - Target must be minimum 2:1 R:R vs stop distance
 - Conviction below 6 = don't include it"""
 
     raw = await _call_groq(prompt, max_tokens=800)
     if not raw:
-        log.warning("Pre-market scan Groq call failed")
+        log.warning("Pre-market scan curator call failed")
         return None
 
     # Parse JSON

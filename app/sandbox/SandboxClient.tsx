@@ -2,6 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
+import { createBrowserClient } from '@supabase/ssr'
 import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap } from 'lucide-react'
 
 const MAX_OPEN_POSITIONS = 20
@@ -227,12 +228,12 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
         {/* Ticker */}
         <span className="font-bold text-sm text-white font-mono w-12 shrink-0">{trade.ticker}</span>
 
-        {/* Badges */}
-        <div className="flex items-center gap-1.5 flex-wrap">
+        {/* Badges — #17 compact on mobile: only direction + WIN/LOSS shown, rest hidden on xs */}
+        <div className="flex items-center gap-1.5">
           <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${trade.direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
             {trade.direction.toUpperCase()}
           </span>
-          <span className="text-[10px] text-slate-500 border border-white/[0.07] px-1.5 py-0.5 rounded">
+          <span className="text-[10px] text-slate-500 border border-white/[0.07] px-1.5 py-0.5 rounded hidden sm:inline">
             {trade.trade_type}
           </span>
           {isOpen && (
@@ -250,7 +251,7 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
               <XCircle className="w-3 h-3" /> LOSS
             </span>
           )}
-          {isClosed && <QualityBadge score={computeTradeQuality(trade).score} />}
+          {isClosed && <span className="hidden sm:inline"><QualityBadge score={computeTradeQuality(trade).score} /></span>}
         </div>
 
         {/* Entry date */}
@@ -479,7 +480,12 @@ type TradeEval = {
   evaluated_at: string
 }
 
-function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: number }) {
+// #4 — SPY benchmark: { date, balance } where balance = starting * (1 + cumulative_return)
+type SpyPoint = { date: string; balance: number }
+
+type TradeMarker = { date: string; isWin: boolean; type: 'entry' | 'exit' }
+
+function EquityCurve({ equity, starting, spy, tradeMarkers }: { equity: EquityPoint[]; starting: number; spy?: SpyPoint[]; tradeMarkers?: TradeMarker[] }) {
   if (equity.length < 2) return (
     <div className="h-24 flex items-center justify-center text-xs text-slate-600">
       Equity curve appears after first closed trade
@@ -487,8 +493,10 @@ function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: nu
   )
 
   const balances = equity.map(e => e.balance)
-  const minB = Math.min(...balances, starting * 0.95)
-  const maxB = Math.max(...balances, starting * 1.05)
+  // Include SPY values in min/max so both lines fit in view
+  const spyBalances = (spy && spy.length > 1) ? spy.map(s => s.balance) : []
+  const minB = Math.min(...balances, ...spyBalances, starting * 0.95)
+  const maxB = Math.max(...balances, ...spyBalances, starting * 1.05)
   const range = maxB - minB || 1
 
   const W = 600; const H = 96
@@ -504,6 +512,22 @@ function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: nu
   const lastBal = balances[balances.length - 1]
   const isUp = lastBal >= starting
 
+  // Map SPY points to same X scale as equity (by date alignment)
+  const equityDates = equity.map(e => e.date)
+  const spyPoints = spy && spy.length > 1
+    ? spy
+        .map(s => {
+          const idx = equityDates.findIndex(d => d >= s.date)
+          if (idx < 0) return null
+          return `${toX(idx)},${toY(s.balance)}`
+        })
+        .filter(Boolean)
+        .join(' ')
+    : null
+
+  const lastSpy = spy && spy.length > 0 ? spy[spy.length - 1].balance : null
+  const spyReturn = lastSpy ? ((lastSpy - starting) / starting * 100).toFixed(1) : null
+
   return (
     <div className="w-full overflow-x-auto">
       <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 280 }}>
@@ -517,8 +541,27 @@ function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: nu
           fill={isUp ? 'rgba(16,185,129,0.1)' : 'rgba(239,68,68,0.1)'}
         />
 
-        {/* Line */}
+        {/* Main equity line */}
         <polyline points={points} fill="none" stroke={isUp ? '#10b981' : '#ef4444'} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+
+        {/* #4 — SPY benchmark line */}
+        {spyPoints && (
+          <polyline points={spyPoints} fill="none" stroke="#94a3b8" strokeWidth="1.5" strokeDasharray="5 3" strokeLinejoin="round" strokeLinecap="round" opacity="0.6" />
+        )}
+
+        {/* #16 — Trade markers: triangles at entry/exit dates */}
+        {tradeMarkers && tradeMarkers.map((m, idx) => {
+          const eqIdx = equityDates.findIndex(d => d >= m.date)
+          if (eqIdx < 0) return null
+          const x = toX(eqIdx)
+          const y = toY(equity[eqIdx]?.balance ?? starting)
+          const color = m.isWin ? '#10b981' : '#ef4444'
+          // Entry = upward triangle, Exit = downward triangle
+          const pts = m.type === 'exit'
+            ? `${x},${y + 6} ${x - 4},${y - 2} ${x + 4},${y - 2}`
+            : `${x},${y - 6} ${x - 4},${y + 2} ${x + 4},${y + 2}`
+          return <polygon key={idx} points={pts} fill={color} opacity="0.8" />
+        })}
 
         {/* End dot */}
         <circle cx={toX(equity.length - 1)} cy={toY(lastBal)} r="4" fill={isUp ? '#10b981' : '#ef4444'} />
@@ -537,6 +580,13 @@ function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: nu
           return <text key={i} x={toX(i)} y={H - 2} textAnchor="middle" fontSize="8" fill="#334155">{d.slice(5)}</text>
         })}
       </svg>
+      {/* Legend */}
+      {spyPoints && (
+        <div className="flex items-center gap-4 mt-1 text-[10px] text-slate-500">
+          <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-emerald-400 rounded" />Groq ({((lastBal - starting) / starting * 100).toFixed(1)}%)</span>
+          <span className="flex items-center gap-1"><span className="inline-block w-4 h-0.5 bg-slate-400 rounded opacity-60" />SPY benchmark {spyReturn ? `(${Number(spyReturn) >= 0 ? '+' : ''}${spyReturn}%)` : ''}</span>
+        </div>
+      )}
     </div>
   )
 }
@@ -552,6 +602,7 @@ export default function SandboxClient({
   groqPatterns,
   groqWeekly,
   tradeEvals,
+  spyBenchmark,
 }: {
   openTrades: SandboxTrade[]
   closedTrades: SandboxTrade[]
@@ -563,6 +614,7 @@ export default function SandboxClient({
   groqPatterns: GroqLesson | null
   groqWeekly: GroqLesson | null
   tradeEvals: TradeEval[]
+  spyBenchmark?: SpyPoint[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals'>('open')
@@ -570,6 +622,7 @@ export default function SandboxClient({
   const [liveMode, setLiveMode] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [resetting, setResetting] = useState(false)
+  const [forceClosing, setForceClosing] = useState<string | null>(null)
   const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number } | null>(null)
 
   // #1 — Fetch worker status on mount
@@ -578,6 +631,25 @@ export default function SandboxClient({
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setWorkerStatus(d) })
       .catch(() => {})
+  }, [])
+
+  // #20 — Realtime: reload page when a sandbox trade closes or account balance changes
+  useEffect(() => {
+    const supabase = createBrowserClient(
+      process.env.NEXT_PUBLIC_SUPABASE_URL!,
+      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+    )
+    const channel = supabase
+      .channel('sandbox-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sandbox_trades' }, () => {
+        // Debounce reload — batch rapid updates
+        window.location.reload()
+      })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sandbox_account' }, () => {
+        window.location.reload()
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
   }, [])
 
   async function handleReset() {
@@ -595,6 +667,29 @@ export default function SandboxClient({
       alert('Reset failed — network error')
     } finally {
       setResetting(false)
+    }
+  }
+
+  // #19 — Force-close a trade from the UI
+  async function handleForceClose(tradeId: string, ticker: string) {
+    if (!window.confirm(`Force-close ${ticker} at current snapshot price?`)) return
+    setForceClosing(tradeId)
+    try {
+      const r = await fetch('/api/sandbox/close', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ trade_id: tradeId }),
+      })
+      if (r.ok) {
+        window.location.reload()
+      } else {
+        const d = await r.json()
+        alert(`Force close failed: ${d.error}`)
+      }
+    } catch {
+      alert('Force close failed — network error')
+    } finally {
+      setForceClosing(null)
     }
   }
 
@@ -801,7 +896,16 @@ export default function SandboxClient({
         </div>
 
         {/* Equity curve */}
-        <EquityCurve equity={equity} starting={starting} />
+        <EquityCurve
+          equity={equity}
+          starting={starting}
+          spy={spyBenchmark}
+          tradeMarkers={closedTrades.map(t => ({
+            date: t.exit_date ?? t.entry_date,
+            isWin: (t.pnl ?? 0) > 0,
+            type: 'exit' as const,
+          }))}
+        />
 
         {/* Unrealized P&L strip — only when open positions have prices */}
         {unrealizedPnl.priced > 0 && (
@@ -882,7 +986,20 @@ export default function SandboxClient({
               <p className="text-xs text-slate-600">Groq scans for entries at 9:30am ET on weekdays.</p>
             </div>
           ) : openTrades.map(t => (
-            <TradeRow key={t.id} trade={t} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} preloadedPrice={livePrices[t.ticker] ?? null} />
+            <div key={t.id} className="flex flex-col gap-0">
+              <TradeRow trade={t} expanded={expandedId === t.id} onToggle={() => setExpandedId(expandedId === t.id ? null : t.id)} preloadedPrice={livePrices[t.ticker] ?? null} />
+              {/* #19 — Force-close button */}
+              {expandedId === t.id && (
+                <button
+                  onClick={e => { e.stopPropagation(); handleForceClose(t.id, t.ticker) }}
+                  disabled={forceClosing === t.id}
+                  className="mt-0.5 w-full py-1.5 rounded-b-xl text-[10px] font-bold text-red-400/70 border border-t-0 border-red-500/20 bg-red-500/5 hover:text-red-400 hover:bg-red-500/10 disabled:opacity-40"
+                  style={{ transition: 'all 0.1s' }}
+                >
+                  {forceClosing === t.id ? 'Closing…' : '⚡ Force Close at Current Price'}
+                </button>
+              )}
+            </div>
           ))}
         </div>
       )}
@@ -1014,8 +1131,10 @@ export default function SandboxClient({
                   ? (pick.direction === 'long' ? pick.target - pick.entry_zone : pick.entry_zone - pick.target) / rrDenom
                   : 0
                 const isEntered = openTrades.some(t => t.ticker === pick.ticker)
+                // #18 — show TRADED badge + final P&L for picks already closed
+                const closedTrade = closedTrades.find(t => t.ticker === pick.ticker)
                 return (
-                  <div key={i} className={`border rounded-xl p-4 flex flex-col gap-2.5 ${isEntered ? 'border-sky-500/30' : 'border-white/[0.07]'}`} style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <div key={i} className={`border rounded-xl p-4 flex flex-col gap-2.5 ${isEntered ? 'border-sky-500/30' : closedTrade ? (closedTrade.pnl ?? 0) > 0 ? 'border-emerald-500/25' : 'border-red-500/20' : 'border-white/[0.07]'}`} style={{ background: 'rgba(255,255,255,0.02)' }}>
                     <div className="flex items-center gap-2.5">
                       <span className="font-bold text-white font-mono">{pick.ticker}</span>
                       <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${pick.direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
@@ -1023,6 +1142,12 @@ export default function SandboxClient({
                       </span>
                       <span className="text-[10px] text-slate-500 border border-white/[0.07] px-1.5 py-0.5 rounded">{pick.trade_type}</span>
                       {isEntered && <span className="text-[10px] text-sky-400 border border-sky-500/20 bg-sky-500/8 px-1.5 py-0.5 rounded">ENTERED</span>}
+                      {/* #18 — closed trade badge */}
+                      {closedTrade && (
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${(closedTrade.pnl ?? 0) > 0 ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/8' : 'text-red-400 border-red-500/20 bg-red-500/8'}`}>
+                          TRADED {(closedTrade.pnl_pct ?? 0) >= 0 ? '+' : ''}{(closedTrade.pnl_pct ?? 0).toFixed(2)}%
+                        </span>
+                      )}
                       <div className="ml-auto flex items-center gap-1.5">
                         <span className="text-[11px] text-slate-500">conviction</span>
                         <span className={`text-sm font-bold ${pick.conviction >= 8 ? 'text-emerald-400' : pick.conviction >= 6 ? 'text-yellow-400' : 'text-slate-400'}`}>{pick.conviction}/10</span>
