@@ -25,6 +25,11 @@ type SandboxTrade = {
   groq_thesis: string | null
   groq_exit_note: string | null
   signals_at_entry?: Array<{ type: string; sev: number; title: string }> | null
+  confidence_used?: number | null
+  peak_pnl_pct?: number | null
+  profit_efficiency?: number | null
+  stop_category?: string | null
+  account_health?: string | null
 }
 
 type Performance = {
@@ -50,6 +55,56 @@ function exitReasonLabel(r: string | null) {
     day_close: '📅 EOD close',
     max_hold: '⏰ Max hold',
   }[r] ?? r
+}
+
+// #20 — Trade quality scorecard: 0–5 points based on setup quality (not outcome)
+function computeTradeQuality(trade: SandboxTrade): { score: number; reasons: string[] } {
+  const reasons: string[] = []
+  let score = 0
+
+  const entry = Number(trade.entry_price)
+  const stop = Number(trade.stop_loss)
+  const target = Number(trade.target_price)
+  const risk = trade.direction === 'long' ? entry - stop : stop - entry
+  const reward = trade.direction === 'long' ? target - entry : entry - target
+  const rr = risk > 0 ? reward / risk : 0
+
+  // +1: R:R >= 2:1
+  if (rr >= 2) { score++; reasons.push('R:R ≥ 2:1') }
+  else reasons.push('R:R < 2:1')
+
+  // +1: Had 2+ signals with severity >= 7
+  const highSevSigs = (trade.signals_at_entry || []).filter(s => s.sev >= 7)
+  if (highSevSigs.length >= 2) { score++; reasons.push('2+ high-sev signals') }
+  else reasons.push('weak signal support')
+
+  // +1: Stop not too wide (<5%) and not too tight (>1%)
+  const stopPct = risk / entry * 100
+  if (stopPct >= 1.0 && stopPct <= 5.0) { score++; reasons.push('proper stop width') }
+  else reasons.push(stopPct < 1 ? 'stop too tight' : 'stop too wide')
+
+  // +1: Confidence >= 70
+  const conf = trade.confidence_used ?? 0
+  if (conf >= 70) { score++; reasons.push(`high confidence (${conf})`) }
+  else reasons.push(`low confidence (${conf})`)
+
+  // +1: Thesis is specific (> 80 chars = actually wrote something)
+  if (trade.groq_thesis && trade.groq_thesis.length > 80) { score++; reasons.push('specific thesis') }
+  else reasons.push('vague/missing thesis')
+
+  return { score, reasons }
+}
+
+function QualityBadge({ score }: { score: number }) {
+  const color = score >= 4 ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8'
+    : score >= 3 ? 'text-yellow-400 border-yellow-500/25 bg-yellow-500/8'
+    : 'text-red-400 border-red-500/25 bg-red-500/8'
+  const label = score >= 4 ? 'A' : score >= 3 ? 'B' : score >= 2 ? 'C' : 'D'
+  return (
+    <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${color}`} title={`Setup quality: ${score}/5`}>
+      {label} {score}/5
+    </span>
+  )
 }
 
 // Fetch latest snapshot price from DB via API
@@ -195,6 +250,7 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
               <XCircle className="w-3 h-3" /> LOSS
             </span>
           )}
+          {isClosed && <QualityBadge score={computeTradeQuality(trade).score} />}
         </div>
 
         {/* Entry date */}
@@ -332,6 +388,30 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
               <p className="text-xs text-slate-400 leading-relaxed">{trade.groq_exit_note}</p>
             </div>
           )}
+
+          {/* #20 — Quality scorecard for closed trades */}
+          {isClosed && (() => {
+            const { score, reasons } = computeTradeQuality(trade)
+            return (
+              <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Setup Quality</p>
+                  <QualityBadge score={score} />
+                  <span className="text-[10px] text-slate-600 ml-auto">independent of P&L outcome</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {reasons.map((r, i) => {
+                    const isGood = score > 0 && ['R:R', '2+', 'proper', 'high confidence', 'specific'].some(k => r.includes(k))
+                    return (
+                      <span key={i} className={`text-[10px] px-1.5 py-0.5 rounded border ${isGood ? 'text-emerald-400 border-emerald-500/20 bg-emerald-500/5' : 'text-slate-500 border-white/[0.06]'}`}>
+                        {r}
+                      </span>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       )}
     </div>
@@ -477,9 +557,21 @@ export default function SandboxClient({
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals'>('open')
   const [livePrices, setLivePrices] = useState<Record<string, number>>({})
+  const [liveMode, setLiveMode] = useState(false)
+  const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
 
-  // Fetch current prices for all open trades on mount
-  useEffect(() => {
+  // Returns true if market is currently open (9:30am–4:00pm ET weekdays)
+  function isMarketHours(): boolean {
+    const now = new Date()
+    const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const day = et.getDay()
+    if (day === 0 || day === 6) return false
+    const h = et.getHours(), m = et.getMinutes()
+    const total = h * 60 + m
+    return total >= 570 && total < 960 // 9:30–4:00pm
+  }
+
+  function fetchAllPrices() {
     if (openTrades.length === 0) return
     const uniqueTickers = [...new Set(openTrades.map(t => t.ticker))]
     Promise.all(
@@ -492,8 +584,24 @@ export default function SandboxClient({
         if (price != null) prices[ticker] = price
       }
       setLivePrices(prices)
+      setLastRefresh(new Date())
     })
-  }, [openTrades])
+  }
+
+  // Fetch prices on mount
+  useEffect(() => {
+    fetchAllPrices()
+  }, [openTrades]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // #19 — Auto-refresh every 60s when live mode is on and market is open
+  useEffect(() => {
+    if (!liveMode) return
+    if (!isMarketHours()) return
+    const interval = setInterval(() => {
+      fetchAllPrices()
+    }, 60_000)
+    return () => clearInterval(interval)
+  }, [liveMode, openTrades]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const starting = account?.starting_balance ?? 50000
   const balance = account?.balance ?? starting
@@ -556,6 +664,31 @@ export default function SandboxClient({
         <div>
           <h1 className="text-lg font-bold text-white">Groq Sandbox</h1>
           <p className="text-xs text-slate-500">$50,000 paper account — goal: 70% win rate, profitable over time</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {lastRefresh && (
+            <span className="text-[10px] text-slate-600">
+              updated {lastRefresh.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </span>
+          )}
+          <button
+            onClick={() => {
+              setLiveMode(m => !m)
+              if (!liveMode) fetchAllPrices()
+            }}
+            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border ${liveMode ? 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10 animate-pulse' : 'text-slate-500 border-white/[0.08] bg-white/[0.03] hover:text-slate-300'}`}
+            style={{ transition: 'all 0.1s' }}
+          >
+            <Activity className="w-3 h-3" />
+            {liveMode ? 'LIVE' : 'Live Off'}
+          </button>
+          <button
+            onClick={fetchAllPrices}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border text-slate-500 border-white/[0.08] bg-white/[0.03] hover:text-slate-300"
+            style={{ transition: 'color 0.1s' }}
+          >
+            ↻ Refresh
+          </button>
         </div>
       </div>
 

@@ -146,54 +146,60 @@ async def run_cross_ticker_pattern_mining() -> dict:
         for t in all_trades:
             signals = t.get("signals_at_entry") or []
             is_win = (t.get("pnl") or 0) > 0
+            pnl_pct = float(t.get("pnl_pct") or 0)
             direction = t.get("direction", "long")
             trade_type = t.get("trade_type", "day")
             reason = t.get("exit_reason", "unknown")
             conf = float(t.get("confidence_used") or 0)
 
-            # Signal combos
+            def _add(d: dict, key: str) -> None:
+                d.setdefault(key, {"wins": 0, "total": 0, "pnls": []})
+                d[key]["total"] += 1
+                d[key]["pnls"].append(pnl_pct)
+                if is_win: d[key]["wins"] += 1
+
             sig_types = sorted(set(s.get("type", "?") for s in signals[:3]))
             combo = "+".join(sig_types) if sig_types else "no_signals"
-            key = f"{combo}:{direction}"
-            combo_stats.setdefault(key, {"wins": 0, "total": 0})
-            combo_stats[key]["total"] += 1
-            if is_win: combo_stats[key]["wins"] += 1
-
-            # Direction
-            direction_stats.setdefault(direction, {"wins": 0, "total": 0})
-            direction_stats[direction]["total"] += 1
-            if is_win: direction_stats[direction]["wins"] += 1
-
-            # Trade type
-            trade_type_stats.setdefault(trade_type, {"wins": 0, "total": 0})
-            trade_type_stats[trade_type]["total"] += 1
-            if is_win: trade_type_stats[trade_type]["wins"] += 1
-
-            # Exit reason
-            exit_stats.setdefault(reason, {"wins": 0, "total": 0})
-            exit_stats[reason]["total"] += 1
-            if is_win: exit_stats[reason]["wins"] += 1
-
-            # Confidence buckets
+            _add(combo_stats, f"{combo}:{direction}")
+            _add(direction_stats, direction)
+            _add(trade_type_stats, trade_type)
+            _add(exit_stats, reason)
             cb = "high(80+)" if conf >= 80 else "med(65-79)" if conf >= 65 else "low(<65)"
-            confidence_buckets.setdefault(cb, {"wins": 0, "total": 0})
-            confidence_buckets[cb]["total"] += 1
-            if is_win: confidence_buckets[cb]["wins"] += 1
+            _add(confidence_buckets, cb)
+
+        def _sharpe(pnls: list) -> float:
+            if len(pnls) < 3: return 0.0
+            import statistics
+            mean = sum(pnls) / len(pnls)
+            std = statistics.stdev(pnls) if len(pnls) > 1 else 1
+            return round(mean / std, 2) if std > 0 else 0.0
 
         def fmt(d: dict, min_trades: int = 3) -> str:
+            # #16 — Sort by Sharpe ratio, not raw WR (penalizes high-variance combos)
             rows = [(k, v) for k, v in d.items() if v["total"] >= min_trades]
-            rows.sort(key=lambda x: x[1]["wins"] / x[1]["total"], reverse=True)
-            return "\n".join(f"  {k}: {v['wins']}/{v['total']} ({v['wins']/v['total']*100:.0f}% WR)" for k, v in rows) or "  Not enough data."
+            rows.sort(key=lambda x: _sharpe(x[1]["pnls"]), reverse=True)
+            lines = []
+            for k, v in rows:
+                wr = v["wins"] / v["total"] * 100
+                sharpe = _sharpe(v["pnls"])
+                lines.append(f"  {k}: {v['wins']}/{v['total']} ({wr:.0f}% WR, Sharpe={sharpe:.2f})")
+            return "\n".join(lines) or "  Not enough data."
 
-        qualified = {k: v for k, v in combo_stats.items() if v["total"] >= 5}
-        sorted_combos = sorted(qualified.items(), key=lambda x: x[1]["wins"] / x[1]["total"], reverse=True)
-        combo_block = "\n".join(f"  {k}: {v['wins']}/{v['total']} ({v['wins']/v['total']*100:.0f}% WR)" for k, v in sorted_combos[:12]) or "  Not enough data."
+        # #16 — Qualify combos with N>=8 trades and sort by Sharpe
+        qualified = {k: v for k, v in combo_stats.items() if v["total"] >= 8}
+        if not qualified:
+            qualified = {k: v for k, v in combo_stats.items() if v["total"] >= 5}
+        sorted_combos = sorted(qualified.items(), key=lambda x: _sharpe(x[1]["pnls"]), reverse=True)
+        combo_block_lines = []
+        for k, v in sorted_combos[:12]:
+            wr = v["wins"] / v["total"] * 100
+            sharpe = _sharpe(v["pnls"])
+            combo_block_lines.append(f"  {k}: {v['wins']}/{v['total']} ({wr:.0f}% WR, Sharpe={sharpe:.2f})")
+        combo_block = "\n".join(combo_block_lines) or "  Not enough data."
 
         return combo_block, fmt(direction_stats), fmt(trade_type_stats), fmt(exit_stats), fmt(confidence_buckets)
 
     combo_block, direction_block, type_block, exit_block, conf_block = bucket_stats()
-    qualified_count = len([k for k, v in {}.items()])  # placeholder — recalculate below
-
     today = now_et().date()
 
     prompt = f"""You are analyzing ALL {len(all_trades)} historical sandbox trades to find actionable patterns.
@@ -215,9 +221,9 @@ CONFIDENCE BUCKET WIN RATES:
 
 Based on this full statistical breakdown, write:
 
-**HIGHEST WIN-RATE SETUPS**: Which specific combos, directions, and confidence levels are most profitable? Be specific with numbers.
+**HIGHEST WIN-RATE SETUPS**: Which specific combos, directions, and confidence levels have the best Sharpe ratio? Prioritize consistency over lucky big wins. Be specific with numbers.
 
-**SETUPS TO AVOID**: What combinations, directions, or confidence levels are consistently losing?
+**SETUPS TO AVOID**: What combinations have negative Sharpe or low WR? Flag any high-WR combo with N<8 as unreliable.
 
 **3 CONCRETE RULES FOR ENTRY DECISIONS**: Write 3 rules that DIRECTLY come from this data. Example: "Prefer swing over day trades — X% vs Y% WR." or "Skip short trades with confidence <70 — only Z% WR."
 

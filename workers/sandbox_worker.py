@@ -48,7 +48,12 @@ VIX_REGIME_LIMIT   = 28.0       # skip entries when VIX above this
 RISK_PCT_BASE        = 1.0   # 1 qualifying signal  → 1% risk  ($500)
 RISK_PCT_MULTI       = 1.5   # 2+ signals           → 1.5% risk ($750)
 RISK_PCT_CONVERGENCE = 3.0   # convergence alert    → 3% risk  ($1,500) — full send
-RISK_PCT_HOT_STREAK  = 0.5   # bonus when WR >= 70% over last 10 trades
+RISK_PCT_HOT_STREAK  = 0.3   # bonus when WR >= 70% over last 10 trades (capped, #3)
+
+# Account health multipliers — scale down risk when in drawdown
+HEALTH_MULTIPLIER_95 = 0.9   # <5% from peak  → 90% of normal risk
+HEALTH_MULTIPLIER_90 = 0.7   # <10% from peak → 70% of normal risk
+HEALTH_MULTIPLIER_85 = 0.5   # <15% from peak → 50% of normal risk
 
 # Confidence thresholds — high bar by default
 BASE_CONFIDENCE_THRESHOLD = 65   # raised from 50 — sniper mode
@@ -329,7 +334,7 @@ async def get_recent_signals(ticker: str, hours: int = 24) -> list[dict]:
         since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
         res = (
             supabase().table("signals")
-            .select("signal_type,severity,title,body")
+            .select("signal_type,severity,title,body,created_at")
             .eq("ticker", ticker.upper())
             .gte("created_at", since)
             .order("severity", desc=True)
@@ -340,6 +345,34 @@ async def get_recent_signals(ticker: str, hours: int = 24) -> list[dict]:
     except Exception as e:
         log.debug(f"Signals fetch failed for {ticker}: {e}")
         return []
+
+
+def get_signal_timing_spread(signals: list[dict]) -> tuple[float, str]:
+    """#6 — Returns (spread_hours, label). Signals bunched in same window = stronger.
+    Wide time spread = signals aren't really converging, decay conviction."""
+    if len(signals) < 2:
+        return 0.0, "single"
+    times = []
+    for s in signals:
+        ts = s.get("created_at")
+        if ts:
+            try:
+                t = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                times.append(t)
+            except Exception:
+                pass
+    if len(times) < 2:
+        return 0.0, "unknown"
+    spread = (max(times) - min(times)).total_seconds() / 3600
+    if spread < 0.5:
+        label = "tight cluster (<30min)"
+    elif spread < 1.5:
+        label = "moderate spread (30-90min)"
+    elif spread < 4.0:
+        label = "wide spread (1.5-4h)"
+    else:
+        label = "stale cluster (>4h)"
+    return round(spread, 2), label
 
 
 async def get_recent_lessons(ticker: str, limit: int = 5) -> list[dict]:
@@ -445,8 +478,21 @@ def get_30day_performance_summary() -> str:
         return ""
 
 
-def get_overall_win_rate() -> tuple[int, int, float]:
-    """Returns (wins, total, win_rate_pct)."""
+def _binomial_lower_ci(wins: int, n: int, z: float = 1.645) -> float:
+    """Wilson score lower bound for 90% CI. z=1.645 for 90%, 1.96 for 95%."""
+    if n == 0:
+        return 0.0
+    p = wins / n
+    denominator = 1 + z * z / n
+    center = p + z * z / (2 * n)
+    spread = z * ((p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5)
+    return round(max(0.0, (center - spread) / denominator) * 100, 1)
+
+
+def get_overall_win_rate() -> tuple[int, int, float, float]:
+    """Returns (wins, total, win_rate_pct, lower_ci_pct).
+    lower_ci_pct is the Wilson 90% confidence interval lower bound —
+    use this for threshold decisions so small N doesn't fool us."""
     try:
         res = (
             supabase().table("sandbox_trades")
@@ -456,12 +502,15 @@ def get_overall_win_rate() -> tuple[int, int, float]:
         )
         rows = res.data or []
         if not rows:
-            return 0, 0, 0.0
+            return 0, 0, 0.0, 0.0
         wins = sum(1 for r in rows if (r.get("pnl") or 0) > 0)
-        return wins, len(rows), round(wins / len(rows) * 100, 1)
+        n = len(rows)
+        wr = round(wins / n * 100, 1)
+        lower_ci = _binomial_lower_ci(wins, n)
+        return wins, n, wr, lower_ci
     except Exception as e:
         log.debug(f"Win rate fetch failed: {e}")
-        return 0, 0, 0.0
+        return 0, 0, 0.0, 0.0
 
 
 def get_account_balance() -> float:
@@ -492,7 +541,30 @@ def get_confidence_threshold(win_rate: float, total_trades: int) -> int:
         return 60                        # underperforming, tighten up
     if win_rate >= 65:
         return 45                        # on a roll, press the edge
-    return BASE_CONFIDENCE_THRESHOLD    # 50 — normal operation
+    return BASE_CONFIDENCE_THRESHOLD    # normal operation
+
+
+def get_account_health_multiplier() -> tuple[float, str]:
+    """#1 — Returns (risk_multiplier, label) based on drawdown from peak.
+    Graduated reduction: deeper drawdown = smaller positions."""
+    try:
+        res = supabase().table("sandbox_account").select("balance,peak_balance").limit(1).execute()
+        if not res.data:
+            return 1.0, "healthy"
+        bal   = float(res.data[0]["balance"])
+        peak  = float(res.data[0]["peak_balance"])
+        if peak <= 0:
+            return 1.0, "healthy"
+        ratio = bal / peak
+        if ratio < 0.85:
+            return HEALTH_MULTIPLIER_85, f"critical drawdown ({(1-ratio)*100:.1f}% from peak)"
+        if ratio < 0.90:
+            return HEALTH_MULTIPLIER_90, f"significant drawdown ({(1-ratio)*100:.1f}% from peak)"
+        if ratio < 0.95:
+            return HEALTH_MULTIPLIER_95, f"mild drawdown ({(1-ratio)*100:.1f}% from peak)"
+        return 1.0, "healthy"
+    except Exception:
+        return 1.0, "healthy"
 
 
 def calculate_position_size(entry: float, stop: float, account_balance: float) -> tuple[int, float, float]:
@@ -548,7 +620,7 @@ def update_account_balance(pnl_dollar: float) -> float:
 # ─── Context helpers ──────────────────────────────────────────────────────────
 
 async def get_options_flow_context(ticker: str) -> str:
-    """#1 — Latest options flow signals for this ticker."""
+    """#1/#14 — Latest options/dark pool signals + IV rank context from snapshots."""
     try:
         since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         res = (
@@ -562,9 +634,32 @@ async def get_options_flow_context(ticker: str) -> str:
             .execute()
         )
         rows = res.data or []
-        if not rows:
+        lines = [f"[{r['signal_type']} sev={r['severity']}] {r['title']}" for r in rows] if rows else []
+
+        # #14 — Fetch IV rank from latest snapshot to contextualize options flow
+        try:
+            snap_res = (
+                supabase().table("snapshots")
+                .select("iv_rank")
+                .eq("ticker", ticker.upper())
+                .order("created_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if snap_res.data and snap_res.data[0].get("iv_rank") is not None:
+                iv_rank = float(snap_res.data[0]["iv_rank"])
+                if iv_rank >= 70:
+                    iv_note = f"IV Rank: {iv_rank:.0f}% (ELEVATED — options expensive, smart money paying premium = high conviction directional bet)"
+                elif iv_rank >= 40:
+                    iv_note = f"IV Rank: {iv_rank:.0f}% (moderate — normal options pricing)"
+                else:
+                    iv_note = f"IV Rank: {iv_rank:.0f}% (LOW — cheap options, possibly speculation rather than hedging)"
+                lines.append(iv_note)
+        except Exception:
+            pass
+
+        if not lines:
             return "No recent options/dark pool flow."
-        lines = [f"[{r['signal_type']} sev={r['severity']}] {r['title']}" for r in rows]
         return "\n".join(lines)
     except Exception:
         return "Options flow unavailable."
@@ -677,12 +772,97 @@ def score_setup_conviction(signals: list[dict], convergence_ctx: str, recent_wr:
         risk_pct = RISK_PCT_BASE
         label = "standard setup — 1% risk"
 
-    # Hot streak bonus
-    if recent_wr >= 70:
-        risk_pct = min(risk_pct + RISK_PCT_HOT_STREAK, RISK_PCT_CONVERGENCE)
-        label += " +streak bonus"
+    # Hot streak bonus — requires 15+ trades AND avg win >= 1.5% to prevent luck (#3)
+    if recent_wr >= 60 and recent_wr >= 70:
+        # Verify it's real edge: check avg win pct over last 10 trades
+        try:
+            res = (
+                supabase().table("sandbox_trades")
+                .select("pnl_pct")
+                .eq("status", "closed")
+                .order("updated_at", desc=True)
+                .limit(10)
+                .execute()
+            )
+            wins_data = [r for r in (res.data or []) if (r.get("pnl_pct") or 0) > 0]
+            avg_win_pct = sum(r["pnl_pct"] for r in wins_data) / len(wins_data) if wins_data else 0
+            if avg_win_pct >= 1.5:
+                risk_pct = min(risk_pct + RISK_PCT_HOT_STREAK, RISK_PCT_CONVERGENCE)
+                label += f" +streak bonus (avg win {avg_win_pct:.1f}%)"
+        except Exception:
+            pass  # fail safe — no bonus if DB unavailable
 
     return round(risk_pct, 2), label, is_convergence
+
+
+def get_signal_type_duration_expectancy(signal_types: list[str]) -> str:
+    """#7 — Based on primary signal types, return expected hold duration context.
+    Dark pool = intraday, technical = multi-day, etc."""
+    if not signal_types:
+        return ""
+    # Signal types ranked by typical resolution time
+    INTRADAY = {"dark_pool", "options_unusual", "volume_spike", "price_move"}
+    MULTIDAY  = {"insider_buy", "insider_sell", "congress_trade", "short_squeeze", "earnings_upcoming"}
+    SWING     = {"analyst_change", "convergence", "sector_rotation", "macro"}
+    primary = signal_types[0] if signal_types else ""
+    all_types = set(signal_types)
+    if all_types & INTRADAY:
+        return "Primary signals are INTRADAY catalysts (dark pool/options/volume) — prefer day trade, not swing."
+    if all_types & MULTIDAY:
+        return "Primary signals are MULTI-DAY catalysts (insider/congress/squeeze) — swing trade appropriate."
+    if all_types & SWING:
+        return "Primary signals are SWING-grade (analyst/convergence/sector) — 3-5 day hold typical."
+    return ""
+
+
+def get_intraday_hour_context() -> str:
+    """#10 — Returns context about current time-of-day and typical win rate implications."""
+    et = now_et()
+    hour = et.hour
+    minute = et.minute
+    total_min = hour * 60 + minute
+    if 570 <= total_min < 600:   # 9:30-10:00
+        return "EARLY OPEN (9:30-10am): High volatility, news shocks likely. Require convergence or very high conviction."
+    if 600 <= total_min < 660:   # 10:00-11:00
+        return "PRIME WINDOW (10-11am): Best entry quality window. Normal filters apply."
+    if 660 <= total_min < 720:   # 11:00-12:00
+        return "LATE MORNING (11am-12pm): Still good but momentum fading. Be selective."
+    if 720 <= total_min < 840:   # 12:00-2:00
+        return "DEAD ZONE (12-2pm): Low volume, random price action. Only take if conviction >=80."
+    if 840 <= total_min < 930:   # 2:00-3:30
+        return "AFTERNOON (2-3:30pm): Resumption of trend. Moderate quality window."
+    if 930 <= total_min < 960:   # 3:30-4:00
+        return "POWER HOUR (3:30-4pm): Final hour volatility. Prefer day trade entries only."
+    return ""
+
+
+def get_brier_score() -> str:
+    """#8 — Compute Groq's confidence calibration. Brier score: mean((conf/100 - win)^2).
+    Lower = better calibrated. Returns a human-readable calibration note."""
+    try:
+        res = (
+            supabase().table("sandbox_trades")
+            .select("pnl,confidence_used")
+            .eq("status", "closed")
+            .not_.is_("confidence_used", "null")
+            .execute()
+        )
+        rows = [r for r in (res.data or []) if r.get("confidence_used")]
+        if len(rows) < 15:
+            return ""
+        brier = sum(
+            ((float(r["confidence_used"]) / 100) - (1 if (r.get("pnl") or 0) > 0 else 0)) ** 2
+            for r in rows
+        ) / len(rows)
+        if brier < 0.10:
+            return f"Confidence calibration: EXCELLENT (Brier={brier:.3f}) — your confidence scores are accurate."
+        if brier < 0.18:
+            return f"Confidence calibration: GOOD (Brier={brier:.3f}) — slight overconfidence, be slightly more selective."
+        if brier < 0.25:
+            return f"Confidence calibration: POOR (Brier={brier:.3f}) — you overstate confidence. Add 10 points to your effective threshold."
+        return f"Confidence calibration: VERY POOR (Brier={brier:.3f}) — your confidence scores are not predictive. Require 80+ confidence only."
+    except Exception:
+        return ""
 
 
 def get_signal_freshness(ticker: str) -> tuple[bool, int]:
@@ -871,6 +1051,20 @@ async def get_sector_for_ticker(client: httpx.AsyncClient, ticker: str) -> str:
     return SECTOR_MAP.get(ticker.upper(), "other")
 
 
+# Sectors that move together — treat as correlated for position limits (#13)
+CORRELATED_SECTORS: dict[str, str] = {
+    "tech": "tech_semis",   # tech + semiconductors correlated
+    "defense": "industrial",  # defense correlates with industrial
+    "energy": "energy",     # energy stands alone
+    "consumer": "consumer", # consumer stands alone
+}
+# Grouped sectors — count combined for limit
+SECTOR_GROUPS: dict[str, list[str]] = {
+    "tech_complex": ["tech", "industrial"],       # both tech-driven
+    "risk_assets":  ["consumer", "finance"],      # both risk-on
+}
+
+
 def count_open_positions_by_sector(open_positions: list[dict]) -> dict[str, int]:
     """#6 — Count open positions per sector."""
     counts: dict[str, int] = {}
@@ -880,14 +1074,16 @@ def count_open_positions_by_sector(open_positions: list[dict]) -> dict[str, int]
     return counts
 
 
-def has_earnings_soon(ticker: str, days: int = 2) -> bool:
-    """#7 — True if ticker has earnings within N days."""
+def has_earnings_soon(ticker: str, days: int = 2) -> tuple[bool, str]:
+    """#9 — Returns (has_earnings, context_note).
+    If earnings are soon, also checks historical beat/miss pattern from signals
+    to decide if pre-earnings swing is worth taking."""
     try:
         since = datetime.now(timezone.utc).isoformat()
         until = (datetime.now(timezone.utc) + timedelta(days=days)).isoformat()
         res = (
             supabase().table("signals")
-            .select("id")
+            .select("id,severity,body")
             .eq("ticker", ticker.upper())
             .eq("signal_type", "earnings_upcoming")
             .gte("created_at", since)
@@ -895,9 +1091,34 @@ def has_earnings_soon(ticker: str, days: int = 2) -> bool:
             .limit(1)
             .execute()
         )
-        return bool(res.data)
+        if not res.data:
+            return False, ""
+
+        # Check if signal severity is high — higher severity = more notable upcoming earnings
+        sev = float(res.data[0].get("severity") or 5)
+        body = (res.data[0].get("body") or "")[:200]
+
+        # Look at past sandbox trades on this ticker around earnings (if any)
+        past_res = (
+            supabase().table("sandbox_trades")
+            .select("pnl_pct,exit_reason,groq_thesis")
+            .eq("ticker", ticker.upper())
+            .eq("status", "closed")
+            .order("updated_at", desc=True)
+            .limit(4)
+            .execute()
+        )
+        past = past_res.data or []
+        if past:
+            wins = sum(1 for t in past if (t.get("pnl_pct") or 0) > 0)
+            note = f"Earnings in {days}d (sev={sev:.0f}). Past {len(past)} trades on {ticker}: {wins}W/{len(past)-wins}L."
+            # Allow pre-earnings swing if strong historical win rate AND severity indicates beat history
+            if wins / len(past) >= 0.75 and sev >= 7:
+                return False, f"Pre-earnings allowed: {note} Strong beat history."
+            return True, note
+        return True, f"Earnings in {days}d — no trade history to assess."
     except Exception:
-        return False
+        return False, ""
 
 
 def is_on_cooldown(ticker: str) -> bool:
@@ -974,9 +1195,10 @@ async def decide_entry(
         log.debug(f"Filter #5/#12: {ticker} last signal {hours_since}h ago — stale, skip")
         return None
 
-    # #7 — Skip if earnings within 2 days
-    if has_earnings_soon(ticker, days=2):
-        log.debug(f"Filter #7: {ticker} has earnings soon — skip")
+    # #9 — Earnings filter with historical beat/miss learning
+    earnings_block, earnings_note = has_earnings_soon(ticker, days=2)
+    if earnings_block:
+        log.debug(f"Filter #9: {ticker} has earnings soon — skip ({earnings_note})")
         return None
 
     # #9 — Skip if on cooldown after 2 consecutive losses
@@ -984,13 +1206,20 @@ async def decide_entry(
         log.debug(f"Filter #9: {ticker} on loss cooldown — skip")
         return None
 
-    # #6 — Sector correlation limit
+    # #6/#13 — Sector correlation limit (direct + correlated sectors)
     if open_positions:
         sector_counts = count_open_positions_by_sector(open_positions)
         ticker_sector = SECTOR_MAP.get(ticker.upper(), "other")
         if ticker_sector != "other" and sector_counts.get(ticker_sector, 0) >= MAX_POSITIONS_PER_SECTOR:
             log.debug(f"Filter #6: {ticker} sector={ticker_sector} already at limit — skip")
             return None
+        # #13 — Check correlated sector groups (e.g. tech + industrial = tech_complex)
+        for group_name, group_sectors in SECTOR_GROUPS.items():
+            if ticker_sector in group_sectors:
+                group_total = sum(sector_counts.get(s, 0) for s in group_sectors)
+                if group_total >= MAX_POSITIONS_PER_SECTOR * len(group_sectors):
+                    log.debug(f"Filter #13: {ticker} correlated group {group_name} at limit — skip")
+                    return None
 
     price = await get_current_price(client, ticker)
     if not price or price <= 0:
@@ -1010,9 +1239,20 @@ async def decide_entry(
         get_volume_context(client, ticker),
         return_exceptions=False,
     )
-    wins, total, win_rate = get_overall_win_rate()
+    wins, total, win_rate, win_rate_ci = get_overall_win_rate()
     recent_wr = get_recent_win_rate(10)
     conf_accuracy = get_confidence_accuracy()
+
+    # #7 — Trade duration expectancy from signal types
+    sig_types_list = [s.get("signal_type", "") for s in signals[:5]]
+    duration_hint = get_signal_type_duration_expectancy(sig_types_list)
+    earnings_ctx = f"\n⚠️ EARNINGS CONTEXT: {earnings_note}" if earnings_note else ""
+
+    # #8 — Brier calibration score
+    brier_note = get_brier_score()
+
+    # #10 — Time-of-day context
+    hour_context = get_intraday_hour_context()
 
     # Fetch user-injected brain notes — general + ticker-specific
     try:
@@ -1065,6 +1305,20 @@ async def decide_entry(
             pattern_rules = pattern_rules.split("3 CONCRETE RULES")[-1][:400]
         else:
             pattern_rules = pattern_rules[:300]
+
+        # #15 — Bootstrap rules as fallback when pattern_rules is empty
+        if not pattern_rules:
+            boot_res = (
+                supabase().table("prediction_lessons")
+                .select("lesson")
+                .eq("ticker", "GROQ_BOOTSTRAP")
+                .limit(1)
+                .execute()
+            )
+            if boot_res.data:
+                boot = boot_res.data[0].get("lesson", "")
+                if "3 CONCRETE RULES" in boot:
+                    pattern_rules = boot.split("3 CONCRETE RULES")[-1][:400]
     except Exception:
         weekly_rules = ""
         pattern_rules = ""
@@ -1102,9 +1356,10 @@ async def decide_entry(
         elif streak_type == 1 and streak_count >= 3:
             streak_str += " — momentum is with you, stay disciplined"
 
-    # #4 — Sector alignment
+    # #4/#11 — Sector alignment + rotation leadership
     ticker_sector = SECTOR_MAP.get(ticker.upper(), "unknown")
     sector_signals: list[str] = []
+    sector_rotation_ctx = ""
     try:
         since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
         sec_res = (
@@ -1116,6 +1371,31 @@ async def decide_entry(
             .execute()
         )
         sector_signals = [(s.get("title") or "")[:80] for s in (sec_res.data or [])]
+
+        # #11 — Compute signal strength by sector in last 24h to detect rotation
+        all_sig_res = (
+            supabase().table("signals")
+            .select("ticker,severity,signal_type")
+            .gte("created_at", since_24h)
+            .gte("severity", 5)
+            .execute()
+        )
+        sector_scores: dict[str, float] = {}
+        for s in (all_sig_res.data or []):
+            t = s.get("ticker", "")
+            sec = SECTOR_MAP.get(t.upper(), "")
+            if not sec or sec == "index":
+                continue
+            sector_scores[sec] = sector_scores.get(sec, 0) + float(s.get("severity") or 5) / 10
+
+        if sector_scores:
+            sorted_sectors = sorted(sector_scores.items(), key=lambda x: x[1], reverse=True)
+            leading = sorted_sectors[0][0] if sorted_sectors else None
+            ticker_rank = next((i+1 for i, (s, _) in enumerate(sorted_sectors) if s == ticker_sector), None)
+            if leading and leading != ticker_sector:
+                sector_rotation_ctx = f"Sector rotation: {leading.upper()} is leading (score {sorted_sectors[0][1]:.1f}). {ticker_sector.upper()} ranks #{ticker_rank or '?'} of {len(sorted_sectors)} sectors."
+            elif leading == ticker_sector:
+                sector_rotation_ctx = f"Sector rotation: {ticker_sector.upper()} is the LEADING sector today — tailwind for this trade."
     except Exception:
         pass
 
@@ -1162,8 +1442,26 @@ async def decide_entry(
 
     today_str = date.today().isoformat()
 
+    # #6 — Signal timing spread: decay conviction if signals are spread over hours
+    spread_hours, spread_label = get_signal_timing_spread(signals)
+    spread_note = ""
+    if spread_hours > 4.0:
+        spread_note = f"\n⚠️ Signal cluster is STALE — signals spread over {spread_hours:.1f}h. Treat as weaker setup."
+    elif spread_hours > 1.5:
+        spread_note = f"\nSignal spread: {spread_label} — signals not tightly clustered."
+    elif spread_hours < 0.5 and len(signals) >= 2:
+        spread_note = f"\n✅ Tight signal cluster ({spread_label}) — strong convergence quality."
+
     # Score conviction — determines position size and confidence bar
     risk_pct, conviction_label, is_convergence = score_setup_conviction(signals, convergence_ctx, recent_wr)
+
+    # Apply spread decay: stale clusters reduce risk allocation
+    if spread_hours > 4.0:
+        risk_pct = round(risk_pct * 0.6, 3)
+        conviction_label += " [stale spread -40%]"
+    elif spread_hours > 1.5:
+        risk_pct = round(risk_pct * 0.8, 3)
+        conviction_label += " [wide spread -20%]"
 
     perf_summary = get_30day_performance_summary()
     critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
@@ -1171,11 +1469,16 @@ async def decide_entry(
     pattern_block_str = f"\nHIGHEST WIN-RATE PATTERNS (follow these):\n{pattern_rules}" if pattern_rules else ""
     perf_block = f"\nYOUR 30-DAY PERFORMANCE (use this to calibrate direction/type/confidence):\n{perf_summary}" if perf_summary else ""
     user_brain_block = f"\nUSER-PROVIDED RULES AND OBSERVATIONS (MUST FOLLOW):\n{brain_block}" if brain_block else ""
-    sector_block = f"\nTicker sector: {ticker_sector}" + (f"\nRecent macro signals: {'; '.join(sector_signals)}" if sector_signals else "")
+    sector_block = (
+        f"\nTicker sector: {ticker_sector}"
+        + (f"\n{sector_rotation_ctx}" if sector_rotation_ctx else "")
+        + (f"\nRecent macro signals: {'; '.join(sector_signals)}" if sector_signals else "")
+    )
     account_block = (
         f"\nAccount: ${account_balance:,.0f} ({total_return_pct:+.1f}% total return) | Drawdown: {drawdown:.1f}%"
         + (f" | {streak_str}" if streak_str else "")
         + f" | Last 10 trades WR: {recent_wr:.0f}%"
+        + (f" | WR lower CI: {win_rate_ci:.0f}% (conservative estimate)" if total >= 10 else "")
         + (f"\n{conf_accuracy}" if conf_accuracy else "")
     )
     convergence_note = f"\n⚡ {convergence_ctx}" if "CONVERGENCE ALERT" in convergence_ctx else ""
@@ -1193,7 +1496,7 @@ async def decide_entry(
 PHILOSOPHY: Pass on 80% of setups. When everything lines up — convergence + options flow + sector alignment — go in hard and set aggressive targets. Don't be afraid to be bold when the data supports it.
 
 CURRENT SETUP: {ticker} @ ${price:.2f} | {volume_ctx}
-CONVICTION LEVEL: {conviction_label}
+CONVICTION LEVEL: {conviction_label}{spread_note}
 {playbook}
 {sector_block}{account_block}
 {user_brain_block}
@@ -1203,7 +1506,7 @@ CONVICTION LEVEL: {conviction_label}
 {critique_block}
 MARKET OUTLOOK:
 {outlook_block}
-{convergence_note}
+{convergence_note}{earnings_ctx}
 SMART MONEY FLOW:
 {options_ctx}
 
@@ -1219,7 +1522,10 @@ PAST ACCURACY FOR {ticker}:
 PAST SANDBOX TRADES FOR {ticker}:
 {sandbox_block}
 
-WIN RATE: {win_rate:.1f}% overall | {recent_wr:.0f}% last 10 trades ({wins}/{total} total)
+WIN RATE: {win_rate:.1f}% overall | {recent_wr:.0f}% last 10 trades ({wins}/{total} total){f" | 90% CI lower bound: {win_rate_ci:.0f}%" if total >= 10 else ""}
+{f"CALIBRATION: {brier_note}" if brier_note else ""}
+{f"SIGNAL DURATION HINT: {duration_hint}" if duration_hint else ""}
+{f"TIME OF DAY: {hour_context}" if hour_context else ""}
 
 Respond ONLY with valid JSON:
 {{
@@ -1257,11 +1563,13 @@ ENTRY RULES:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
         return None
 
-    # Confidence threshold — convergence plays get lower bar (signal does the work)
+    # Confidence threshold — use lower CI bound as effective win rate (#2)
+    # Conservative: with few trades, lower CI punishes overconfidence from small N
+    effective_wr_for_threshold = win_rate_ci if total >= 10 else win_rate
     if is_convergence:
         conf_threshold = CONVERGENCE_MIN_CONFIDENCE
     else:
-        conf_threshold = get_confidence_threshold(win_rate, total)
+        conf_threshold = get_confidence_threshold(effective_wr_for_threshold, total)
 
     confidence = parsed.get("confidence", 0)
     if not parsed.get("trade") or confidence < conf_threshold:
@@ -1304,9 +1612,25 @@ ENTRY RULES:
             log.debug(f"Filter #8: {ticker} short stop too wide ({stop_pct:.1f}%) — skip")
             return None
 
-    # Position sizing — scale up on hot streaks (#10)
+    # #4 — Stop width category: tight stops need higher confidence (noise shakes them out)
+    if stop_pct < 1.5:
+        stop_category = "tight"
+        if confidence < 75:
+            log.debug(f"Filter #4: {ticker} tight stop ({stop_pct:.1f}%) requires conf>=75, got {confidence} — skip")
+            return None
+    elif stop_pct > 4.5:
+        stop_category = "wide"
+        # Wide stops already blocked by MAX_STOP_PCT=6, but warn if approaching
+        log.debug(f"Stop category: {ticker} wide stop ({stop_pct:.1f}%)")
+    else:
+        stop_category = "normal"
+
+    # Position sizing �� apply account health multiplier (#1) then conviction scaling
     account_balance = get_account_balance()
-    effective_risk_pct = risk_pct  # may be 1.5% if on hot streak
+    health_mult, health_label = get_account_health_multiplier()
+    effective_risk_pct = round(risk_pct * health_mult, 3)
+    if health_mult < 1.0:
+        log.debug(f"Account health: {health_label} — risk scaled to {effective_risk_pct:.2f}%")
     risk_per_share = abs(price - stop)
     if risk_per_share > 0:
         dollar_risk = account_balance * (effective_risk_pct / 100)
@@ -1350,6 +1674,9 @@ ENTRY RULES:
         "partial_exit_done": False,
         "conviction_label": conviction_label,
         "is_convergence": is_convergence,
+        "account_health": health_label,
+        "stop_distance_pct": round(stop_pct, 2),
+        "stop_category": stop_category,
     }
 
 
@@ -1375,6 +1702,18 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         pnl_pct = (price - entry) / entry * 100
     else:
         pnl_pct = (entry - price) / entry * 100
+
+    # #5 — Track peak P&L: update if current is higher than stored peak
+    current_peak = float(trade.get("peak_pnl_pct") or 0)
+    if pnl_pct > current_peak and current_peak >= 0 or (current_peak == 0 and pnl_pct > 0):
+        try:
+            supabase().table("sandbox_trades").update({
+                "peak_pnl_pct": round(pnl_pct, 4),
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("id", trade["id"]).execute()
+            trade["peak_pnl_pct"] = pnl_pct  # update local copy
+        except Exception:
+            pass
 
     # #10 — Trailing stop: move stop to breakeven once trade hits +BREAKEVEN_TRIGGER%
     if pnl_pct >= BREAKEVEN_TRIGGER:
@@ -1532,6 +1871,10 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
         pnl = (entry - exit_price) * shares
         pnl_pct = (entry - exit_price) / entry * 100
 
+    # #5 — Compute profit efficiency: how much of peak gain did we keep?
+    peak_pnl = float(trade.get("peak_pnl_pct") or 0)
+    efficiency = round(pnl_pct / peak_pnl, 3) if peak_pnl > 0 and pnl_pct > 0 else None
+
     # #18 — Trade update FIRST, balance SECOND. If trade update fails, we don't touch balance.
     try:
         supabase().table("sandbox_trades").update({
@@ -1542,6 +1885,7 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
             "pnl_pct": round(pnl_pct, 4),
             "exit_reason": exit_reason,
             "groq_exit_note": exit_note[:500] if exit_reason == "groq_exit" else None,
+            "profit_efficiency": efficiency,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }).eq("id", trade["id"]).execute()
         outcome = "WIN" if pnl > 0 else "LOSS"
@@ -1625,7 +1969,7 @@ async def _record_equity_snapshot() -> None:
         trades_today = supabase().table("sandbox_trades").select("pnl").eq("status", "closed").eq("exit_date", today_str).execute()
         daily_pnl = sum((r.get("pnl") or 0) for r in (trades_today.data or []))
 
-        wins, total, win_rate = get_overall_win_rate()
+        wins, total, win_rate, win_rate_ci = get_overall_win_rate()
 
         supabase().table("sandbox_equity").upsert({
             "date": today_str,
@@ -1708,27 +2052,32 @@ async def run_nightly_critique() -> dict:
         log.info("No closed trades today — skipping critique")
         return {"status": "skipped", "reason": "no trades today"}
 
-    # Fetch yesterday's critique so Groq can see if it's repeating mistakes
+    # Fetch yesterday's AND 7-days-ago critique (#18 — detect persistent patterns)
     try:
         yesterday = (today - timedelta(days=1)).isoformat()
+        week_ago = (today - timedelta(days=7)).isoformat()
         prev_res = (
             supabase().table("prediction_lessons")
-            .select("lesson,key_factors")
+            .select("lesson,key_factors,date")
             .eq("ticker", "GROQ_SELF")
-            .eq("date", yesterday)
-            .limit(1)
+            .in_("date", [yesterday, week_ago])
+            .order("date", desc=True)
+            .limit(2)
             .execute()
         )
-        prev_critique = prev_res.data[0].get("lesson", "") if prev_res.data else ""
+        rows = prev_res.data or []
+        prev_critique = rows[0].get("lesson", "") if rows else ""
+        week_critique = rows[1].get("lesson", "") if len(rows) > 1 else ""
     except Exception:
         prev_critique = ""
+        week_critique = ""
 
     # Get overall account state
     wins_today = [t for t in trades if (t.get("pnl") or 0) > 0]
     losses_today = [t for t in trades if (t.get("pnl") or 0) < 0]
     gross_pnl = sum((t.get("pnl") or 0) for t in trades)
     win_rate_today = len(wins_today) / len(trades) * 100 if trades else 0
-    _, total_trades, overall_win_rate = get_overall_win_rate()
+    _, total_trades, overall_win_rate, _ = get_overall_win_rate()
 
     # Build detailed trade log
     trade_lines = []
@@ -1747,14 +2096,35 @@ async def run_nightly_critique() -> dict:
         signals = t.get("signals_at_entry") or []
         sig_str = ", ".join(f"{s.get('type','?')}({s.get('sev','?')})" for s in signals[:3])
 
+        efficiency = t.get("profit_efficiency")
+        eff_str = f" | efficiency={efficiency:.0%}" if efficiency is not None else ""
+        peak = t.get("peak_pnl_pct")
+        peak_str = f" peak={peak:+.1f}%" if peak else ""
         trade_lines.append(
             f"[{outcome}] {ticker} {direction.upper()} @ ${entry:.2f} → ${exit_p:.2f} "
-            f"({pnl_pct:+.1f}%) | conf={conf} | exit={reason}\n"
+            f"({pnl_pct:+.1f}%{peak_str}{eff_str}) | conf={conf} | exit={reason}\n"
             f"  Stop=${stop:.2f} Target=${target:.2f} | Signals: {sig_str or 'none'}\n"
             f"  Thesis: {thesis}"
         )
 
     trade_block = "\n\n".join(trade_lines)
+
+    # #17 — Exit reason breakdown by primary signal type
+    exit_by_signal: dict[str, dict] = {}
+    for t in trades:
+        primary_sig = (t.get("signals_at_entry") or [{}])[0].get("type", "unknown")
+        reason = t.get("exit_reason", "unknown")
+        is_win = (t.get("pnl") or 0) > 0
+        key = f"{primary_sig}→{reason}"
+        exit_by_signal.setdefault(key, {"wins": 0, "total": 0})
+        exit_by_signal[key]["total"] += 1
+        if is_win:
+            exit_by_signal[key]["wins"] += 1
+    exit_signal_lines = []
+    for k, v in sorted(exit_by_signal.items(), key=lambda x: x[1]["total"], reverse=True)[:8]:
+        wr = v["wins"] / v["total"] * 100
+        exit_signal_lines.append(f"  {k}: {v['wins']}/{v['total']} ({wr:.0f}% WR)")
+    exit_signal_block = "\n".join(exit_signal_lines) if exit_signal_lines else "Not enough data."
 
     prompt = f"""You are reviewing your own trading decisions from today ({today_str}).
 
@@ -1762,11 +2132,17 @@ TODAY'S RESULTS:
 {len(wins_today)}W / {len(losses_today)}L | Win rate: {win_rate_today:.1f}% | P&L: ${gross_pnl:+.2f}
 Overall account win rate: {overall_win_rate:.1f}% ({total_trades} total trades)
 
+EXIT REASON BY SIGNAL TYPE (signal→exit_reason: W/L WR):
+{exit_signal_block}
+
 TODAY'S TRADES:
 {trade_block}
 
 YESTERDAY'S SELF-CRITIQUE (check if you repeated the same mistakes):
 {prev_critique[:400] if prev_critique else "No prior critique."}
+
+7 DAYS AGO CRITIQUE (check for persistent multi-week patterns):
+{week_critique[:300] if week_critique else "No week-ago critique."}
 
 Be brutally honest. Analyze your decisions as a batch — not one at a time. Answer:
 
@@ -1776,7 +2152,9 @@ Be brutally honest. Analyze your decisions as a batch — not one at a time. Ans
 
 **RULE VIOLATIONS**: Did you take trades that violated your own rules? Low R:R, traded against the morning outlook, entered when confidence was borderline?
 
-**REPEATED MISTAKES**: Compare to yesterday — are you making the same errors again?
+**EXIT QUALITY BY SIGNAL TYPE**: Based on the exit_reason breakdown above, which signal types are producing stop-hits vs target-hits? Are dark_pool signals getting stopped out? Should you adjust stop width or position size for specific signal types?
+
+**REPEATED MISTAKES**: Compare to yesterday AND 7 days ago — are you making the same errors week after week? Flag any pattern that appears in both critiques as a PERSISTENT BLIND SPOT.
 
 **TOMORROW'S ADJUSTMENTS**: Give 3 specific, concrete rule changes for tomorrow. Not generic advice — specific: "Don't short tech when QQQ pre-market is +0.5%+" or "Skip day trades on tickers with no signals in last 4h"
 
@@ -1838,6 +2216,45 @@ Be direct. You are critiquing yourself, not being polite."""
     }
 
 
+_cold_start_seeded = False
+
+def seed_cold_start_rules() -> None:
+    """#15 — Write bootstrap rules on first run if no lessons exist.
+    These give Groq conservative defaults before any real trade history."""
+    global _cold_start_seeded
+    if _cold_start_seeded:
+        return
+    try:
+        existing = supabase().table("prediction_lessons").select("id").eq("ticker", "GROQ_BOOTSTRAP").limit(1).execute()
+        if existing.data:
+            _cold_start_seeded = True
+            return
+        bootstrap_rules = """BOOTSTRAP RULES (pre-loaded defaults, override with real data as you trade):
+
+**HIGHEST WIN-RATE SETUPS**: Start conservative — only take convergence alerts and dark_pool+options_unusual combos until you have 20+ trades of real history.
+
+**SETUPS TO AVOID**: Avoid shorting any ticker when the morning outlook is bullish. Avoid swing trades until you have 10+ closed day trades to establish a baseline.
+
+**3 CONCRETE RULES FOR ENTRY DECISIONS**:
+1. Default to day trades for the first 2 weeks — swing trades carry overnight risk before you have calibration data.
+2. Require minimum 2 signals with severity >=7 for any entry until win rate exceeds 50%.
+3. Never enter a trade with confidence below 70 during the first 10 trades — learning mode requires high bar."""
+        supabase().table("prediction_lessons").insert({
+            "ticker": "GROQ_BOOTSTRAP",
+            "date": date.today().isoformat(),
+            "bias": "long",
+            "actual_bias": "long",
+            "in_range": True,
+            "lesson": bootstrap_rules,
+            "confidence_pct": 50,
+            "key_factors": {"source": "cold_start_seed"},
+        }).execute()
+        log.info("Cold start bootstrap rules seeded")
+        _cold_start_seeded = True
+    except Exception as e:
+        log.debug(f"Cold start seed failed: {e}")
+
+
 # ─── Main run_once entry point ────────────────────────────────────────────────
 
 async def run_once() -> dict:
@@ -1847,6 +2264,8 @@ async def run_once() -> dict:
     et = now_et()
     hour = et.hour
     minute = et.minute
+
+    seed_cold_start_rules()  # #15 — no-op after first run
 
     open_positions = get_open_positions()
     open_tickers = {p["ticker"] for p in open_positions}

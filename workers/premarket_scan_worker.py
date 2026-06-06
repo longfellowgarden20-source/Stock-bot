@@ -46,7 +46,8 @@ async def _call_groq(prompt: str, max_tokens: int = 800) -> str | None:
 # ─── Data helpers ─────────────────────────────────────────────────────────────
 
 async def get_premarket_price(client: httpx.AsyncClient, ticker: str) -> dict | None:
-    """Finnhub quote — c=current/last, pc=prev close, d=change, dp=change%."""
+    """Finnhub quote — c=current/last, pc=prev close, d=change, dp=change%.
+    Also computes gap_strength = gap_pct / estimated ATR (5-day range / 5)."""
     if not FINNHUB_KEY:
         return None
     try:
@@ -58,10 +59,29 @@ async def get_premarket_price(client: httpx.AsyncClient, ticker: str) -> dict | 
             d = r.json()
             price = d.get("c") or d.get("pc")
             if price and float(price) > 0:
+                gap_pct = round(float(d.get("dp") or 0), 2)
+                prev_close = round(float(d.get("pc") or price), 2)
+                high_52w = d.get("h") or 0  # today's high as proxy
+                low_52w  = d.get("l") or 0  # today's low as proxy
+                atr_proxy = abs(float(high_52w) - float(low_52w)) if high_52w and low_52w else 0
+                gap_strength = round(abs(gap_pct) / (atr_proxy / float(price) * 100), 2) if atr_proxy > 0 and float(price) > 0 else None
+                # Gap strength > 2 = gap > 2x typical range = likely gap-and-crap or strong momentum
+                gap_label = ""
+                if gap_strength is not None:
+                    if gap_strength > 3:
+                        gap_label = "EXTREME gap (>3x ATR) — high fade risk"
+                    elif gap_strength > 2:
+                        gap_label = "large gap (2-3x ATR) — watch for fade"
+                    elif gap_strength > 1:
+                        gap_label = "moderate gap (1-2x ATR)"
+                    else:
+                        gap_label = "small gap (<1x ATR) — continuation likely"
                 return {
                     "price": round(float(price), 2),
-                    "prev_close": round(float(d.get("pc") or price), 2),
-                    "change_pct": round(float(d.get("dp") or 0), 2),
+                    "prev_close": prev_close,
+                    "change_pct": gap_pct,
+                    "gap_strength": gap_strength,
+                    "gap_label": gap_label,
                 }
     except Exception as e:
         log.debug(f"Finnhub quote failed for {ticker}: {e}")
@@ -229,10 +249,11 @@ async def run_premarket_scan(client: httpx.AsyncClient) -> dict | None:
         t = c["ticker"]
         price_info = prices.get(t)
         p_str = f"${price_info['price']:.2f} ({price_info['change_pct']:+.1f}% pre-mkt)" if price_info else "price N/A"
+        gap_str = f" {price_info['gap_label']}" if price_info and price_info.get("gap_label") else ""
         past = perf.get(t, {})
         past_str = f"{past.get('wins',0)}W/{past.get('losses',0)}L" if past else "no history"
         sig_str = " | ".join(f"{s['type']}(sev={s['sev']:.0f})" for s in c["signals"][:3])
-        candidate_lines.append(f"  {t:6s} score={c['score']:.1f} | {p_str} | {past_str} | {sig_str}")
+        candidate_lines.append(f"  {t:6s} score={c['score']:.1f} | {p_str}{gap_str} | {past_str} | {sig_str}")
 
     candidates_block = "\n".join(candidate_lines)
     outlook_str = (
