@@ -62,7 +62,7 @@ CONVERGENCE_MIN_CONFIDENCE = 55  # convergence overrides normal bar (signal does
 
 # Sector mapping for correlation limit (#6)
 SECTOR_MAP: dict[str, str] = {
-    # Tech — software/cloud
+    # Tech — large cap + semis
     "AAPL": "tech", "MSFT": "tech", "NVDA": "tech", "AMD": "tech", "META": "tech",
     "GOOGL": "tech", "GOOG": "tech", "AMZN": "tech", "TSLA": "tech", "PLTR": "tech",
     "CRM": "tech", "ORCL": "tech", "ADBE": "tech", "INTC": "tech", "MDB": "tech",
@@ -75,6 +75,15 @@ SECTOR_MAP: dict[str, str] = {
     "DOCU": "tech", "BOX": "tech", "WORK": "tech", "DBX": "tech", "DOCN": "tech",
     "APP": "tech", "TEAM": "tech", "DSGX": "tech", "WIX": "tech", "SMAR": "tech",
     "ACN": "tech", "INFY": "tech", "WIT": "tech", "CTSH": "tech",
+    # Tech — AI/semis high-beta
+    "ARM": "tech", "ASML": "tech", "TSM": "tech", "SMCI": "tech", "MCHP": "tech",
+    "ON": "tech", "WOLF": "tech", "OLED": "tech", "SWKS": "tech", "QRVO": "tech",
+    "ENPH": "tech", "SEDG": "tech", "FSLR": "tech",
+    # Tech — AI infrastructure & data
+    "AI": "tech", "BBAI": "tech", "SOUN": "tech", "IREN": "tech", "CORZ": "tech",
+    "APLD": "tech", "WULF": "tech",
+    # Tech — quantum computing (high-beta)
+    "IONQ": "tech", "RGTI": "tech", "QUBT": "tech", "QBTS": "tech", "ARQQ": "tech",
     # Finance
     "JPM": "finance", "BAC": "finance", "GS": "finance", "MS": "finance", "WFC": "finance",
     "C": "finance", "BLK": "finance", "SCHW": "finance", "AXP": "finance",
@@ -84,6 +93,10 @@ SECTOR_MAP: dict[str, str] = {
     "COIN": "finance", "HOOD": "finance", "SOFI": "finance", "NU": "finance",
     "ICE": "finance", "CME": "finance", "CBOE": "finance", "NDAQ": "finance",
     "BX": "finance", "KKR": "finance", "APO": "finance", "ARES": "finance",
+    "UPST": "finance", "LC": "finance", "OPFI": "finance",
+    # Finance — crypto/Bitcoin proxies
+    "MSTR": "finance", "MARA": "finance", "RIOT": "finance", "CLSK": "finance",
+    "HUT": "finance", "BITF": "finance",
     # Healthcare
     "JNJ": "health", "UNH": "health", "PFE": "health", "ABBV": "health", "MRK": "health",
     "LLY": "health", "DHR": "health", "TMO": "health", "AMGN": "health",
@@ -92,17 +105,26 @@ SECTOR_MAP: dict[str, str] = {
     "CVS": "health", "CI": "health", "HUM": "health", "MOH": "health",
     "ISRG": "health", "BSX": "health", "MDT": "health", "EW": "health", "SYK": "health",
     "ZBH": "health", "BDX": "health", "HOLX": "health", "DXCM": "health",
+    # Healthcare — biotech high-beta
+    "MRNA": "health", "BNTX": "health", "NVAX": "health", "RXRX": "health",
+    "ILMN": "health", "PACB": "health", "CRSP": "health", "NTLA": "health",
+    "BEAM": "health", "EDIT": "health", "TDOC": "health", "HIMS": "health",
+    "SDGR": "health", "ACMR": "health",
     # Energy
     "XOM": "energy", "CVX": "energy", "COP": "energy", "SLB": "energy", "EOG": "energy",
     "PXD": "energy", "DVN": "energy", "MPC": "energy", "PSX": "energy", "VLO": "energy",
     "OXY": "energy", "HAL": "energy", "BKR": "energy", "FANG": "energy",
     "KMI": "energy", "WMB": "energy", "ET": "energy", "MPLX": "energy",
+    # Energy — clean/uranium
+    "CCJ": "energy", "UEC": "energy", "DNN": "energy", "NXE": "energy",
+    "PLUG": "energy", "BE": "energy", "BLDP": "energy",
     # Defense
     "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense", "HII": "defense",
     "BA": "defense", "TDG": "defense", "HEI": "defense", "LDOS": "defense", "SAIC": "defense",
-    "L3H": "defense", "KTOS": "defense", "RCAT": "defense",
+    "L3H": "defense", "KTOS": "defense", "RCAT": "defense", "AXON": "defense",
+    "CACI": "defense", "LEIDOS": "defense", "VSE": "defense",
     # Consumer discretionary
-    "AMZN": "consumer", "TSLA": "consumer", "HD": "consumer", "LOW": "consumer",
+    "HD": "consumer", "LOW": "consumer",
     "TJX": "consumer", "ROST": "consumer", "TGT": "consumer", "WMT": "consumer",
     "COST": "consumer", "DG": "consumer", "DLTR": "consumer",
     "MCD": "consumer", "SBUX": "consumer", "CMG": "consumer", "YUM": "consumer",
@@ -110,6 +132,7 @@ SECTOR_MAP: dict[str, str] = {
     "DECK": "consumer", "ONON": "consumer", "CROX": "consumer",
     "BKNG": "consumer", "EXPE": "consumer", "ABNB": "consumer", "LYFT": "consumer", "UBER": "consumer",
     "GM": "consumer", "F": "consumer", "RIVN": "consumer", "LCID": "consumer",
+    "DASH": "consumer", "DKNG": "consumer", "PENN": "consumer",
     # Industrials
     "CAT": "industrial", "DE": "industrial", "HON": "industrial", "MMM": "industrial",
     "GE": "industrial", "EMR": "industrial", "ETN": "industrial", "PH": "industrial",
@@ -118,6 +141,7 @@ SECTOR_MAP: dict[str, str] = {
     "CSX": "industrial", "NSC": "industrial", "UNP": "industrial",
     "NUE": "industrial", "STLD": "industrial", "X": "industrial", "CLF": "industrial",
     "AA": "industrial", "FCX": "industrial",
+    "BLDE": "industrial", "ACHR": "industrial", "JOBY": "industrial", "LILM": "industrial",
     # Real estate / REITs
     "AMT": "realestate", "PLD": "realestate", "EQIX": "realestate", "CCI": "realestate",
     "SPG": "realestate", "O": "realestate", "VICI": "realestate", "WELL": "realestate",
@@ -125,6 +149,9 @@ SECTOR_MAP: dict[str, str] = {
     # Utilities
     "NEE": "utilities", "DUK": "utilities", "SO": "utilities", "D": "utilities",
     "AEP": "utilities", "EXC": "utilities", "SRE": "utilities", "PCG": "utilities",
+    # Media / streaming
+    "NFLX": "tech", "DIS": "consumer", "PARA": "consumer", "WBD": "consumer",
+    "SPOT": "tech", "SNAP": "tech", "PINS": "tech", "RDDT": "tech",
     # Indices / ETFs (skip sector limit for these — filtered out anyway)
     "SPY": "index", "QQQ": "index", "IWM": "index", "DIA": "index",
 }

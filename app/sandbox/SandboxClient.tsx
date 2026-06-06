@@ -639,17 +639,21 @@ export default function SandboxClient({
       process.env.NEXT_PUBLIC_SUPABASE_URL!,
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
     )
+    // Debounce: batch rapid DB changes into a single reload after 3s quiet period
+    let reloadTimer: ReturnType<typeof setTimeout> | null = null
+    const scheduleReload = () => {
+      if (reloadTimer) clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => window.location.reload(), 3000)
+    }
     const channel = supabase
       .channel('sandbox-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'sandbox_trades' }, () => {
-        // Debounce reload — batch rapid updates
-        window.location.reload()
-      })
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sandbox_account' }, () => {
-        window.location.reload()
-      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'sandbox_trades' }, scheduleReload)
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'sandbox_account' }, scheduleReload)
       .subscribe()
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      if (reloadTimer) clearTimeout(reloadTimer)
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   async function handleReset() {

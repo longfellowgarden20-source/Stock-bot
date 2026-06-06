@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
     // Update account balance
     const { data: acct } = await supabase
       .from('sandbox_account')
-      .select('balance')
+      .select('id,balance')
       .limit(1)
       .single()
 
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       await supabase
         .from('sandbox_account')
         .update({ balance: Math.round(newBalance * 100) / 100, updated_at: new Date().toISOString() })
-        .eq('id', (acct as any).id)
+        .eq('id', acct.id)
     }
 
     return NextResponse.json({ ok: true, exit_price: exitPrice, pnl, pnl_pct: pnlPct })
