@@ -142,3 +142,26 @@ VALUES
   ('RTX',  'RTX Corporation',          'Defense',      2.5, false, false),
   ('NOC',  'Northrop Grumman',         'Defense',      2.5, false, false)
 ON CONFLICT (ticker) DO NOTHING;
+
+-- #4: Snapshot retention — auto-delete snapshots > 90 days old
+CREATE OR REPLACE FUNCTION delete_old_snapshots()
+RETURNS void AS $$
+BEGIN
+  DELETE FROM snapshots WHERE created_at < NOW() - INTERVAL '90 days';
+END;
+$$ LANGUAGE plpgsql;
+
+-- Runs daily at 2am UTC (10pm ET)
+SELECT cron.schedule(
+  'delete_old_snapshots_daily',
+  '0 2 * * *',
+  'SELECT delete_old_snapshots()'
+);
+
+-- #7: Stale data warnings — track last successful price update per ticker
+ALTER TABLE snapshots
+  ADD COLUMN IF NOT EXISTS data_freshness TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+
+-- Index for dashboard queries (stale data check)
+CREATE INDEX IF NOT EXISTS snapshots_ticker_freshness
+  ON snapshots (ticker, data_freshness DESC);

@@ -637,6 +637,7 @@ export default function SandboxClient({
   const [resetting, setResetting] = useState(false)
   const [forceClosing, setForceClosing] = useState<string | null>(null)
   const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number } | null>(null)
+  const [dataFreshness, setDataFreshness] = useState<Record<string, { age_minutes: number; is_stale_10min: boolean; is_stale_1hr: boolean }>>({}) // #7
 
   // #1 — Fetch worker status on mount
   useEffect(() => {
@@ -721,9 +722,30 @@ export default function SandboxClient({
     return total >= 570 && total < 960 // 9:30–4:00pm
   }
 
+  // #7: Check data freshness for all open tickers
+  function fetchDataFreshness() {
+    if (openTrades.length === 0) return
+    const uniqueTickers = [...new Set(openTrades.map(t => t.ticker))]
+    Promise.all(
+      uniqueTickers.map(ticker =>
+        fetch(`/api/data-freshness?ticker=${ticker}`)
+          .then(r => r.ok ? r.json() : null)
+          .catch(() => null)
+          .then(d => ({ ticker, freshness: d }))
+      )
+    ).then(results => {
+      const fresh: Record<string, any> = {}
+      results.forEach(({ ticker, freshness }) => {
+        if (freshness) fresh[ticker] = freshness
+      })
+      setDataFreshness(fresh)
+    }).catch(() => {})
+  }
+
   function fetchAllPrices() {
     if (openTrades.length === 0) return
     const uniqueTickers = [...new Set(openTrades.map(t => t.ticker))]
+    fetchDataFreshness()
     Promise.all(
       uniqueTickers.map(ticker =>
         fetchLatestPrice(ticker).then(price => ({ ticker, price }))
@@ -890,6 +912,24 @@ export default function SandboxClient({
             ? `${workerStatus.stale_day_trades} stale day trade${workerStatus.stale_day_trades > 1 ? 's' : ''} from a previous session — worker will close them on next tick.`
             : `Worker active — last activity ${workerStatus.hours_since_last_activity.toFixed(0)}h ago`
           }
+        </div>
+      )}
+
+      {/* #7 — Stale data warning */}
+      {Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_1hr).length > 0 && (
+        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-red-500/30 bg-red-500/8 text-red-400 text-xs">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>
+            ⚠️ Data stale for {Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_1hr).map(([t]) => t).join(', ')} — over 1h old. Click Refresh.
+          </span>
+        </div>
+      )}
+      {Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_10min && !f.is_stale_1hr).length > 0 && (
+        <div className="flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-yellow-500/25 bg-yellow-500/8 text-yellow-400 text-xs">
+          <Clock className="w-4 h-4 shrink-0" />
+          <span>
+            Data {Math.round(Math.min(...Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_10min).map(([_, f]) => f.age_minutes)) || 0)} min old for {Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_10min && !f.is_stale_1hr).map(([t]) => t).join(', ')}
+          </span>
         </div>
       )}
 

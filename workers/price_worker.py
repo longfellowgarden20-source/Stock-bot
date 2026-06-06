@@ -12,7 +12,7 @@ import logging
 import time
 import httpx
 import asyncio
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime, timezone
 from db import supabase, get_watchlist_tickers, insert_snapshot, insert_signal
 from market_hours import is_extended_hours
 
@@ -20,6 +20,27 @@ log = logging.getLogger("price_worker")
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
+
+# QUICK WIN #2: Per-ticker alert thresholds with 1h caching
+WATCHLIST_CACHE = {}
+WATCHLIST_CACHE_TTL = 3600
+
+async def get_watchlist_with_thresholds() -> dict[str, float]:
+    """Cache watchlist + alert_threshold_pct to avoid 1,200 redundant queries/day."""
+    global WATCHLIST_CACHE
+    now = time.time()
+    if WATCHLIST_CACHE.get('_timestamp', 0) + WATCHLIST_CACHE_TTL > now:
+        return WATCHLIST_CACHE.get('data', {})
+
+    try:
+        res = supabase().table("watchlist").select("ticker,alert_threshold_pct").execute()
+        data = {row['ticker']: float(row['alert_threshold_pct'] or 1.0) for row in (res.data or [])}
+        WATCHLIST_CACHE = {'data': data, '_timestamp': now}
+        log.debug(f"Watchlist cache updated: {len(data)} tickers")
+        return data
+    except Exception as e:
+        log.debug(f"Watchlist threshold fetch failed: {e}")
+        return WATCHLIST_CACHE.get('data', {})
 
 
 async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
@@ -67,6 +88,10 @@ async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
 _avg_vol_cache: dict[str, tuple[float, float]] = {}  # ticker -> (avg_vol, fetched_at_ts)
 _AVG_VOL_TTL = 24 * 60 * 60  # 24h
 
+# #2: Per-ticker alert thresholds cache — refreshed hourly
+_threshold_cache: dict[str, tuple[float | None, float]] = {}  # ticker -> (threshold_pct, fetched_at_ts)
+_THRESHOLD_TTL = 60 * 60  # 1 hour
+
 
 async def fetch_avg_volume(client: httpx.AsyncClient, ticker: str) -> float | None:
     """Last 30 trading days avg volume — used for spike detection. Cached 24h."""
@@ -98,10 +123,22 @@ async def fetch_avg_volume(client: httpx.AsyncClient, ticker: str) -> float | No
 
 
 def get_threshold_for(ticker: str) -> float | None:
-    """Per-ticker alert threshold from watchlist."""
-    res = supabase().table("watchlist").select("alert_threshold_pct").eq("ticker", ticker.upper()).limit(1).execute()
-    if res.data and res.data[0].get("alert_threshold_pct") is not None:
-        return float(res.data[0]["alert_threshold_pct"])
+    """#2: Per-ticker alert threshold from watchlist, cached 1h. If not set, default None."""
+    ticker_upper = ticker.upper()
+    cached = _threshold_cache.get(ticker_upper)
+    if cached and (time.time() - cached[1]) < _THRESHOLD_TTL:
+        return cached[0]
+
+    try:
+        res = supabase().table("watchlist").select("alert_threshold_pct").eq("ticker", ticker_upper).limit(1).execute()
+        if res.data and res.data[0].get("alert_threshold_pct") is not None:
+            threshold = float(res.data[0]["alert_threshold_pct"])
+            _threshold_cache[ticker_upper] = (threshold, time.time())
+            return threshold
+    except Exception as e:
+        log.debug(f"threshold fetch failed for {ticker}: {e}")
+
+    _threshold_cache[ticker_upper] = (None, time.time())
     return None
 
 

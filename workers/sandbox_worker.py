@@ -161,8 +161,19 @@ SECTOR_MAP: dict[str, str] = {
 
 async def _call_groq(prompt: str, max_tokens: int = 500, fast: bool = False) -> str | None:
     from groq_pool import call_llm
-    # #23 — use fast 8b model for short-form outputs (lessons, one-liners) to save tokens
-    model = "llama-3.1-8b-instant" if fast else "llama-3.3-70b-versatile"
+
+    # #5: Groq model routing — auto-select based on prompt complexity
+    # - If fast=True OR prompt < 1000 chars: use llama-3.1-8b-instant (fast/cheap, ~0.02/M tokens)
+    # - If prompt > 2000 chars: use llama-3.3-70b-versatile (quality, ~0.25/M tokens)
+    # - In between: auto-decide (heuristic: use 8b for <=1500, 70b for >1500)
+    if fast or len(prompt) < 1000:
+        model = "llama-3.1-8b-instant"
+    elif len(prompt) > 2000:
+        model = "llama-3.3-70b-versatile"
+    else:
+        # 1000-2000 char range: use 8b unless it's a complex reasoning task
+        model = "llama-3.1-8b-instant" if len(prompt) <= 1500 else "llama-3.3-70b-versatile"
+
     return await call_llm(
         prompt,
         primary_env_vars=["GROQ_BACKUP_API_KEY"],

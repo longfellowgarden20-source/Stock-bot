@@ -123,12 +123,16 @@ def insert_signal(
 
 
 def insert_snapshot(ticker: str, price: float, volume: int | None, change_pct: float | None) -> None:
+    """#7: Insert snapshot with data_freshness = NOW() to track last successful price update."""
     try:
+        from datetime import datetime, timezone
+        now_iso = datetime.now(timezone.utc).isoformat()
         supabase().table("snapshots").insert({
             "ticker": ticker.upper(),
             "price": price,
             "volume": volume,
             "change_pct": change_pct,
+            "data_freshness": now_iso,
         }).execute()
     except Exception as e:
         log.debug(f"insert_snapshot failed for {ticker}: {e}")
@@ -214,3 +218,28 @@ def recent_signals_for_ticker(ticker: str, minutes: int = 30) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(minutes=minutes)).isoformat()
     res = supabase().table("signals").select("*").eq("ticker", ticker.upper()).gte("created_at", since).execute()
     return res.data or []
+
+
+def get_data_freshness(ticker: str) -> dict | None:
+    """#7: Get latest snapshot freshness for a ticker. Returns {age_minutes, is_stale, last_update}."""
+    from datetime import datetime, timezone
+    try:
+        res = supabase().table("snapshots").select("data_freshness").eq("ticker", ticker.upper()).order("data_freshness", desc=True).limit(1).execute()
+        if not res.data:
+            return None
+        last_update = res.data[0].get("data_freshness")
+        if not last_update:
+            return None
+        last_dt = datetime.fromisoformat(last_update.replace('Z', '+00:00'))
+        now = datetime.now(timezone.utc)
+        age_seconds = (now - last_dt).total_seconds()
+        age_minutes = age_seconds / 60
+        return {
+            "last_update": last_update,
+            "age_minutes": round(age_minutes, 1),
+            "is_stale_10min": age_minutes > 10,
+            "is_stale_1hr": age_minutes > 60,
+        }
+    except Exception as e:
+        log.debug(f"get_data_freshness failed for {ticker}: {e}")
+        return None

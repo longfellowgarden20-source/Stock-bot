@@ -10,6 +10,7 @@ import os
 import logging
 import httpx
 import asyncio
+import time
 from datetime import datetime, timedelta, timezone, date
 from db import supabase, insert_signal
 from market_hours import now_et, is_weekday
@@ -38,17 +39,38 @@ def group_by_ticker(signals: list[dict]) -> dict[str, list[dict]]:
     return groups
 
 
+# #3: Convergence dedup — track (ticker, signal_ids, timestamp_bucket) to prevent duplicate synthesis
+_convergence_dedup_cache: dict[str, tuple[set[str], float]] = {}  # ticker_bucket -> (signal_ids_set, last_synthesis_ts)
+_DEDUP_WINDOW = 30 * 60  # 30 min window
+
+
 def already_synthesized(ticker: str, signal_ids: list[str]) -> bool:
-    """Avoid re-Groqing the same convergence over and over."""
-    res = supabase().table("signals").select("raw_data").eq("ticker", ticker.upper()).eq("signal_type", "convergence").order("created_at", desc=True).limit(1).execute()
-    if not res.data:
-        return False
-    raw = res.data[0].get("raw_data") or {}
-    prev_ids = set(raw.get("synthesized_from", []))
-    new_ids = set(signal_ids)
-    # If we already synthesized from a superset (>=80% overlap), skip
-    if new_ids and len(prev_ids & new_ids) >= len(new_ids) * 0.8:
-        return True
+    """#3: Avoid re-Groqing the same convergence over and over. Dedup within 30-min windows."""
+    from datetime import datetime, timezone
+    ticker_upper = ticker.upper()
+    now_ts = time.time()
+
+    # DB check — most recent convergence for this ticker
+    res = supabase().table("signals").select("raw_data, created_at").eq("ticker", ticker_upper).eq("signal_type", "convergence").order("created_at", desc=True).limit(1).execute()
+    if res.data:
+        raw = res.data[0].get("raw_data") or {}
+        prev_ids = set(raw.get("synthesized_from", []))
+        new_ids = set(signal_ids)
+        # If we already synthesized from a superset (>=80% overlap), skip
+        if new_ids and len(prev_ids & new_ids) >= len(new_ids) * 0.8:
+            return True
+
+    # Memory check — within current 30-min bucket
+    bucket_key = f"{ticker_upper}:{int(now_ts // _DEDUP_WINDOW)}"
+    if bucket_key in _convergence_dedup_cache:
+        cached_ids, last_ts = _convergence_dedup_cache[bucket_key]
+        if now_ts - last_ts < _DEDUP_WINDOW:
+            new_ids = set(signal_ids)
+            if new_ids and len(cached_ids & new_ids) >= len(new_ids) * 0.8:
+                return True
+
+    # Not a duplicate — record this set for future checks
+    _convergence_dedup_cache[bucket_key] = (set(signal_ids), now_ts)
     return False
 
 

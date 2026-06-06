@@ -195,12 +195,42 @@ async def health():
                 "seconds_since": round(elapsed),
                 "overdue": elapsed > interval * 2,
             }
+
+    # #1: DLQ health endpoint — query failed_signals for count in last 24h
+    dlq_count = 0
+    dlq_by_type: dict[str, int] = {}
+    retry_success = 0
+    retry_failed = 0
+    try:
+        from datetime import datetime, timedelta, timezone
+        since_24h = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        res = db_module.supabase().table("failed_signals").select("signal_type, resolved").gte("created_at", since_24h).execute()
+        if res.data:
+            dlq_count = len(res.data)
+            for row in res.data:
+                sig_type = row.get("signal_type", "unknown")
+                dlq_by_type[sig_type] = dlq_by_type.get(sig_type, 0) + 1
+                if row.get("resolved"):
+                    retry_success += 1
+                else:
+                    retry_failed += 1
+    except Exception as e:
+        log.warning(f"DLQ health check failed: {e}")
+
+    retry_rate = retry_success / (retry_success + retry_failed) if (retry_success + retry_failed) > 0 else 0
+
     return {
         "status": "ok" if not dead else "degraded",
         "workers_alive": alive,
         "workers_total": len(worker_tasks),
         "dead": dead,
         "worker_status": worker_status,
+        "dlq": {
+            "count_24h": dlq_count,
+            "alert": dlq_count > 50,
+            "by_type": dlq_by_type,
+            "retry_success_rate": round(retry_rate, 3),
+        },
     }
 
 
