@@ -197,9 +197,9 @@ async def run_cross_ticker_pattern_mining() -> dict:
             combo_block_lines.append(f"  {k}: {v['wins']}/{v['total']} ({wr:.0f}% WR, Sharpe={sharpe:.2f})")
         combo_block = "\n".join(combo_block_lines) or "  Not enough data."
 
-        return combo_block, fmt(direction_stats), fmt(trade_type_stats), fmt(exit_stats), fmt(confidence_buckets)
+        return combo_block, fmt(direction_stats), fmt(trade_type_stats), fmt(exit_stats), fmt(confidence_buckets), len(qualified)
 
-    combo_block, direction_block, type_block, exit_block, conf_block = bucket_stats()
+    combo_block, direction_block, type_block, exit_block, conf_block, num_combos = bucket_stats()
     today = now_et().date()
 
     prompt = f"""You are analyzing ALL {len(all_trades)} historical sandbox trades to find actionable patterns.
@@ -250,8 +250,8 @@ These rules will be injected into every future entry decision."""
     except Exception as e:
         log.error(f"Pattern mining store failed: {e}")
 
-    log.info(f"Pattern mining complete: {len(all_trades)} trades, {len(qualified)} combos analyzed")
-    return {"status": "ok", "trades_analyzed": len(all_trades), "combos": len(qualified)}
+    log.info(f"Pattern mining complete: {len(all_trades)} trades, {num_combos} combos analyzed")
+    return {"status": "ok", "trades_analyzed": len(all_trades), "combos": num_combos}
 
 
 async def run_once() -> dict:

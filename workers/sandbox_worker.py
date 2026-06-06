@@ -772,8 +772,8 @@ def score_setup_conviction(signals: list[dict], convergence_ctx: str, recent_wr:
         risk_pct = RISK_PCT_BASE
         label = "standard setup — 1% risk"
 
-    # Hot streak bonus — requires 15+ trades AND avg win >= 1.5% to prevent luck (#3)
-    if recent_wr >= 60 and recent_wr >= 70:
+    # Hot streak bonus — requires WR >= 70% AND avg win >= 1.5% to prevent luck (#3)
+    if recent_wr >= 70:
         # Verify it's real edge: check avg win pct over last 10 trades
         try:
             res = (
@@ -1705,7 +1705,7 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
 
     # #5 — Track peak P&L: update if current is higher than stored peak
     current_peak = float(trade.get("peak_pnl_pct") or 0)
-    if pnl_pct > current_peak and current_peak >= 0 or (current_peak == 0 and pnl_pct > 0):
+    if pnl_pct > current_peak:
         try:
             supabase().table("sandbox_trades").update({
                 "peak_pnl_pct": round(pnl_pct, 4),
@@ -2460,7 +2460,8 @@ Exit if: news broke after close that breaks thesis, AH price action is alarming,
                             text = raw.strip()
                             if "```" in text:
                                 parts = text.split("```")
-                                text = parts[1][4:] if parts[1].startswith("json") else parts[1]
+                                if len(parts) >= 2:
+                                    text = parts[1][4:] if parts[1].startswith("json") else parts[1]
                             parsed = json.loads(text.strip())
                             decision = "hold" if parsed.get("hold", True) else "exit_at_open"
                             reason = str(parsed.get("reason", ""))[:300]

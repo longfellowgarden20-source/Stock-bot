@@ -902,9 +902,10 @@ export default function SandboxClient({
                 )}
               </div>
               {premktPlan.picks.map((pick, i) => {
-                const rr = pick.direction === 'long'
-                  ? (pick.target - pick.entry_zone) / (pick.entry_zone - pick.stop)
-                  : (pick.entry_zone - pick.target) / (pick.stop - pick.entry_zone)
+                const rrDenom = pick.direction === 'long' ? pick.entry_zone - pick.stop : pick.stop - pick.entry_zone
+                const rr = rrDenom > 0
+                  ? (pick.direction === 'long' ? pick.target - pick.entry_zone : pick.entry_zone - pick.target) / rrDenom
+                  : 0
                 const isEntered = openTrades.some(t => t.ticker === pick.ticker)
                 return (
                   <div key={i} className={`border rounded-xl p-4 flex flex-col gap-2.5 ${isEntered ? 'border-sky-500/30' : 'border-white/[0.07]'}`} style={{ background: 'rgba(255,255,255,0.02)' }}>

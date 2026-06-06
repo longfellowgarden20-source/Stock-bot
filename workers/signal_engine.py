@@ -83,8 +83,6 @@ Output format: 2-3 short paragraphs. No headers, no bullet points. Direct senten
         return None
     return {"synthesis": content, "score": total_score}
 
-    return None
-
 
 async def run_once() -> dict:
     recent = await fetch_recent_signals(30)

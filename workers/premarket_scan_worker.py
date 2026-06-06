@@ -199,13 +199,13 @@ async def run_premarket_scan(client: httpx.AsyncClient) -> dict | None:
         log.info("No candidates for pre-market scan")
         return None
 
-    # Fetch pre-market prices for all candidates
-    price_tasks = []
+    # Fetch pre-market prices sequentially to respect Finnhub rate limit
+    prices: dict[str, dict] = {}
     for c in candidates:
-        price_tasks.append(get_premarket_price(client, c["ticker"]))
-        await asyncio.sleep(0.25)  # Finnhub rate limit
-    prices_list = await asyncio.gather(*price_tasks)
-    prices = {candidates[i]["ticker"]: prices_list[i] for i in range(len(candidates)) if prices_list[i]}
+        result = await get_premarket_price(client, c["ticker"])
+        if result:
+            prices[c["ticker"]] = result
+        await asyncio.sleep(0.25)  # Finnhub free tier: 60 req/min
 
     # Get past performance
     tickers = [c["ticker"] for c in candidates]
