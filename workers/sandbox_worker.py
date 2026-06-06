@@ -1660,8 +1660,26 @@ async def run_once() -> dict:
 
     open_positions = get_open_positions()
     open_tickers = {p["ticker"] for p in open_positions}
+    today_str = date.today().isoformat()
 
     async with httpx.AsyncClient(timeout=15) as client:
+
+        # Always: close any day trades left open from a previous trading day
+        stale_day_trades = [
+            p for p in open_positions
+            if p.get("trade_type") == "day" and p.get("entry_date") != today_str
+        ]
+        if stale_day_trades:
+            log.info(f"Closing {len(stale_day_trades)} stale day trades from previous sessions")
+            for trade in stale_day_trades:
+                try:
+                    await evaluate_open_trade(client, trade)
+                except Exception as e:
+                    log.error(f"Stale day trade close failed for {trade['ticker']}: {e}")
+                await asyncio.sleep(1)
+            # Refresh open positions after closing stale trades
+            open_positions = get_open_positions()
+            open_tickers = {p["ticker"] for p in open_positions}
 
         # 9:30am–12:30pm ET: scan for new entries
         in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
