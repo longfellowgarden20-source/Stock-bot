@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       ? `\nTRADER'S THESIS: ${thesis.trim()}`
       : ''
 
-    const prompt = `You are a senior trading analyst. A trader wants your full analysis on a potential ${direction?.toUpperCase() ?? 'LONG'} trade on ${sym} over a ${timeframe ?? 'swing'} timeframe.${userThesis}
+    const prompt = `You are a senior trading analyst. A trader is considering a ${direction?.toUpperCase() ?? 'LONG'} trade on ${sym} over a ${timeframe ?? 'swing'} timeframe.${userThesis}
 
 CURRENT PRICE DATA:
 ${priceBlock}
@@ -96,27 +96,29 @@ ${newsBlock}
 PAST PREDICTION ACCURACY FOR ${sym}:
 ${lessonsBlock}
 
-Give a comprehensive, specific trade analysis. Cover ALL of these sections:
+Your job: give an honest, unbiased analysis. If the data says the trader picked the wrong direction, tell them directly and explain why the other side is better.
 
-**WHAT'S HAPPENING**: What is the current setup on ${sym}? What do the signals and news tell you?
+Cover ALL of these sections:
 
-**ENTRY**: Where exactly should they enter? Give a specific price or range. Should they wait for a confirmation level or enter now?
+**RECOMMENDED DIRECTION**: Based purely on the signals and data, should they go LONG or SHORT right now? If their chosen direction (${direction?.toUpperCase() ?? 'LONG'}) conflicts with what the data shows, say so clearly — e.g. "The data favors SHORT, not LONG — here's why." Don't just agree with the trader.
 
-**STOP LOSS**: Where is the stop? Give the exact price and explain why that level invalidates the trade.
+**BULL CASE**: What would need to be true for a long trade to work? Key levels, catalysts, signals supporting upside.
 
-**TARGET**: Give 2 targets — Target 1 (conservative, take partial profits) and Target 2 (full target if thesis plays out). Specific prices.
+**BEAR CASE**: What would need to be true for a short trade to work? Key levels, catalysts, signals supporting downside.
 
-**RISK/REWARD**: Calculate the R:R ratio based on the entry, stop, and targets you gave.
+**ENTRY**: For the recommended direction — where exactly to enter? Specific price or range. Wait for confirmation or enter now?
 
-**THESIS**: What needs to happen for this trade to work? Be specific — which signals or catalysts are key.
+**STOP LOSS**: Exact price. Why does that level invalidate the trade?
 
-**RISKS**: What kills this trade? Top 2-3 risks with specific scenarios.
+**TARGET**: Target 1 (partial profit) and Target 2 (full target). Specific prices.
 
-**TIMING**: Day trade, swing (how many days?), or position trade? When should they re-evaluate?
+**RISK/REWARD**: Calculate R:R based on your entry, stop, and targets.
 
-**CONVICTION**: Rate your conviction 1-10 and explain why. Be honest — if the setup is weak, say so.
+**RISKS**: Top 2-3 things that kill this trade with specific scenarios.
 
-Be specific with prices. No generic advice. Write for an active trader who will act on this today.`
+**CONVICTION**: Rate 1-10. Be honest — if the setup is weak or direction is wrong, say so.
+
+Be direct. If the trader has the direction wrong, lead with that. Specific prices only — no generic advice.`
 
     const analysis = await callGroqWithFallback(groq =>
       groq.chat.completions.create({

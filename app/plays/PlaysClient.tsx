@@ -13,15 +13,18 @@ type AnalysisResult = {
 }
 
 const SECTION_CONFIG: Record<string, { icon: React.ReactNode; color: string; bg: string; border: string; label: string }> = {
-  "WHAT'S HAPPENING": { icon: <Activity className="w-3.5 h-3.5" />, color: 'text-sky-400',     bg: 'bg-sky-500/8',     border: 'border-sky-500/20',     label: "What's Happening" },
-  'ENTRY':            { icon: <Crosshair className="w-3.5 h-3.5" />, color: 'text-white',       bg: 'bg-white/4',       border: 'border-white/10',       label: 'Entry' },
-  'STOP LOSS':        { icon: <Shield className="w-3.5 h-3.5" />,    color: 'text-red-400',     bg: 'bg-red-500/8',     border: 'border-red-500/20',     label: 'Stop Loss' },
-  'TARGET':           { icon: <Target className="w-3.5 h-3.5" />,    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20', label: 'Target' },
-  'RISK/REWARD':      { icon: <BarChart2 className="w-3.5 h-3.5" />, color: 'text-yellow-400',  bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  label: 'Risk / Reward' },
-  'THESIS':           { icon: <Zap className="w-3.5 h-3.5" />,       color: 'text-yellow-400',  bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  label: 'Thesis' },
-  'RISKS':            { icon: <AlertTriangle className="w-3.5 h-3.5" />, color: 'text-red-400', bg: 'bg-red-500/8',     border: 'border-red-500/20',     label: 'Risks' },
-  'TIMING':           { icon: <Clock className="w-3.5 h-3.5" />,     color: 'text-slate-300',   bg: 'bg-white/3',       border: 'border-white/8',        label: 'Timing' },
-  'CONVICTION':       { icon: <Brain className="w-3.5 h-3.5" />,     color: 'text-purple-400',  bg: 'bg-purple-500/8',  border: 'border-purple-500/20',  label: 'Conviction' },
+  'RECOMMENDED DIRECTION': { icon: <Zap className="w-3.5 h-3.5" />,          color: 'text-yellow-300',  bg: 'bg-yellow-500/12', border: 'border-yellow-500/30', label: 'Recommended Direction' },
+  'BULL CASE':             { icon: <TrendingUp className="w-3.5 h-3.5" />,    color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20', label: 'Bull Case' },
+  'BEAR CASE':             { icon: <TrendingDown className="w-3.5 h-3.5" />,  color: 'text-red-400',     bg: 'bg-red-500/8',     border: 'border-red-500/20',     label: 'Bear Case' },
+  "WHAT'S HAPPENING":      { icon: <Activity className="w-3.5 h-3.5" />,      color: 'text-sky-400',     bg: 'bg-sky-500/8',     border: 'border-sky-500/20',     label: "What's Happening" },
+  'ENTRY':                 { icon: <Crosshair className="w-3.5 h-3.5" />,     color: 'text-white',       bg: 'bg-white/4',       border: 'border-white/10',       label: 'Entry' },
+  'STOP LOSS':             { icon: <Shield className="w-3.5 h-3.5" />,        color: 'text-red-400',     bg: 'bg-red-500/8',     border: 'border-red-500/20',     label: 'Stop Loss' },
+  'TARGET':                { icon: <Target className="w-3.5 h-3.5" />,        color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20', label: 'Target' },
+  'RISK/REWARD':           { icon: <BarChart2 className="w-3.5 h-3.5" />,     color: 'text-yellow-400',  bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  label: 'Risk / Reward' },
+  'THESIS':                { icon: <Zap className="w-3.5 h-3.5" />,           color: 'text-yellow-400',  bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  label: 'Thesis' },
+  'RISKS':                 { icon: <AlertTriangle className="w-3.5 h-3.5" />, color: 'text-red-400',     bg: 'bg-red-500/8',     border: 'border-red-500/20',     label: 'Risks' },
+  'TIMING':                { icon: <Clock className="w-3.5 h-3.5" />,         color: 'text-slate-300',   bg: 'bg-white/3',       border: 'border-white/8',        label: 'Timing' },
+  'CONVICTION':            { icon: <Brain className="w-3.5 h-3.5" />,         color: 'text-purple-400',  bg: 'bg-purple-500/8',  border: 'border-purple-500/20',  label: 'Conviction' },
 }
 
 function parseAnalysis(text: string): Array<{ header: string; body: string }> {
@@ -57,6 +60,16 @@ export default function PlaysClient() {
   const [expandedSection, setExpandedSection] = useState<string | null>(null)
 
   const sections = result ? parseAnalysis(result.analysis) : []
+
+  // Extract Groq's recommended direction from the analysis
+  const recSection = sections.find(s => s.header === 'RECOMMENDED DIRECTION')
+  const recBody = recSection?.body?.toUpperCase() ?? ''
+  const groqDirection: 'long' | 'short' | null = recBody.includes('SHORT') && !recBody.includes('NOT SHORT')
+    ? 'short'
+    : recBody.includes('LONG') && !recBody.includes('NOT LONG')
+    ? 'long'
+    : null
+  const directionConflict = groqDirection && groqDirection !== direction
 
   async function analyze() {
     if (!ticker.trim()) return
@@ -184,23 +197,41 @@ export default function PlaysClient() {
       {result && (
         <div className="flex flex-col gap-4">
           {/* Ticker summary bar */}
-          <div className="flex items-center gap-3 px-4 py-3 border border-white/[0.07] rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
-            <span className="font-bold text-lg text-white font-mono">{result.ticker}</span>
-            {result.price != null && (
-              <span className="text-sm text-white font-semibold tabular-nums">${Number(result.price).toFixed(2)}</span>
-            )}
-            {result.change_pct != null && (
-              <span className={`text-sm font-bold tabular-nums ${result.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {result.change_pct >= 0 ? '+' : ''}{Number(result.change_pct).toFixed(2)}%
-              </span>
-            )}
-            <span className={`text-xs px-2 py-0.5 rounded border font-bold ml-1 ${direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
-              {direction.toUpperCase()}
-            </span>
-            <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
-              <span>{result.signal_count} signals</span>
-              <span>{result.news_count} news</span>
+          <div className="flex flex-col gap-2 px-4 py-3 border border-white/[0.07] rounded-xl" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-lg text-white font-mono">{result.ticker}</span>
+              {result.price != null && (
+                <span className="text-sm text-white font-semibold tabular-nums">${Number(result.price).toFixed(2)}</span>
+              )}
+              {result.change_pct != null && (
+                <span className={`text-sm font-bold tabular-nums ${result.change_pct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {result.change_pct >= 0 ? '+' : ''}{Number(result.change_pct).toFixed(2)}%
+                </span>
+              )}
+              {/* Show Groq's recommended direction */}
+              {groqDirection ? (
+                <span className={`text-xs px-2 py-0.5 rounded border font-bold ml-1 ${groqDirection === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
+                  {groqDirection.toUpperCase()}
+                </span>
+              ) : (
+                <span className={`text-xs px-2 py-0.5 rounded border font-bold ml-1 ${direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
+                  {direction.toUpperCase()}
+                </span>
+              )}
+              <div className="ml-auto flex items-center gap-3 text-[11px] text-slate-500">
+                <span>{result.signal_count} signals</span>
+                <span>{result.news_count} news</span>
+              </div>
             </div>
+            {/* Direction conflict warning */}
+            {directionConflict && groqDirection && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-yellow-500/10 border border-yellow-500/25">
+                <AlertTriangle className="w-3.5 h-3.5 text-yellow-400 shrink-0" />
+                <span className="text-xs text-yellow-300 font-medium">
+                  You picked {direction.toUpperCase()} but Groq recommends {groqDirection.toUpperCase()} based on current signals — see analysis below
+                </span>
+              </div>
+            )}
           </div>
 
           {/* Analysis sections */}
@@ -237,14 +268,14 @@ export default function PlaysClient() {
                   </div>
 
                   {/* Section body — always visible for key sections, collapsible for others */}
-                  {(isExpanded || ['ENTRY', 'STOP LOSS', 'TARGET', 'CONVICTION'].includes(section.header)) && (
+                  {(isExpanded || ['RECOMMENDED DIRECTION', 'BULL CASE', 'BEAR CASE', 'ENTRY', 'STOP LOSS', 'TARGET', 'CONVICTION'].includes(section.header)) && (
                     <div className="px-4 py-3 border-t border-white/[0.05]">
                       <p className="text-sm text-slate-200 leading-relaxed">{section.body}</p>
                     </div>
                   )}
 
                   {/* Preview line for collapsed non-key sections */}
-                  {!isExpanded && !['ENTRY', 'STOP LOSS', 'TARGET', 'CONVICTION'].includes(section.header) && (
+                  {!isExpanded && !['RECOMMENDED DIRECTION', 'BULL CASE', 'BEAR CASE', 'ENTRY', 'STOP LOSS', 'TARGET', 'CONVICTION'].includes(section.header) && (
                     <div className="px-4 py-2 border-t border-white/[0.04]">
                       <p className="text-xs text-slate-500 line-clamp-1">{section.body}</p>
                     </div>
