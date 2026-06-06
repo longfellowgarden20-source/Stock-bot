@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import getGroqClient from '@/lib/groq-client'
+import { callGroqWithFallback } from '@/lib/groq-client'
 
 export const dynamic = 'force-dynamic'
 
@@ -137,15 +137,14 @@ Write a detailed trade review covering:
 
 Be direct, specific, and trader-focused. Reference actual prices and percentages.`
 
-    const groq = getGroqClient()
-    const completion = await groq.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
-      messages: [{ role: 'user', content: prompt }],
-      max_tokens: 1000,
-      temperature: 0.3,
-    })
-
-    const analysis = completion.choices[0]?.message?.content ?? 'Analysis unavailable.'
+    const analysis = await callGroqWithFallback(groq =>
+      groq.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: [{ role: 'user', content: prompt }],
+        max_tokens: 1000,
+        temperature: 0.3,
+      }).then(c => c.choices[0]?.message?.content ?? 'Analysis unavailable.')
+    )
 
     return NextResponse.json({ analysis, pnl_curve: pnlCurve, trade })
   } catch (err) {
