@@ -31,6 +31,7 @@ type SandboxTrade = {
   profit_efficiency?: number | null
   stop_category?: string | null
   account_health?: string | null
+  fill_status?: 'filled' | 'pending' | null  // FIX: Added missing field for pending order warning
 }
 
 type Performance = {
