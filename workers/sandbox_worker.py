@@ -318,8 +318,9 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
     for t in get_watchlist_tickers():
         scores[t] = scores.get(t, 0) + 5
 
-    # Sort by score descending, take top 20
-    ranked = sorted(tickers, key=lambda t: scores.get(t, 0), reverse=True)[:MAX_DAILY_ENTRIES]
+    # Sort by score descending, take top 8 (was 20) — reduces Groq calls 60%
+    # Each decide_entry costs 300 tokens; 20*300 = 6k per scan. Now 8*300 = 2.4k
+    ranked = sorted(tickers, key=lambda t: scores.get(t, 0), reverse=True)[:8]
     log.info(f"Sandbox scan universe: {len(tickers)} tickers → top {len(ranked)} by signal score")
     return ranked
 
@@ -1733,7 +1734,7 @@ ENTRY RULES:
     # #27 — A/B test: 20% of entries use fast 8b model, tagged for WR comparison
     import random as _random
     use_fast_model = _random.random() < 0.20
-    raw = await _call_groq(prompt, max_tokens=300, fast=use_fast_model)
+    raw = await _call_groq(prompt, max_tokens=200, fast=use_fast_model)  # Reduced from 300 → 200
     if not raw:
         return None
 
@@ -2564,7 +2565,7 @@ Be brutally honest. Analyze your decisions as a batch — not one at a time. Ans
 
 Be direct. You are critiquing yourself, not being polite."""
 
-    critique = await _call_groq(prompt, max_tokens=1200)  # #23 — raised from 700
+    critique = await _call_groq(prompt, max_tokens=600)  # Reduced from 1200 to 600 (token budget)
     if not critique:
         log.warning("Nightly critique Groq call failed")
         return {"status": "error", "reason": "groq failed"}
@@ -2735,10 +2736,19 @@ async def run_once() -> dict:
             open_positions = get_open_positions()
             open_tickers = {p["ticker"] for p in open_positions}
 
-        # #7 — Intraday stop/target checks for ALL open trades (not just EOD)
-        # This ensures day trades don't wait until 4pm to hit their stop
+        # #7 — Intraday stop/target checks (every 2 hours to save tokens on swing Groq calls)
+        # Only evaluate swings if it's been 120+ minutes since last eval
+        from datetime import datetime, timezone, timedelta
+        now_utc = datetime.now(timezone.utc)
+        last_swing_eval = getattr(evaluate_open_trade, '_last_eval_time', None)
+        should_eval_swings = (
+            last_swing_eval is None or
+            (now_utc - last_swing_eval).total_seconds() >= 7200  # 2 hours
+        )
+
         active_positions = [p for p in open_positions if p.get("fill_status") != "pending"]
-        if active_positions:
+        if active_positions and should_eval_swings:
+            evaluate_open_trade._last_eval_time = now_utc
             for trade in active_positions:
                 try:
                     await evaluate_open_trade(client, trade)
