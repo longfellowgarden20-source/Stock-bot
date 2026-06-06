@@ -21,8 +21,16 @@ log = logging.getLogger("price_worker")
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
-FINNHUB_KEY = os.environ.get("FINNHUB_API_KEY", "")
+
+# Multiple Finnhub keys for load balancing (round-robin)
+FINNHUB_KEYS = [
+    os.environ.get("FINNHUB_API_KEY", ""),
+    os.environ.get("FINNHUB_API_KEY_2", ""),
+    os.environ.get("FINNHUB_API_KEY_3", ""),
+]
+FINNHUB_KEYS = [k for k in FINNHUB_KEYS if k]  # Filter out empty strings
 FINNHUB_BASE = "https://finnhub.io/api/v1"
+_finnhub_counter = 0  # Round-robin counter
 
 # QUICK WIN #2: Per-ticker alert thresholds with 1h caching
 WATCHLIST_CACHE = {}
@@ -81,22 +89,27 @@ async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
     except Exception as e:
         log.debug(f"{ticker}: Polygon aggs fallback failed — {e}")
 
-    # Fallback 2: Finnhub quote (unlimited free tier, 60 calls/min)
-    if FINNHUB_KEY:
-        try:
-            fh_url = f"{FINNHUB_BASE}/quote"
-            r = await client.get(fh_url, params={"symbol": ticker.upper(), "token": FINNHUB_KEY}, timeout=10)
-            if r.status_code == 200:
-                data = r.json()
-                if data.get("c"):  # current price exists
-                    log.info(f"{ticker}: using Finnhub (Polygon rate limited)")
-                    return {
-                        "day": {"c": data.get("c"), "v": data.get("v"), "o": data.get("o")},
-                        "prevDay": {"c": data.get("pc")},  # previous close
-                        "lastTrade": {"p": data.get("c")},
-                    }
-        except Exception as e:
-            log.debug(f"{ticker}: Finnhub fallback failed — {e}")
+    # Fallback 2: Finnhub quote (unlimited free tier, 60 calls/min per key)
+    # Round-robin across multiple keys for load balancing
+    if FINNHUB_KEYS:
+        global _finnhub_counter
+        for _ in range(len(FINNHUB_KEYS)):
+            key = FINNHUB_KEYS[_finnhub_counter % len(FINNHUB_KEYS)]
+            _finnhub_counter += 1
+            try:
+                fh_url = f"{FINNHUB_BASE}/quote"
+                r = await client.get(fh_url, params={"symbol": ticker.upper(), "token": key}, timeout=10)
+                if r.status_code == 200:
+                    data = r.json()
+                    if data.get("c"):  # current price exists
+                        log.info(f"{ticker}: using Finnhub (Polygon rate limited)")
+                        return {
+                            "day": {"c": data.get("c"), "v": data.get("v"), "o": data.get("o")},
+                            "prevDay": {"c": data.get("pc")},  # previous close
+                            "lastTrade": {"p": data.get("c")},
+                        }
+            except Exception as e:
+                log.debug(f"{ticker}: Finnhub key {_finnhub_counter % len(FINNHUB_KEYS)} failed — {e}")
 
     # Fallback 3: Yahoo Finance (free, no API key, no rate limits)
     try:
