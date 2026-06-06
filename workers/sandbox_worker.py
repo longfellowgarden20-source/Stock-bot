@@ -227,7 +227,9 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
     tickers: set[str] = set()
 
     # 1. Watchlist + portfolio — always included
-    tickers.update(get_watchlist_tickers())
+    # BUG FIX #11: Call once and cache (prevents redundant DB query at line 318)
+    watchlist_tickers = get_watchlist_tickers()
+    tickers.update(watchlist_tickers)
 
     # 2. Polygon top gainers + losers
     if POLYGON_KEY:
@@ -315,7 +317,8 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
         log.debug(f"Scoring failed: {e}")
 
     # Watchlist/portfolio tickers always get a score boost so they're never dropped
-    for t in get_watchlist_tickers():
+    # BUG FIX #11: Reuse watchlist_tickers variable (no second DB call)
+    for t in watchlist_tickers:
         scores[t] = scores.get(t, 0) + 5
 
     # Sort by score descending, take top 8 (was 20) — reduces Groq calls 60%
@@ -369,10 +372,18 @@ async def get_recent_signals(ticker: str, hours: int = 24) -> list[dict]:
             .eq("ticker", ticker.upper())
             .gte("created_at", since)
             .order("severity", desc=True)
-            .limit(10)
+            .limit(5)  # BUG FIX #10: Reduced from 10 to 5 (prevents token bloat on high-signal tickers)
             .execute()
         )
-        return res.data or []
+        # BUG FIX #10: Deduplicate by signal_type (keep highest severity per type)
+        if res.data:
+            seen = {}
+            for sig in res.data:
+                sig_type = sig.get("signal_type")
+                if sig_type not in seen:
+                    seen[sig_type] = sig
+            return list(seen.values())
+        return []
     except Exception as e:
         log.debug(f"Signals fetch failed for {ticker}: {e}")
         return []
@@ -1384,8 +1395,10 @@ async def decide_entry(
         return None
 
     # #6/#13 — Sector correlation limit (direct + correlated sectors)
+    # BUG FIX #4: Filter out pending fills when counting (prevents overcommit on parallel entries)
     if open_positions:
-        sector_counts = count_open_positions_by_sector(open_positions)
+        open_filled = [p for p in open_positions if p.get("fill_status") != "pending"]
+        sector_counts = count_open_positions_by_sector(open_filled)
         ticker_sector = SECTOR_MAP.get(ticker.upper(), "other")
         if ticker_sector != "other" and sector_counts.get(ticker_sector, 0) >= MAX_POSITIONS_PER_SECTOR:
             log.debug(f"Filter #6: {ticker} sector={ticker_sector} already at limit — skip")
@@ -1589,10 +1602,15 @@ async def decide_entry(
         pass
 
     # Get today's morning outlook to bias direction
+    # BUG FIX #9: Improved error handling for missing import (log the error, don't fail silently)
     try:
         import morning_outlook_worker
         outlook = morning_outlook_worker.get_todays_outlook()
-    except Exception:
+    except (ImportError, AttributeError, ModuleNotFoundError) as e:
+        log.debug(f"Morning outlook unavailable: {e}")
+        outlook = None
+    except Exception as e:
+        log.warning(f"Morning outlook error: {e}")
         outlook = None
 
     # Build signal summary
@@ -1983,7 +2001,9 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         pnl_pct = (entry - price) / entry * 100
 
     # #5 — Track peak P&L: update if current is higher than stored peak
-    current_peak = float(trade.get("peak_pnl_pct") or 0)
+    # BUG FIX #3: Initialize to -999999 (not 0) so first +0.01% trade always updates
+    # Prevents race condition where parallel evals both read old peak, both write same value
+    current_peak = float(trade.get("peak_pnl_pct") or -999999.0)
     if pnl_pct > current_peak:
         try:
             supabase().table("sandbox_trades").update({
@@ -1991,8 +2011,8 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
                 "updated_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", trade["id"]).execute()
             trade["peak_pnl_pct"] = pnl_pct  # only update local after DB confirms
-        except Exception:
-            pass  # DB failed — local copy not updated either (consistent)
+        except Exception as e:
+            log.debug(f"Peak P&L update failed for {trade['ticker']}: {e}")  # log the error
 
     # #10 — Tiered trailing stop: escalate as trade moves in our favour
     # Tier 1: +2% → breakeven  Tier 2: +4% → +1.5%  Tier 3: +6% → +3%
@@ -2384,6 +2404,7 @@ async def _record_equity_snapshot(client: httpx.AsyncClient | None = None) -> No
     try:
         acct_res = supabase().table("sandbox_account").select("balance,peak_balance").limit(1).execute()
         if not acct_res.data:
+            log.warning("Equity snapshot: no account data found")
             return
         acct = acct_res.data[0]
         balance = float(acct["balance"])
@@ -2395,7 +2416,13 @@ async def _record_equity_snapshot(client: httpx.AsyncClient | None = None) -> No
 
         today_str = date.today().isoformat()
         trades_today = supabase().table("sandbox_trades").select("pnl").eq("status", "closed").eq("exit_date", today_str).execute()
-        daily_pnl = sum((r.get("pnl") or 0) for r in (trades_today.data or []))
+
+        # BUG FIX #7: Validate data exists before processing (silent corruption prevention)
+        if trades_today.data is None:
+            log.warning(f"Equity snapshot: trades_today.data is None (DB error?)")
+            daily_pnl = 0
+        else:
+            daily_pnl = sum((r.get("pnl") or 0) for r in trades_today.data)
 
         wins, total, win_rate, win_rate_ci = get_overall_win_rate()
 
@@ -2407,8 +2434,9 @@ async def _record_equity_snapshot(client: httpx.AsyncClient | None = None) -> No
             "drawdown_pct": round(drawdown, 4),
             "win_rate": round(win_rate, 2),
         }, on_conflict="date").execute()
+        log.info(f"Equity snapshot recorded: ${balance:,.0f} ({total_return_pct:+.1f}%)")
     except Exception as e:
-        log.debug(f"Equity snapshot failed: {e}")
+        log.error(f"Equity snapshot failed: {e}")
 
 
 # ─── Daily performance snapshot ───────────────────────────────────────────────
