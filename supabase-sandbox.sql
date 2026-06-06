@@ -37,3 +37,13 @@ CREATE TABLE IF NOT EXISTS sandbox_performance (
   gross_pnl   numeric(12,2) DEFAULT 0,
   created_at  timestamptz DEFAULT now()
 );
+
+-- Pre-market game plan: Groq's picks before the market opens
+create table if not exists sandbox_premarket_plans (
+  id              uuid primary key default gen_random_uuid(),
+  date            date unique not null,
+  picks           jsonb not null default '[]',
+  outlook_direction text,
+  candidate_count int,
+  created_at      timestamptz default now()
+);

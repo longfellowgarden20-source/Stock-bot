@@ -86,6 +86,25 @@ async def _call_groq(prompt: str, max_tokens: int = 500) -> str | None:
 
 # ─── Data helpers ─────────────────────────────────────────────────────────────
 
+def get_premarket_plan() -> list[dict]:
+    """Return today's pre-market game plan picks, sorted by conviction desc."""
+    try:
+        today = date.today().isoformat()
+        res = (
+            supabase().table("sandbox_premarket_plans")
+            .select("picks")
+            .eq("date", today)
+            .limit(1)
+            .execute()
+        )
+        if res.data:
+            picks = res.data[0].get("picks") or []
+            return sorted(picks, key=lambda p: p.get("conviction", 0), reverse=True)
+    except Exception as e:
+        log.debug(f"Pre-market plan fetch failed: {e}")
+    return []
+
+
 def get_watchlist_tickers() -> list[str]:
     try:
         watch = supabase().table("watchlist").select("ticker").execute()
@@ -1710,7 +1729,20 @@ async def run_once() -> dict:
                 today_entry_count = 0
 
             if today_entry_count < MAX_DAILY_ENTRIES and len(open_positions) < MAX_OPEN_POSITIONS:
-                tickers = await get_scan_universe(client)
+                # Use pre-market game plan if available — Groq already picked the best setups
+                premarket_plan = get_premarket_plan()
+                if premarket_plan:
+                    # Put pre-market picks first (by conviction), then fill with scan universe
+                    plan_tickers = [p["ticker"] for p in premarket_plan]
+                    scan_tickers = await get_scan_universe(client)
+                    # Deduplicate — plan tickers take priority
+                    extra = [t for t in scan_tickers if t not in set(plan_tickers)]
+                    tickers = plan_tickers + extra
+                    log.info(f"Using pre-market game plan: {plan_tickers} + {len(extra)} from scan")
+                else:
+                    tickers = await get_scan_universe(client)
+                    log.info("No pre-market plan — using scan universe")
+
                 entries = 0
                 slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
 
