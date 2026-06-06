@@ -559,6 +559,25 @@ export default function SandboxClient({
   const [livePrices, setLivePrices] = useState<Record<string, number>>({})
   const [liveMode, setLiveMode] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
+  const [resetting, setResetting] = useState(false)
+
+  async function handleReset() {
+    if (!window.confirm('Reset sandbox to $50,000? This deletes ALL trades, P&L, and history. Cannot be undone.')) return
+    setResetting(true)
+    try {
+      const r = await fetch('/api/sandbox/reset', { method: 'POST' })
+      if (r.ok) {
+        window.location.reload()
+      } else {
+        const d = await r.json()
+        alert(`Reset failed: ${d.error}`)
+      }
+    } catch {
+      alert('Reset failed — network error')
+    } finally {
+      setResetting(false)
+    }
+  }
 
   // Returns true if market is currently open (9:30am–4:00pm ET weekdays)
   function isMarketHours(): boolean {
@@ -688,6 +707,15 @@ export default function SandboxClient({
             style={{ transition: 'color 0.1s' }}
           >
             ↻ Refresh
+          </button>
+          <button
+            onClick={handleReset}
+            disabled={resetting}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border text-red-500/60 border-red-500/20 bg-red-500/5 hover:text-red-400 hover:border-red-500/30 disabled:opacity-40"
+            style={{ transition: 'all 0.1s' }}
+            title="Reset sandbox to $50,000"
+          >
+            {resetting ? '…' : '↺ Reset'}
           </button>
         </div>
       </div>
