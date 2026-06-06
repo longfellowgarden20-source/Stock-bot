@@ -343,14 +343,30 @@ RULES:
             "thesis": str(p["thesis"])[:400],
         })
 
+    # #15 — Build rejected list: candidates not in valid_picks
+    picked_tickers = {p["ticker"] for p in valid_picks}
+    rejected = []
+    for c in candidates:
+        if c["ticker"] not in picked_tickers:
+            price_info = prices.get(c["ticker"])
+            rejected.append({
+                "ticker": c["ticker"],
+                "score": c["score"],
+                "price": price_info["price"] if price_info else None,
+                "change_pct": price_info["change_pct"] if price_info else None,
+                "top_signal": c["signals"][0]["type"] if c["signals"] else "none",
+                "reason": "below conviction threshold or not selected by Groq",
+            })
+
     if not valid_picks:
         log.info("Pre-market scan: no high-conviction picks today")
-        return {"picks": [], "date": today_str}
+        return {"picks": [], "rejected": rejected, "date": today_str}
 
     # Store game plan in DB
     plan_record = {
         "date": today_str,
         "picks": valid_picks,
+        "rejected_candidates": rejected[:20],  # top 20 rejected
         "outlook_direction": outlook.get("direction") if outlook else "neutral",
         "candidate_count": len(candidates),
         "created_at": datetime.now(timezone.utc).isoformat(),

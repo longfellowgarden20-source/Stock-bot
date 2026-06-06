@@ -8,7 +8,15 @@ ALTER TABLE sandbox_trades
   ADD COLUMN IF NOT EXISTS account_health       text,
   ADD COLUMN IF NOT EXISTS stop_distance_pct    numeric(8,4),
   ADD COLUMN IF NOT EXISTS conviction_label     text,
-  ADD COLUMN IF NOT EXISTS is_convergence       boolean DEFAULT false;
+  ADD COLUMN IF NOT EXISTS is_convergence       boolean DEFAULT false,
+  ADD COLUMN IF NOT EXISTS fill_status          text DEFAULT 'filled'; -- 'pending' | 'filled' | 'expired'
+
+-- Back-fill existing trades as already filled
+UPDATE sandbox_trades SET fill_status = 'filled' WHERE fill_status IS NULL;
+
+-- Add rejected_candidates to premarket plans
+ALTER TABLE sandbox_premarket_plans
+  ADD COLUMN IF NOT EXISTS rejected_candidates jsonb DEFAULT '[]';
 
 -- Ensure only one sandbox_account row ever exists
 ALTER TABLE sandbox_account

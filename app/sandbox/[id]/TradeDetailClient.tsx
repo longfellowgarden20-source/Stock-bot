@@ -27,6 +27,13 @@ type SandboxTrade = {
   groq_thesis: string | null
   groq_exit_note: string | null
   signals_at_entry?: Array<{ type: string; sev: number; title: string }> | null
+  conviction_label?: string | null
+  account_health?: string | null
+  stop_category?: string | null
+  confidence_used?: number | null
+  peak_pnl_pct?: number | null
+  profit_efficiency?: number | null
+  is_convergence?: boolean | null
 }
 
 type PnlPoint = { time: string; price: number; pnl_pct: number; pnl_dollar: number }
@@ -315,6 +322,33 @@ export default function TradeDetailClient({ trade }: { trade: SandboxTrade }) {
             <p className="text-xs text-slate-300 leading-relaxed">{trade.groq_thesis}</p>
           </div>
         )}
+
+        {/* #18 — New fields from improvements */}
+        <div className="flex flex-wrap gap-1.5">
+          {trade.conviction_label && (
+            <span className="text-[10px] px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/8 text-purple-300">{trade.conviction_label}</span>
+          )}
+          {trade.stop_category && (
+            <span className={`text-[10px] px-2 py-0.5 rounded border ${trade.stop_category === 'tight' ? 'border-yellow-500/20 bg-yellow-500/8 text-yellow-400' : trade.stop_category === 'wide' ? 'border-red-500/20 bg-red-500/8 text-red-400' : 'border-white/[0.08] text-slate-400'}`}>
+              {trade.stop_category} stop
+            </span>
+          )}
+          {trade.account_health && trade.account_health !== 'healthy' && (
+            <span className="text-[10px] px-2 py-0.5 rounded border border-red-500/20 bg-red-500/8 text-red-400">{trade.account_health}</span>
+          )}
+          {trade.confidence_used != null && (
+            <span className="text-[10px] px-2 py-0.5 rounded border border-white/[0.08] text-slate-400">conf {trade.confidence_used}%</span>
+          )}
+          {trade.is_convergence && (
+            <span className="text-[10px] px-2 py-0.5 rounded border border-sky-500/25 bg-sky-500/8 text-sky-400">⚡ convergence</span>
+          )}
+          {trade.peak_pnl_pct != null && trade.pnl_pct != null && (
+            <span className="text-[10px] px-2 py-0.5 rounded border border-white/[0.08] text-slate-400">
+              peak {trade.peak_pnl_pct > 0 ? '+' : ''}{trade.peak_pnl_pct.toFixed(2)}%
+              {trade.profit_efficiency != null && ` · ${(trade.profit_efficiency * 100).toFixed(0)}% captured`}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* P&L chart */}

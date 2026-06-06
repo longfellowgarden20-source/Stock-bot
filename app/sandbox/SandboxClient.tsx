@@ -446,10 +446,20 @@ type PremktPick = {
   thesis: string
 }
 
+type RejectedCandidate = {
+  ticker: string
+  score: number
+  price: number | null
+  change_pct: number | null
+  top_signal: string
+  reason: string
+}
+
 type PremktPlan = {
   date: string
   picks: PremktPick[]
   outlook_direction: string | null
+  rejected_candidates?: RejectedCandidate[]
 }
 
 type GroqLesson = {
@@ -560,6 +570,15 @@ export default function SandboxClient({
   const [liveMode, setLiveMode] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [resetting, setResetting] = useState(false)
+  const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number } | null>(null)
+
+  // #1 — Fetch worker status on mount
+  useEffect(() => {
+    fetch('/api/sandbox/status')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setWorkerStatus(d) })
+      .catch(() => {})
+  }, [])
 
   async function handleReset() {
     if (!window.confirm('Reset sandbox to $50,000? This deletes ALL trades, P&L, and history. Cannot be undone.')) return
@@ -720,6 +739,27 @@ export default function SandboxClient({
         </div>
       </div>
 
+      {/* #1 — Worker status banner */}
+      {workerStatus && (
+        <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border text-xs ${
+          !workerStatus.worker_alive
+            ? 'border-red-500/30 bg-red-500/8 text-red-400'
+            : workerStatus.stale_day_trades > 0
+            ? 'border-yellow-500/25 bg-yellow-500/8 text-yellow-400'
+            : 'border-emerald-500/20 bg-emerald-500/5 text-emerald-400'
+        }`}>
+          <div className={`w-2 h-2 rounded-full shrink-0 ${
+            !workerStatus.worker_alive ? 'bg-red-400' : workerStatus.stale_day_trades > 0 ? 'bg-yellow-400' : 'bg-emerald-400 animate-pulse'
+          }`} />
+          {!workerStatus.worker_alive
+            ? `Worker offline — last activity ${workerStatus.hours_since_last_activity.toFixed(0)}h ago. Trades are NOT being managed.`
+            : workerStatus.stale_day_trades > 0
+            ? `${workerStatus.stale_day_trades} stale day trade${workerStatus.stale_day_trades > 1 ? 's' : ''} from a previous session — worker will close them on next tick.`
+            : `Worker active — last activity ${workerStatus.hours_since_last_activity.toFixed(0)}h ago`
+          }
+        </div>
+      )}
+
       {/* Account balance hero */}
       <div className="border border-white/[0.07] rounded-xl p-5" style={{ background: 'rgba(255,255,255,0.02)' }}>
         <div className="flex items-start justify-between gap-4 flex-wrap mb-4">
@@ -850,6 +890,45 @@ export default function SandboxClient({
       {/* Closed */}
       {activeTab === 'closed' && (
         <div className="flex flex-col gap-2">
+          {/* #17 — Stats summary bar */}
+          {closedTrades.length > 0 && (() => {
+            const wins = closedTrades.filter(t => (t.pnl ?? 0) > 0)
+            const losses = closedTrades.filter(t => (t.pnl ?? 0) < 0)
+            const gross = closedTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+            const avgWinPct = wins.length ? wins.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / wins.length : 0
+            const avgLossPct = losses.length ? losses.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses.length : 0
+            const best = closedTrades.reduce((b, t) => (t.pnl ?? 0) > (b.pnl ?? 0) ? t : b, closedTrades[0])
+            const worst = closedTrades.reduce((b, t) => (t.pnl ?? 0) < (b.pnl ?? 0) ? t : b, closedTrades[0])
+            const wr = closedTrades.length > 0 ? wins.length / closedTrades.length * 100 : 0
+            return (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 border border-white/[0.07] rounded-xl p-3" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Win Rate</p>
+                  <p className={`text-sm font-bold tabular-nums ${wr >= 70 ? 'text-emerald-400' : wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{wr.toFixed(1)}%</p>
+                  <p className="text-[10px] text-slate-600">{wins.length}W / {losses.length}L</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Gross P&amp;L</p>
+                  <p className={`text-sm font-bold tabular-nums ${pnlColor(gross)}`}>{gross >= 0 ? '+' : ''}${gross.toFixed(0)}</p>
+                  <p className="text-[10px] text-slate-600">{closedTrades.length} trades</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Avg Win / Loss</p>
+                  <p className="text-sm font-bold text-white tabular-nums">{avgWinPct.toFixed(1)}% / {Math.abs(avgLossPct).toFixed(1)}%</p>
+                  <p className="text-[10px] text-slate-600">R:R {avgLossPct !== 0 ? Math.abs(avgWinPct / avgLossPct).toFixed(2) : '—'}</p>
+                </div>
+                <div className="text-center">
+                  <p className="text-[10px] text-slate-500 uppercase tracking-wider">Best / Worst</p>
+                  <p className="text-sm font-bold tabular-nums">
+                    <span className="text-emerald-400">+${(best.pnl ?? 0).toFixed(0)}</span>
+                    <span className="text-slate-600"> / </span>
+                    <span className="text-red-400">${(worst.pnl ?? 0).toFixed(0)}</span>
+                  </p>
+                  <p className="text-[10px] text-slate-600">{best.ticker} / {worst.ticker}</p>
+                </div>
+              </div>
+            )
+          })()}
           {closedTrades.length === 0 ? (
             <div className="border border-white/[0.07] rounded-xl p-10 text-center flex flex-col items-center gap-3">
               <BarChart2 className="w-8 h-8 text-slate-700" />
@@ -968,6 +1047,44 @@ export default function SandboxClient({
                   </div>
                 )
               })}
+
+              {/* #15 — Rejected candidates */}
+              {premktPlan.rejected_candidates && premktPlan.rejected_candidates.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider px-1 mb-2">
+                    Rejected ({premktPlan.rejected_candidates.length}) — candidates Groq passed on
+                  </p>
+                  <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-white/[0.05] bg-white/[0.02]">
+                          <th className="text-left px-3 py-2 text-[10px] text-slate-500 font-semibold uppercase">Ticker</th>
+                          <th className="text-right px-3 py-2 text-[10px] text-slate-500 font-semibold uppercase">Score</th>
+                          <th className="text-right px-3 py-2 text-[10px] text-slate-500 font-semibold uppercase">Price</th>
+                          <th className="text-left px-3 py-2 text-[10px] text-slate-500 font-semibold uppercase">Top Signal</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {premktPlan.rejected_candidates.slice(0, 10).map((r, i) => (
+                          <tr key={i} className="border-b border-white/[0.03] hover:bg-white/[0.02]">
+                            <td className="px-3 py-1.5 font-bold text-slate-400 font-mono">{r.ticker}</td>
+                            <td className="px-3 py-1.5 text-right text-slate-500 tabular-nums">{r.score.toFixed(1)}</td>
+                            <td className="px-3 py-1.5 text-right text-slate-400 tabular-nums">
+                              {r.price ? `$${r.price.toFixed(2)}` : '—'}
+                              {r.change_pct != null && (
+                                <span className={`ml-1 text-[10px] ${r.change_pct >= 0 ? 'text-emerald-500' : 'text-red-500'}`}>
+                                  {r.change_pct >= 0 ? '+' : ''}{r.change_pct.toFixed(1)}%
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-1.5 text-slate-500">{r.top_signal.replace(/_/g, ' ')}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </>
           )}
         </div>

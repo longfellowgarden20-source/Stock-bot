@@ -257,25 +257,34 @@ These rules will be injected into every future entry decision."""
 async def run_once() -> dict:
     et = now_et()
     today = et.date()
-
-    # Only Sunday between 6-7pm ET
-    is_sunday = today.weekday() == 6
     total_min = et.hour * 60 + et.minute
-    in_window = 18 * 60 <= total_min < 19 * 60
-
-    if not is_sunday or not in_window:
-        return {"status": "skipped", "reason": "not Sunday 6-7pm ET"}
+    is_sunday = today.weekday() == 6
 
     global _last_review_date
     if _last_review_date == today:
         return {"status": "skipped", "reason": "already ran today"}
+
+    # #14 — Pattern mining runs daily after market close (5:30-6pm ET)
+    # Full weekly review (including pattern_review prose) only runs Sunday
+    in_daily_pattern_window = 17 * 60 + 30 <= total_min < 18 * 60
+    in_weekly_window = is_sunday and 18 * 60 <= total_min < 19 * 60
+
+    if not in_daily_pattern_window and not in_weekly_window:
+        return {"status": "skipped", "reason": "outside pattern mining window"}
+
     _last_review_date = today
 
-    weekly, patterns = await asyncio.gather(
-        run_weekly_pattern_review(),
-        run_cross_ticker_pattern_mining(),
-    )
-    return {"status": "ok", "weekly": weekly, "patterns": patterns}
+    if in_weekly_window:
+        # Full Sunday review: weekly prose + pattern mining
+        weekly, patterns = await asyncio.gather(
+            run_weekly_pattern_review(),
+            run_cross_ticker_pattern_mining(),
+        )
+        return {"status": "ok", "mode": "full_weekly", "weekly": weekly, "patterns": patterns}
+    else:
+        # Daily pattern mining only (no weekly prose)
+        patterns = await run_cross_ticker_pattern_mining()
+        return {"status": "ok", "mode": "daily_patterns", "patterns": patterns}
 
 
 async def main_loop():

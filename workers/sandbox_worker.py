@@ -890,6 +890,20 @@ def get_signal_freshness(ticker: str) -> tuple[bool, int]:
 
 
 MAX_CONSECUTIVE_LOSSES = 5   # halt all entries for the day after N consecutive losses
+
+# US market holidays — these don't count as trading days (#4)
+US_MARKET_HOLIDAYS: set[date] = {
+    # 2025
+    date(2025, 1, 1), date(2025, 1, 20), date(2025, 2, 17),
+    date(2025, 4, 18), date(2025, 5, 26), date(2025, 6, 19),
+    date(2025, 7, 4), date(2025, 9, 1), date(2025, 11, 27),
+    date(2025, 12, 25),
+    # 2026
+    date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16),
+    date(2026, 4, 3),  date(2026, 5, 25), date(2026, 6, 19),
+    date(2026, 7, 3),  date(2026, 9, 7),  date(2026, 11, 26),
+    date(2026, 12, 25),
+}
 MAX_DRAWDOWN_HALT_PCT  = 20.0  # auto-halt all entries if account drawdown exceeds this
 
 def get_consecutive_losses() -> int:
@@ -1121,12 +1135,13 @@ def has_earnings_soon(ticker: str, days: int = 2) -> tuple[bool, str]:
         return False, ""
 
 
-def is_on_cooldown(ticker: str) -> bool:
-    """#9 — True if ticker had 2+ consecutive losses recently and is in cooldown."""
+def is_on_cooldown(ticker: str, proposed_direction: str | None = None) -> bool:
+    """#6 — True if ticker had 2+ consecutive losses on the SAME direction recently.
+    A fresh convergence with opposite direction is allowed — cooldown is direction-specific."""
     try:
         res = (
             supabase().table("sandbox_trades")
-            .select("pnl,exit_date")
+            .select("pnl,exit_date,direction")
             .eq("ticker", ticker.upper())
             .eq("status", "closed")
             .order("updated_at", desc=True)
@@ -1137,20 +1152,25 @@ def is_on_cooldown(ticker: str) -> bool:
         if len(trades) < 2:
             return False
 
-        # Check last 2 trades — both losses?
         last_two = trades[:2]
         both_losses = all((t.get("pnl") or 0) < 0 for t in last_two)
         if not both_losses:
             return False
 
-        # Is the most recent loss within COOLDOWN_DAYS?
+        # #6 — if proposed_direction differs from losing direction, allow re-entry
+        if proposed_direction:
+            losing_direction = last_two[0].get("direction")
+            if losing_direction and losing_direction != proposed_direction:
+                log.debug(f"Cooldown override: {ticker} losses were {losing_direction}, new direction={proposed_direction} — allowed")
+                return False
+
         last_exit = last_two[0].get("exit_date")
         if not last_exit:
             return False
         last_date = date.fromisoformat(last_exit)
         days_since = (date.today() - last_date).days
         if days_since < COOLDOWN_DAYS:
-            log.debug(f"Cooldown: {ticker} had 2 consecutive losses, {days_since}d ago — skipping")
+            log.debug(f"Cooldown: {ticker} had 2 consecutive {last_two[0].get('direction','?')} losses, {days_since}d ago — skipping")
             return True
         return False
     except Exception:
@@ -1201,9 +1221,9 @@ async def decide_entry(
         log.debug(f"Filter #9: {ticker} has earnings soon — skip ({earnings_note})")
         return None
 
-    # #9 — Skip if on cooldown after 2 consecutive losses
+    # #9/#6 — Cooldown check (direction-aware — checked again post-Groq with actual direction)
     if is_on_cooldown(ticker):
-        log.debug(f"Filter #9: {ticker} on loss cooldown — skip")
+        log.debug(f"Filter #9: {ticker} on loss cooldown — pre-check (direction unknown)")
         return None
 
     # #6/#13 — Sector correlation limit (direct + correlated sectors)
@@ -1230,7 +1250,7 @@ async def decide_entry(
         signals, pred_lessons, sandbox_lessons,
         options_ctx, tech_ctx, convergence_ctx, volume_ctx,
     ) = await asyncio.gather(
-        get_recent_signals(ticker, hours=24),
+        get_recent_signals(ticker, hours=48),  # #13 — 48h window covers swing-relevant signals
         get_recent_lessons(ticker, limit=5),
         get_sandbox_lessons(ticker, limit=5),
         get_options_flow_context(ticker),
@@ -1474,11 +1494,18 @@ async def decide_entry(
         + (f"\n{sector_rotation_ctx}" if sector_rotation_ctx else "")
         + (f"\nRecent macro signals: {'; '.join(sector_signals)}" if sector_signals else "")
     )
+    # #12 — Position sizing context: show how risk pct translates to real dollars at current balance
+    health_mult_now, _ = get_account_health_multiplier()
+    base_risk_dollars = round(account_balance * (RISK_PCT_BASE * health_mult_now / 100), 0)
+    conv_risk_dollars = round(account_balance * (RISK_PCT_CONVERGENCE * health_mult_now / 100), 0)
+    sizing_note = f"\nPosition sizing: base=${base_risk_dollars:.0f} risk | convergence=${conv_risk_dollars:.0f} risk (health mult={health_mult_now:.1f}x)"
+
     account_block = (
         f"\nAccount: ${account_balance:,.0f} ({total_return_pct:+.1f}% total return) | Drawdown: {drawdown:.1f}%"
         + (f" | {streak_str}" if streak_str else "")
         + f" | Last 10 trades WR: {recent_wr:.0f}%"
         + (f" | WR lower CI: {win_rate_ci:.0f}% (conservative estimate)" if total >= 10 else "")
+        + sizing_note
         + (f"\n{conf_accuracy}" if conf_accuracy else "")
     )
     convergence_note = f"\n⚡ {convergence_ctx}" if "CONVERGENCE ALERT" in convergence_ctx else ""
@@ -1513,7 +1540,7 @@ SMART MONEY FLOW:
 TECHNICAL:
 {tech_ctx}
 
-SIGNALS (last 24h — freshest {hours_since}h ago):
+SIGNALS (last 48h — freshest {hours_since}h ago, older signals relevant for swing):
 {sig_block}
 
 PAST ACCURACY FOR {ticker}:
@@ -1564,12 +1591,26 @@ ENTRY RULES:
         return None
 
     # Confidence threshold — use lower CI bound as effective win rate (#2)
-    # Conservative: with few trades, lower CI punishes overconfidence from small N
     effective_wr_for_threshold = win_rate_ci if total >= 10 else win_rate
     if is_convergence:
         conf_threshold = CONVERGENCE_MIN_CONFIDENCE
     else:
         conf_threshold = get_confidence_threshold(effective_wr_for_threshold, total)
+
+    # #9 — Counter-trend entries need higher confidence threshold
+    # If Groq wants to go LONG on a bearish day (or SHORT on a bullish day), require 80+
+    proposed_direction_raw = parsed.get("direction", "long")
+    if outlook:
+        outlook_dir = (outlook.get("direction") or "neutral").lower()
+        is_counter_trend = (
+            (outlook_dir == "bearish" and proposed_direction_raw == "long") or
+            (outlook_dir == "bullish" and proposed_direction_raw == "short")
+        )
+        if is_counter_trend and not is_convergence:
+            counter_threshold = max(conf_threshold, 80)
+            if parsed.get("confidence", 0) < counter_threshold:
+                log.debug(f"Filter #9: {ticker} counter-trend {proposed_direction_raw} on {outlook_dir} day — needs {counter_threshold}, got {parsed.get('confidence',0)}")
+                return None
 
     confidence = parsed.get("confidence", 0)
     if not parsed.get("trade") or confidence < conf_threshold:
@@ -1581,6 +1622,19 @@ ENTRY RULES:
     stop = float(parsed.get("stop_loss") or 0)
     target = float(parsed.get("target_price") or 0)
     thesis = str(parsed.get("thesis", ""))[:500]
+
+    # #6 — Direction-aware cooldown: if Groq picked same direction as losing streak, block
+    if is_on_cooldown(ticker, proposed_direction=direction):
+        log.debug(f"Filter #6: {ticker} cooldown blocks {direction} — same direction as recent losses")
+        return None
+
+    # #8 — Block if already holding opposite direction on same ticker
+    for pos in open_positions:
+        if pos.get("ticker", "").upper() == ticker.upper():
+            existing_dir = pos.get("direction", "")
+            if existing_dir and existing_dir != direction:
+                log.debug(f"Filter #8: {ticker} already has open {existing_dir} — blocking opposite {direction}")
+                return None
 
     # R:R minimum — convergence plays need 3:1, standard 2:1
     min_rr = 2.5 if is_convergence else 2.0
@@ -1662,7 +1716,7 @@ ENTRY RULES:
         "entry_price": round(limit_entry, 4),  # #13 limit entry
         "stop_loss": round(stop, 4),
         "target_price": round(target, 4),
-        "shares": shares,
+        "shares": int(shares),  # #5 — always store as int, never fractional
         "position_size": position_size,
         "risk_amount": risk_amount,
         "account_balance_at_entry": account_balance,
@@ -1677,15 +1731,41 @@ ENTRY RULES:
         "account_health": health_label,
         "stop_distance_pct": round(stop_pct, 2),
         "stop_category": stop_category,
+        "fill_status": "pending",  # #2 — marked filled once price touches limit zone
     }
 
 
 # ─── Exit evaluation ──────────────────────────────────────────────────────────
 
+async def get_price_with_snapshot_fallback(client: httpx.AsyncClient, ticker: str) -> float | None:
+    """#3 — Try live price first; fall back to last DB snapshot so EOD close never fails."""
+    price = await get_current_price(client, ticker)
+    if price:
+        return price
+    try:
+        res = (
+            supabase().table("snapshots")
+            .select("price")
+            .eq("ticker", ticker.upper())
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if res.data and res.data[0].get("price"):
+            log.debug(f"Price fallback: using snapshot price for {ticker} = ${res.data[0]['price']}")
+            return float(res.data[0]["price"])
+    except Exception as e:
+        log.debug(f"Snapshot fallback failed for {ticker}: {e}")
+    return None
+
+
 async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
     """Check if an open trade should be closed — stop hit, target hit, or Groq exits."""
+    # #2 — Skip pending-fill trades — handled by separate fill-check loop
+    if trade.get("fill_status") == "pending":
+        return
     ticker = trade["ticker"]
-    price = await get_current_price(client, ticker)
+    price = await get_price_with_snapshot_fallback(client, ticker)
     if not price:
         return
 
@@ -1715,27 +1795,34 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         except Exception:
             pass
 
-    # #10 — Trailing stop: move stop to breakeven once trade hits +BREAKEVEN_TRIGGER%
-    if pnl_pct >= BREAKEVEN_TRIGGER:
-        breakeven_stop = entry  # lock in breakeven
-        if direction == "long" and stop < breakeven_stop:
+    # #10 — Tiered trailing stop: escalate as trade moves in our favour
+    # Tier 1: +2% → breakeven  Tier 2: +4% → +1.5%  Tier 3: +6% → +3%
+    def _calc_tiered_stop(pnl: float, ent: float, dir: str) -> float | None:
+        if pnl >= 6.0:
+            locked = 3.0
+        elif pnl >= 4.0:
+            locked = 1.5
+        elif pnl >= BREAKEVEN_TRIGGER:
+            locked = 0.0
+        else:
+            return None
+        if dir == "long":
+            return round(ent * (1 + locked / 100), 4)
+        else:
+            return round(ent * (1 - locked / 100), 4)
+
+    new_stop = _calc_tiered_stop(pnl_pct, entry, direction)
+    if new_stop is not None:
+        should_update = (direction == "long" and stop < new_stop) or \
+                        (direction == "short" and stop > new_stop)
+        if should_update:
             try:
                 supabase().table("sandbox_trades").update({
-                    "stop_loss": round(breakeven_stop, 4),
+                    "stop_loss": new_stop,
                     "updated_at": datetime.now(timezone.utc).isoformat(),
                 }).eq("id", trade["id"]).execute()
-                stop = breakeven_stop  # use updated stop for rest of eval
-                log.info(f"Trailing stop: {ticker} {direction} stop moved to breakeven ${breakeven_stop:.2f} (pnl={pnl_pct:+.1f}%)")
-            except Exception as e:
-                log.debug(f"Trailing stop update failed for {ticker}: {e}")
-        elif direction == "short" and stop > breakeven_stop:
-            try:
-                supabase().table("sandbox_trades").update({
-                    "stop_loss": round(breakeven_stop, 4),
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("id", trade["id"]).execute()
-                stop = breakeven_stop
-                log.info(f"Trailing stop: {ticker} short stop moved to breakeven ${breakeven_stop:.2f}")
+                log.info(f"Tiered trailing stop: {ticker} {direction} stop → ${new_stop:.2f} (pnl={pnl_pct:+.1f}%)")
+                stop = new_stop
             except Exception as e:
                 log.debug(f"Trailing stop update failed for {ticker}: {e}")
 
@@ -1749,7 +1836,7 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             # - Convergence setup: close 25% (let winners run — high conviction)
             # - Standard setup: close 50%
             # - Low conviction (confidence < 70): close 75% (lock in most gains)
-            total_shares = float(trade.get("shares") or 1)
+            total_shares = int(float(trade.get("shares") or 1))
             confidence = float(trade.get("confidence_used") or 65)
             is_conv = trade.get("is_convergence", False)
             if is_conv or confidence >= 80:
@@ -1782,8 +1869,26 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         await close_trade(trade, price, exit_reason, f"Stop hit at ${price:.2f} (stop=${stop:.2f})")
         return
 
-    # Auto-exit: target hit — send push notification (#14)
-    if (direction == "long" and price >= target) or (direction == "short" and price <= target):
+    # Auto-exit: target hit
+    # #7 — For swing trades exceeding target by >20%, trail instead of close immediately
+    target_exceeded = (direction == "long" and price >= target) or (direction == "short" and price <= target)
+    if target_exceeded:
+        if trade_type == "swing":
+            overshoot = abs(price - target) / abs(target - entry) if abs(target - entry) > 0 else 0
+            if overshoot > 0.20:
+                # Target exceeded by >20% — trail stop to target price, let it run
+                new_trailing_stop = target if direction == "long" else target
+                if (direction == "long" and stop < new_trailing_stop) or (direction == "short" and stop > new_trailing_stop):
+                    try:
+                        supabase().table("sandbox_trades").update({
+                            "stop_loss": round(new_trailing_stop, 4),
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", trade["id"]).execute()
+                        stop = new_trailing_stop
+                        log.info(f"Target trailing: {ticker} {direction} exceeded target by {overshoot:.0%} — stop moved to ${new_trailing_stop:.2f}")
+                    except Exception as e:
+                        log.debug(f"Target trail update failed for {ticker}: {e}")
+                return  # don't close — let it run with new stop
         await close_trade(trade, price, "target_hit", f"Target hit at ${price:.2f}")
         return
 
@@ -1792,10 +1897,11 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         await close_trade(trade, price, "day_close", f"Day trade closed at EOD ${price:.2f}")
         return
 
-    # Force-exit: max hold period exceeded — count actual trading days (weekdays only)
+    # Force-exit: max hold period exceeded — count actual trading days (weekdays minus holidays)
     trading_days_held = sum(
         1 for i in range((today - entry_date).days)
         if (entry_date + timedelta(days=i + 1)).weekday() < 5
+        and (entry_date + timedelta(days=i + 1)) not in US_MARKET_HOLIDAYS
     )
     if trading_days_held >= MAX_SWING_DAYS:
         await close_trade(trade, price, "max_hold", f"Max hold period reached — exited at ${price:.2f}")
@@ -1861,7 +1967,7 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
     """Mark a trade as closed, compute P&L, write exit note, then write a lesson."""
     entry = float(trade["entry_price"])
     direction = trade["direction"]
-    shares = float(trade.get("shares") or 1)
+    shares = int(float(trade.get("shares") or 1))
     ticker = trade["ticker"]
 
     if direction == "long":
@@ -1935,19 +2041,23 @@ Write ONE specific sentence that captures what this trade teaches about trading 
             return
         lesson = lesson.strip().replace('"', '').replace('\n', ' ')[:200]
 
-        # Store in prediction_lessons so ALL Groq workers can read it
-        supabase().table("prediction_lessons").upsert({
+        # #11 — Use INSERT not upsert so multiple trades on same ticker+date don't overwrite each other
+        # Each closed trade gets its own lesson row, keyed by trade_id in key_factors
+        supabase().table("prediction_lessons").insert({
             "ticker": ticker.upper(),
             "date": date.today().isoformat(),
             "bias": direction,
             "actual_bias": direction if is_win else ("short" if direction == "long" else "long"),
             "in_range": is_win,
             "lesson": lesson,
-            # confidence_pct = entry confidence used, not derived from P&L size
             "confidence_pct": min(99, max(1, int(trade.get("confidence_used") or max(1, int(abs(pnl_pct) * 5))))),
-            "key_factors": {"exit_reason": exit_reason, "pnl_pct": round(pnl_pct, 2), "source": "sandbox", "confidence_used": trade.get("confidence_used")},
+            "key_factors": {
+                "exit_reason": exit_reason, "pnl_pct": round(pnl_pct, 2),
+                "source": "sandbox", "confidence_used": trade.get("confidence_used"),
+                "trade_id": str(trade.get("id", "")),
+            },
             "signals_used": trade.get("signals_at_entry"),
-        }, on_conflict="ticker,date").execute()
+        }).execute()
         log.info(f"Sandbox lesson written for {ticker}: {lesson[:80]}")
     except Exception as e:
         log.debug(f"Lesson write failed for {ticker}: {e}")
@@ -2290,6 +2400,49 @@ async def run_once() -> dict:
             open_positions = get_open_positions()
             open_tickers = {p["ticker"] for p in open_positions}
 
+        # #2 — Limit fill simulation: cancel unfilled limit orders after 30 minutes
+        # A trade is "pending fill" if created_at is <30 min ago and price hasn't touched entry_price yet
+        pending_trades = [
+            p for p in open_positions
+            if p.get("fill_status") == "pending"
+        ]
+        for trade in pending_trades:
+            try:
+                created = datetime.fromisoformat((trade.get("created_at") or "").replace("Z", "+00:00"))
+                age_min = (datetime.now(timezone.utc) - created).total_seconds() / 60
+                if age_min > 30:
+                    # Expired — cancel without touching account balance
+                    supabase().table("sandbox_trades").update({
+                        "status": "closed",
+                        "exit_reason": "limit_expired",
+                        "pnl": 0, "pnl_pct": 0,
+                        "exit_date": date.today().isoformat(),
+                        "updated_at": datetime.now(timezone.utc).isoformat(),
+                    }).eq("id", trade["id"]).execute()
+                    log.info(f"Limit order expired for {trade['ticker']} after {age_min:.0f}min — cancelled")
+                    open_positions = [p for p in open_positions if p["id"] != trade["id"]]
+                    open_tickers.discard(trade["ticker"])
+                    continue
+                # Check if price has touched the limit entry zone
+                price = await get_price_with_snapshot_fallback(client, trade["ticker"])
+                if price:
+                    entry = float(trade["entry_price"])
+                    direction = trade["direction"]
+                    filled = (direction == "long" and price <= entry * 1.001) or \
+                             (direction == "short" and price >= entry * 0.999)
+                    if filled:
+                        supabase().table("sandbox_trades").update({
+                            "fill_status": "filled",
+                            "updated_at": datetime.now(timezone.utc).isoformat(),
+                        }).eq("id", trade["id"]).execute()
+                        log.info(f"Limit order filled for {trade['ticker']} @ ${price:.2f}")
+            except Exception as e:
+                log.debug(f"Limit fill check failed for {trade.get('ticker','?')}: {e}")
+            await asyncio.sleep(0.5)
+        if pending_trades:
+            open_positions = get_open_positions()
+            open_tickers = {p["ticker"] for p in open_positions}
+
         # 9:30am–12:30pm ET: scan for new entries
         in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
         # #19 — Block first 10 minutes of open (9:30-9:40 ET) — too whippy, except convergence
@@ -2432,7 +2585,7 @@ async def run_once() -> dict:
                 for trade in swing_positions:
                     try:
                         # Get AH price (Finnhub returns last trade including AH)
-                        price = await get_current_price(client, trade["ticker"])
+                        price = await get_price_with_snapshot_fallback(client, trade["ticker"])
                         if not price:
                             continue
                         entry = float(trade["entry_price"])
@@ -2490,8 +2643,20 @@ Exit if: news broke after close that breaks thesis, AH price action is alarming,
                     await asyncio.sleep(1)
                 return {"status": "ok", "action": "postmarket_swing_review", "reviewed": reviewed}
 
-        # 5:00–5:15 ET: nightly self-critique
+        # #16 — 5:15–5:30 ET: record daily equity snapshot regardless of trade activity
+        if hour == 17 and 15 <= minute < 30:
+            await _record_equity_snapshot()
+            return {"status": "ok", "action": "daily_equity_snapshot"}
+
+        # 5:00–5:15 ET: nightly self-critique — #19 only run if no open day trades remain from today
         if hour == 17 and minute < 15:
+            open_day_trades_today = [
+                p for p in open_positions
+                if p.get("trade_type") == "day" and p.get("entry_date") == today_str
+            ]
+            if open_day_trades_today:
+                log.info(f"Critique deferred: {len(open_day_trades_today)} day trades still open from today")
+                return {"status": "skipped", "reason": "waiting for day trades to close"}
             critique_result = await run_nightly_critique()
             return {"status": "ok", "action": "nightly_critique", **critique_result}
 
@@ -2511,12 +2676,47 @@ Exit if: news broke after close that breaks thesis, AH price action is alarming,
     return {"status": "ok", "action": "idle", "open_positions": len(open_positions)}
 
 
+_last_health_alert_date: date | None = None
+
+async def _check_worker_health() -> None:
+    """#20 — Fire push alert if no equity snapshot recorded in last 25h on a weekday."""
+    global _last_health_alert_date
+    today = date.today()
+    if _last_health_alert_date == today:
+        return
+    if not is_weekday():
+        return
+    try:
+        res = (
+            supabase().table("sandbox_equity")
+            .select("date,created_at")
+            .order("date", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if not res.data:
+            return
+        last_date = date.fromisoformat(res.data[0]["date"])
+        days_gap = (today - last_date).days
+        if days_gap >= 2:  # missed at least 1 full weekday
+            _last_health_alert_date = today
+            send_push_notification(
+                "⚠️ Sandbox Worker May Be Down",
+                f"No equity snapshot recorded since {last_date}. {days_gap} days without activity. Check Railway logs.",
+                severity=8.0
+            )
+            log.warning(f"Worker health alert: no equity snapshot since {last_date} ({days_gap} days)")
+    except Exception as e:
+        log.debug(f"Health check failed: {e}")
+
+
 async def main_loop():
     log.info("Sandbox worker started")
     while True:
         try:
             result = await run_once()
             log.info(f"Sandbox tick: {result}")
+            await _check_worker_health()
         except Exception as e:
             log.error(f"Sandbox loop error: {e}")
         await asyncio.sleep(1800)  # every 30 min
