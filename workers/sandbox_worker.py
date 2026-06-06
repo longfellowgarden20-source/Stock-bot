@@ -1271,9 +1271,10 @@ def has_earnings_soon(ticker: str, days: int = 2) -> tuple[bool, str]:
             wins = sum(1 for t in past if (t.get("pnl_pct") or 0) > 0)
             note = f"Earnings in {days}d (sev={sev:.0f}). Past {len(past)} trades on {ticker}: {wins}W/{len(past)-wins}L."
             # FIX #9: Lower earnings filter from sev >= 7 to sev >= 5
+            # BUG FIX #8: Require minimum 3 trades (single-trade sample is unreliable)
             # Allow pre-earnings swing if strong historical win rate AND severity indicates beat history
-            if wins / len(past) >= 0.75 and sev >= 5:
-                return False, f"Pre-earnings allowed: {note} Strong beat history."
+            if len(past) >= 3 and wins / len(past) >= 0.75 and sev >= 5:
+                return False, f"Pre-earnings allowed: {note} Strong beat history ({len(past)} trades)."
             return True, note
         return True, f"Earnings in {days}d — no trade history to assess."
     except Exception:
@@ -1301,9 +1302,10 @@ def is_on_cooldown(ticker: str, proposed_direction: str | None = None) -> bool:
         last_two = trades[:2]
         both_losses = all((t.get("pnl") or 0) < 0 for t in last_two)
 
-        # FIX #10: Also check for 3+ consecutive wins (overconfidence halt)
-        if len(last_two) >= 3:
-            last_three = past[-3:]
+        # BUG FIX #1 & #2: Check 3+ consecutive wins BEFORE checking 2 losses
+        # Original code used non-existent variable 'past' and checked len(last_two) >= 3 (impossible, always 0-2)
+        if len(trades) >= 3:
+            last_three = trades[:3]
             three_wins = all((t.get("pnl") or 0) > 0 for t in last_three)
             if three_wins:
                 log.debug(f"Overconfidence halt: {ticker} has 3+ consecutive wins — blocking entry")
@@ -1766,6 +1768,11 @@ ENTRY RULES:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
         return None
 
+    # BUG FIX #6: Validate field types (Groq sometimes returns "trade": "true" instead of bool)
+    if not isinstance(parsed.get("trade"), bool):
+        log.debug(f"Invalid 'trade' field type for {ticker}: {type(parsed.get('trade'))} — expected bool")
+        return None
+
     # Confidence threshold — use lower CI bound as effective win rate (#2)
     # FIX #7: Only apply lower_ci if we have >= 10 trades (valid sample)
     effective_wr_for_threshold = win_rate_ci if total >= 10 else win_rate
@@ -2043,7 +2050,11 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             update_account_balance(half_pnl)
             log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (${half_pnl:+.2f})")
             try:
-                remaining_shares = max(1, int(float(trade.get("shares") or 1)) - half_shares)
+                # BUG FIX #5: Calculate remaining WITHOUT max() first, then handle edge case
+                # (original code: if total=1, exit=0.5 → half=1, remaining=max(1,0)=1 → position doubled!)
+                remaining_shares = int(float(trade.get("shares") or 1)) - half_shares
+                if remaining_shares < 1:
+                    remaining_shares = 0  # Will close on next evaluation
                 supabase().table("sandbox_trades").update({
                     "partial_exit_done": True,
                     "stop_loss": round(entry, 4),  # move stop to breakeven after partial
