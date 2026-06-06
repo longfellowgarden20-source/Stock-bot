@@ -257,6 +257,18 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
         {/* Entry date */}
         <span className="text-[11px] text-slate-600 hidden sm:block">{trade.entry_date}</span>
 
+        {/* FIX #12: Pending order warning — show age if pending >20min */}
+        {trade.status === 'open' && trade.fill_status === 'pending' && (() => {
+          const entryTime = new Date(trade.entry_date)
+          const ageMin = Math.round((Date.now() - entryTime.getTime()) / 60000)
+          if (ageMin > 20) {
+            return <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30">
+              PENDING {ageMin}m
+            </span>
+          }
+          return null
+        })()}
+
         {/* P&L — right side */}
         <div className="ml-auto flex items-center gap-2 shrink-0">
           {displayPnlPct != null ? (
@@ -268,7 +280,7 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
           )}
           {isClosed && trade.pnl != null && (
             <span className={`text-xs tabular-nums ${pnlColor(trade.pnl)}`}>
-              ${trade.pnl >= 0 ? '+' : ''}{trade.pnl.toFixed(0)}
+              ${trade.pnl >= 0 ? '+' : ''}{trade.pnl.toLocaleString('en-US', { maximumFractionDigits: 0 })}
             </span>
           )}
           {isOpen && livePrice != null && trade.pnl == null && (() => {
@@ -278,7 +290,7 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
               : (entry - livePrice) * Number(trade.shares || 1)
             return (
               <span className={`text-xs tabular-nums ${pnlColor(dollarPnl)}`}>
-                ${dollarPnl >= 0 ? '+' : ''}{dollarPnl.toFixed(0)}
+                ${dollarPnl >= 0 ? '+' : ''}{dollarPnl.toLocaleString('en-US', { maximumFractionDigits: 0 })}
               </span>
             )
           })()}
@@ -763,7 +775,21 @@ export default function SandboxClient({
     const avgLoss = losses > 0
       ? closedTrades.filter(t => (t.pnl ?? 0) < 0).reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses
       : 0
-    return { wins, losses, total, winRate, grossPnl, avgWin, avgLoss }
+
+    // FIX #13: Calculate streak (3+ wins or 7+ losses)
+    let winStreak = 0, lossStreak = 0
+    for (let i = closedTrades.length - 1; i >= 0; i--) {
+      const pnl = closedTrades[i].pnl ?? 0
+      if (pnl > 0) {
+        winStreak++
+        lossStreak = 0
+      } else if (pnl < 0) {
+        lossStreak++
+        winStreak = 0
+      }
+    }
+
+    return { wins, losses, total, winRate, grossPnl, avgWin, avgLoss, winStreak, lossStreak }
   }, [closedTrades])
 
   // Unrealized P&L across all open trades using pre-fetched prices
@@ -801,6 +827,13 @@ export default function SandboxClient({
         <div>
           <h1 className="text-lg font-bold text-white">Groq Sandbox</h1>
           <p className="text-xs text-slate-500">$50,000 paper account — goal: 70% win rate, profitable over time</p>
+          {/* FIX #13: Show streak counter */}
+          {stats.winStreak >= 3 && (
+            <p className="text-xs text-emerald-400 font-bold mt-1">🔥 {stats.winStreak}-win streak</p>
+          )}
+          {stats.lossStreak >= 7 && (
+            <p className="text-xs text-red-400 font-bold mt-1">📉 {stats.lossStreak}-loss drawdown</p>
+          )}
         </div>
         <div className="ml-auto flex items-center gap-2">
           {lastRefresh && (

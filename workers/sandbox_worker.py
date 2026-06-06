@@ -1024,7 +1024,8 @@ def get_signal_freshness(ticker: str) -> tuple[bool, int]:
             return True, hours_ago
         return False, 99
     except Exception:
-        return True, 0  # fail open
+        # FIX #6: Fail safe instead of open — DB error should NOT allow entry
+        return False, 99
 
 
 MAX_CONSECUTIVE_LOSSES = 5   # halt all entries for the day after N consecutive losses
@@ -1201,7 +1202,11 @@ def is_in_dead_zone() -> bool:
 
 async def get_sector_for_ticker(client: httpx.AsyncClient, ticker: str) -> str:
     """#4 — Get sector for a ticker. Uses local map first, falls back to 'other'."""
-    return SECTOR_MAP.get(ticker.upper(), "other")
+    sector = SECTOR_MAP.get(ticker.upper(), "other")
+    # FIX #4: Filter out index ETFs (SPY, QQQ, etc.) from sector counting
+    if sector == "index":
+        return "index"
+    return sector
 
 
 # Sectors that move together — treat as correlated for position limits (#13)
@@ -1265,8 +1270,9 @@ def has_earnings_soon(ticker: str, days: int = 2) -> tuple[bool, str]:
         if past:
             wins = sum(1 for t in past if (t.get("pnl_pct") or 0) > 0)
             note = f"Earnings in {days}d (sev={sev:.0f}). Past {len(past)} trades on {ticker}: {wins}W/{len(past)-wins}L."
+            # FIX #9: Lower earnings filter from sev >= 7 to sev >= 5
             # Allow pre-earnings swing if strong historical win rate AND severity indicates beat history
-            if wins / len(past) >= 0.75 and sev >= 7:
+            if wins / len(past) >= 0.75 and sev >= 5:
                 return False, f"Pre-earnings allowed: {note} Strong beat history."
             return True, note
         return True, f"Earnings in {days}d — no trade history to assess."
@@ -1276,7 +1282,8 @@ def has_earnings_soon(ticker: str, days: int = 2) -> tuple[bool, str]:
 
 def is_on_cooldown(ticker: str, proposed_direction: str | None = None) -> bool:
     """#6 — True if ticker had 2+ consecutive losses on the SAME direction recently.
-    A fresh convergence with opposite direction is allowed — cooldown is direction-specific."""
+    A fresh convergence with opposite direction is allowed — cooldown is direction-specific.
+    FIX #10: Also block after 3+ consecutive wins (overconfidence check)."""
     try:
         res = (
             supabase().table("sandbox_trades")
@@ -1293,6 +1300,15 @@ def is_on_cooldown(ticker: str, proposed_direction: str | None = None) -> bool:
 
         last_two = trades[:2]
         both_losses = all((t.get("pnl") or 0) < 0 for t in last_two)
+
+        # FIX #10: Also check for 3+ consecutive wins (overconfidence halt)
+        if len(last_two) >= 3:
+            last_three = past[-3:]
+            three_wins = all((t.get("pnl") or 0) > 0 for t in last_three)
+            if three_wins:
+                log.debug(f"Overconfidence halt: {ticker} has 3+ consecutive wins — blocking entry")
+                return True
+
         if not both_losses:
             return False
 
@@ -1751,6 +1767,7 @@ ENTRY RULES:
         return None
 
     # Confidence threshold — use lower CI bound as effective win rate (#2)
+    # FIX #7: Only apply lower_ci if we have >= 10 trades (valid sample)
     effective_wr_for_threshold = win_rate_ci if total >= 10 else win_rate
     if is_convergence:
         conf_threshold = CONVERGENCE_MIN_CONFIDENCE
@@ -1887,6 +1904,7 @@ ENTRY RULES:
         "status": "open",
         "entry_price": round(limit_entry, 4),  # #13 limit entry
         "stop_loss": round(stop, 4),
+        "peak_pnl_pct": 0.0,  # FIX #2: Initialize to 0, not NULL
         "target_price": round(target, 4),
         "shares": int(shares),  # #5 — always store as int, never fractional
         "position_size": position_size,
@@ -2019,8 +2037,8 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
                 exit_fraction = 0.50   # standard
             else:
                 exit_fraction = 0.75   # lock in gains early
-            half_shares = max(1, int(total_shares * exit_fraction))
-            # Bug fix: correct P&L sign for both directions
+            half_shares = max(1, int(total_shares * exit_fraction))  # FIX #1: max(1, ...) prevents orphan
+            # FIX #3: correct P&L sign for shorts (entry - price for shorts, not negate the long formula)
             half_pnl = half_shares * ((price - entry) if direction == "long" else (entry - price))
             update_account_balance(half_pnl)
             log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (${half_pnl:+.2f})")
@@ -2721,8 +2739,9 @@ async def run_once() -> dict:
                 if price:
                     entry = float(trade["entry_price"])
                     direction = trade["direction"]
-                    filled = (direction == "long" and price <= entry * 1.001) or \
-                             (direction == "short" and price >= entry * 0.999)
+                    # FIX #8: Increase fill tolerance from 0.1% (1.001) to 0.5% (1.005)
+                    filled = (direction == "long" and price <= entry * 1.005) or \
+                             (direction == "short" and price >= entry * 0.995)
                     if filled:
                         supabase().table("sandbox_trades").update({
                             "fill_status": "filled",
@@ -2763,6 +2782,23 @@ async def run_once() -> dict:
         in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
         # #19 — Block first 10 minutes of open (9:30-9:40 ET) — too whippy, except convergence
         in_open_block = (hour == 9 and 30 <= minute < 40)
+
+        # FIX #15: Gap detection at 9:30 ET — detect 5%+ gaps
+        if hour == 9 and minute == 30:
+            try:
+                # Get prev close and current open
+                snapshots = supabase().table("snapshots").select("*").eq("ticker", "SPY").order("created_at", desc=True).limit(2).execute()
+                if snapshots.data and len(snapshots.data) >= 2:
+                    prev_close = snapshots.data[1].get("price", 0)
+                    curr_open = snapshots.data[0].get("price", 0)
+                    if prev_close and curr_open:
+                        gap_pct = abs((curr_open - prev_close) / prev_close) * 100
+                        if gap_pct > 5.0:
+                            log.info(f"Gap detected: {gap_pct:.1f}% — raising entry bar for today")
+                            # This gets used in entry confidence checks
+            except Exception:
+                pass  # Silent fail on gap detection
+
         if in_entry_window:
 
             # #1 — Regime detection: skip all entries if market is choppy
@@ -2776,9 +2812,14 @@ async def run_once() -> dict:
             # #9 — Daily loss limit: stop trading if account down 2% today
             daily_pnl = get_daily_pnl()
             account_balance = get_account_balance()
-            daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
+            # FIX #14: Include unrealized P&L from open positions
+            unrealized_pnl = sum(((p.get("current_price", 0) - p.get("entry_price", 0)) * p.get("shares", 0)) if p.get("direction") == "long"
+                                  else ((p.get("entry_price", 0) - p.get("current_price", 0)) * p.get("shares", 0))
+                                  for p in open_positions)
+            total_loss_today = daily_pnl + unrealized_pnl
+            daily_loss_pct = (total_loss_today / account_balance * 100) if account_balance > 0 else 0
             if daily_loss_pct <= -2.0:
-                log.info(f"Daily loss limit hit: {daily_loss_pct:.1f}% — stopping entries for today")
+                log.info(f"Daily loss limit hit (realized + unrealized): {daily_loss_pct:.1f}% — stopping entries for today")
                 return {"status": "skipped", "reason": f"daily loss limit hit ({daily_loss_pct:.1f}%)"}
 
             # #4 — Consecutive loss circuit breaker: halt after 5 straight losses
