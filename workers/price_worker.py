@@ -15,6 +15,7 @@ import asyncio
 from datetime import date, timedelta, datetime, timezone
 from db import supabase, get_watchlist_tickers, insert_snapshot, insert_signal
 from market_hours import is_extended_hours
+import yfinance as yf  # Yahoo Finance — free, no API key needed
 
 log = logging.getLogger("price_worker")
 
@@ -97,7 +98,27 @@ async def fetch_snapshot(client: httpx.AsyncClient, ticker: str) -> dict | None:
         except Exception as e:
             log.debug(f"{ticker}: Finnhub fallback failed — {e}")
 
-    log.error(f"{ticker}: All price sources exhausted (Polygon + Finnhub failed)")
+    # Fallback 3: Yahoo Finance (free, no API key, no rate limits)
+    try:
+        yf_ticker = yf.Ticker(ticker.upper())
+        hist = yf_ticker.history(period="2d")
+        if len(hist) > 0:
+            today = hist.iloc[-1]
+            prev = hist.iloc[-2] if len(hist) > 1 else None
+            log.info(f"{ticker}: using Yahoo Finance (Polygon + Finnhub exhausted)")
+            return {
+                "day": {
+                    "c": float(today["Close"]),
+                    "v": float(today["Volume"]),
+                    "o": float(today["Open"]),
+                },
+                "prevDay": {"c": float(prev["Close"]) if prev is not None else None},
+                "lastTrade": {"p": float(today["Close"])},
+            }
+    except Exception as e:
+        log.debug(f"{ticker}: Yahoo Finance fallback failed — {e}")
+
+    log.error(f"{ticker}: All price sources exhausted (Polygon + Finnhub + Yahoo failed)")
     return None
 
 

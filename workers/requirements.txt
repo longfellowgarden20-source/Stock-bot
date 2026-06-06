@@ -6,3 +6,4 @@ supabase==2.9.0
 python-dotenv==1.0.1
 feedparser==6.0.11
 apscheduler==3.10.4
+yfinance==0.2.38  # Yahoo Finance — free backup for price data (no API key)
