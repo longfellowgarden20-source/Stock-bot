@@ -47,3 +47,16 @@ create table if not exists sandbox_premarket_plans (
   candidate_count int,
   created_at      timestamptz default now()
 );
+
+-- Swing trade re-evaluation log: every time Groq decides hold/exit on a swing
+create table if not exists sandbox_trade_evals (
+  id               uuid primary key default gen_random_uuid(),
+  trade_id         uuid references sandbox_trades(id) on delete cascade,
+  ticker           text not null,
+  decision         text not null,  -- 'hold' | 'exit'
+  reason           text,
+  price_at_eval    numeric(12,4),
+  pnl_pct_at_eval  numeric(8,4),
+  evaluated_at     timestamptz default now()
+);
+create index if not exists sandbox_trade_evals_trade_id on sandbox_trade_evals(trade_id);

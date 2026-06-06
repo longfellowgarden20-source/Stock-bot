@@ -135,68 +135,93 @@ async def run_cross_ticker_pattern_mining() -> dict:
     if len(all_trades) < 20:
         return {"status": "skipped", "reason": f"only {len(all_trades)} total trades — need 20+ for pattern mining"}
 
-    # Count signal combo win rates
-    combo_stats: dict[str, dict] = {}
-    for t in all_trades:
-        signals = t.get("signals_at_entry") or []
-        is_win = (t.get("pnl") or 0) > 0
-        sig_types = sorted(set(s.get("type", "?") for s in signals[:3]))
-        combo = "+".join(sig_types) if sig_types else "no_signals"
-        direction = t.get("direction", "long")
-        key = f"{combo}:{direction}"
-        if key not in combo_stats:
-            combo_stats[key] = {"wins": 0, "total": 0}
-        combo_stats[key]["total"] += 1
-        if is_win:
-            combo_stats[key]["wins"] += 1
+    def bucket_stats() -> tuple[str, str, str, str, str]:
+        # Signal combo win rates
+        combo_stats: dict[str, dict] = {}
+        direction_stats: dict[str, dict] = {}
+        trade_type_stats: dict[str, dict] = {}
+        exit_stats: dict[str, dict] = {}
+        confidence_buckets: dict[str, dict] = {}
 
-    # Filter to combos with 5+ trades
-    qualified = {k: v for k, v in combo_stats.items() if v["total"] >= 5}
-    sorted_combos = sorted(qualified.items(), key=lambda x: x[1]["wins"] / x[1]["total"], reverse=True)
+        for t in all_trades:
+            signals = t.get("signals_at_entry") or []
+            is_win = (t.get("pnl") or 0) > 0
+            direction = t.get("direction", "long")
+            trade_type = t.get("trade_type", "day")
+            reason = t.get("exit_reason", "unknown")
+            conf = float(t.get("confidence_used") or 0)
 
-    # Build pattern report
-    pattern_lines = []
-    for combo_key, stats in sorted_combos[:10]:
-        wr = stats["wins"] / stats["total"] * 100
-        pattern_lines.append(f"{combo_key}: {stats['wins']}/{stats['total']} ({wr:.0f}% WR)")
-    pattern_block = "\n".join(pattern_lines) if pattern_lines else "Not enough data per combo."
+            # Signal combos
+            sig_types = sorted(set(s.get("type", "?") for s in signals[:3]))
+            combo = "+".join(sig_types) if sig_types else "no_signals"
+            key = f"{combo}:{direction}"
+            combo_stats.setdefault(key, {"wins": 0, "total": 0})
+            combo_stats[key]["total"] += 1
+            if is_win: combo_stats[key]["wins"] += 1
 
-    # Exit reason analysis
-    exit_stats: dict[str, dict] = {}
-    for t in all_trades:
-        reason = t.get("exit_reason", "unknown")
-        is_win = (t.get("pnl") or 0) > 0
-        if reason not in exit_stats:
-            exit_stats[reason] = {"wins": 0, "total": 0}
-        exit_stats[reason]["total"] += 1
-        if is_win:
-            exit_stats[reason]["wins"] += 1
+            # Direction
+            direction_stats.setdefault(direction, {"wins": 0, "total": 0})
+            direction_stats[direction]["total"] += 1
+            if is_win: direction_stats[direction]["wins"] += 1
 
-    exit_lines = []
-    for reason, stats in exit_stats.items():
-        wr = stats["wins"] / stats["total"] * 100
-        exit_lines.append(f"{reason}: {stats['wins']}/{stats['total']} ({wr:.0f}% WR)")
-    exit_block = "\n".join(exit_lines)
+            # Trade type
+            trade_type_stats.setdefault(trade_type, {"wins": 0, "total": 0})
+            trade_type_stats[trade_type]["total"] += 1
+            if is_win: trade_type_stats[trade_type]["wins"] += 1
+
+            # Exit reason
+            exit_stats.setdefault(reason, {"wins": 0, "total": 0})
+            exit_stats[reason]["total"] += 1
+            if is_win: exit_stats[reason]["wins"] += 1
+
+            # Confidence buckets
+            cb = "high(80+)" if conf >= 80 else "med(65-79)" if conf >= 65 else "low(<65)"
+            confidence_buckets.setdefault(cb, {"wins": 0, "total": 0})
+            confidence_buckets[cb]["total"] += 1
+            if is_win: confidence_buckets[cb]["wins"] += 1
+
+        def fmt(d: dict, min_trades: int = 3) -> str:
+            rows = [(k, v) for k, v in d.items() if v["total"] >= min_trades]
+            rows.sort(key=lambda x: x[1]["wins"] / x[1]["total"], reverse=True)
+            return "\n".join(f"  {k}: {v['wins']}/{v['total']} ({v['wins']/v['total']*100:.0f}% WR)" for k, v in rows) or "  Not enough data."
+
+        qualified = {k: v for k, v in combo_stats.items() if v["total"] >= 5}
+        sorted_combos = sorted(qualified.items(), key=lambda x: x[1]["wins"] / x[1]["total"], reverse=True)
+        combo_block = "\n".join(f"  {k}: {v['wins']}/{v['total']} ({v['wins']/v['total']*100:.0f}% WR)" for k, v in sorted_combos[:12]) or "  Not enough data."
+
+        return combo_block, fmt(direction_stats), fmt(trade_type_stats), fmt(exit_stats), fmt(confidence_buckets)
+
+    combo_block, direction_block, type_block, exit_block, conf_block = bucket_stats()
+    qualified_count = len([k for k, v in {}.items()])  # placeholder — recalculate below
 
     today = now_et().date()
 
-    prompt = f"""You are analyzing ALL historical sandbox trades ({len(all_trades)} total) to find patterns.
+    prompt = f"""You are analyzing ALL {len(all_trades)} historical sandbox trades to find actionable patterns.
 
-SIGNAL COMBINATION WIN RATES (sorted best to worst):
-{pattern_block}
+SIGNAL COMBO WIN RATES (long/short, 5+ trades):
+{combo_block}
+
+DIRECTION WIN RATES:
+{direction_block}
+
+TRADE TYPE WIN RATES (day vs swing):
+{type_block}
 
 EXIT REASON WIN RATES:
 {exit_block}
 
-Based on this data write:
+CONFIDENCE BUCKET WIN RATES:
+{conf_block}
 
-**HIGHEST WIN-RATE SETUPS**: What specific signal combinations should be prioritized? If dark_pool+options_unusual:long has 75% WR, say so explicitly.
+Based on this full statistical breakdown, write:
 
-**SETUPS TO AVOID**: What combinations are consistently losing? What exit patterns indicate bad trade selection?
+**HIGHEST WIN-RATE SETUPS**: Which specific combos, directions, and confidence levels are most profitable? Be specific with numbers.
 
-**3 CONCRETE RULES FOR ENTRY DECISIONS**: Write 3 specific rules that directly come from this data. Example: "Prioritize dark_pool+sentiment_spike long setups — 73% win rate across 12 trades."
+**SETUPS TO AVOID**: What combinations, directions, or confidence levels are consistently losing?
 
-These rules will be injected into every entry decision going forward."""
+**3 CONCRETE RULES FOR ENTRY DECISIONS**: Write 3 rules that DIRECTLY come from this data. Example: "Prefer swing over day trades — X% vs Y% WR." or "Skip short trades with confidence <70 — only Z% WR."
+
+These rules will be injected into every future entry decision."""
 
     analysis = await _call_groq(prompt, max_tokens=500)
     if not analysis:
@@ -213,9 +238,7 @@ These rules will be injected into every entry decision going forward."""
             "confidence_pct": 80,
             "key_factors": {
                 "total_trades": len(all_trades),
-                "combos_analyzed": len(qualified),
                 "source": "pattern_mining",
-                "top_combo": sorted_combos[0][0] if sorted_combos else None,
             },
         }, on_conflict="ticker,date").execute()
     except Exception as e:

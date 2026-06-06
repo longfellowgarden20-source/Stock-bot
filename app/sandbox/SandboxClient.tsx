@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
-import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight } from 'lucide-react'
+import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap } from 'lucide-react'
 
 const MAX_OPEN_POSITIONS = 20
 
@@ -355,6 +355,40 @@ type EquityPoint = {
   win_rate: number | null
 }
 
+type PremktPick = {
+  ticker: string
+  direction: string
+  trade_type: string
+  entry_zone: number
+  stop: number
+  target: number
+  conviction: number
+  thesis: string
+}
+
+type PremktPlan = {
+  date: string
+  picks: PremktPick[]
+  outlook_direction: string | null
+}
+
+type GroqLesson = {
+  date: string
+  lesson: string
+  key_factors?: Record<string, unknown> | null
+}
+
+type TradeEval = {
+  id: string
+  trade_id: string
+  ticker: string
+  decision: string
+  reason: string | null
+  price_at_eval: number
+  pnl_pct_at_eval: number
+  evaluated_at: string
+}
+
 function EquityCurve({ equity, starting }: { equity: EquityPoint[]; starting: number }) {
   if (equity.length < 2) return (
     <div className="h-24 flex items-center justify-center text-xs text-slate-600">
@@ -423,15 +457,25 @@ export default function SandboxClient({
   performance,
   account,
   equity,
+  premktPlan,
+  groqSelfCritiques,
+  groqPatterns,
+  groqWeekly,
+  tradeEvals,
 }: {
   openTrades: SandboxTrade[]
   closedTrades: SandboxTrade[]
   performance: Performance[]
   account: Account | null
   equity: EquityPoint[]
+  premktPlan: PremktPlan | null
+  groqSelfCritiques: GroqLesson[]
+  groqPatterns: GroqLesson | null
+  groqWeekly: GroqLesson | null
+  tradeEvals: TradeEval[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance'>('open')
+  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals'>('open')
   const [livePrices, setLivePrices] = useState<Record<string, number>>({})
 
   // Fetch current prices for all open trades on mount
@@ -607,15 +651,22 @@ export default function SandboxClient({
       </div>
 
       {/* Tabs */}
-      <div className="flex border-b border-white/[0.07]">
-        {(['open', 'closed', 'performance'] as const).map(tab => (
+      <div className="flex flex-wrap border-b border-white/[0.07]">
+        {[
+          { id: 'open',       label: `Open (${openTrades.length})` },
+          { id: 'closed',     label: `Closed (${closedTrades.length})` },
+          { id: 'performance',label: 'Performance' },
+          { id: 'gameplan',   label: premktPlan ? '🎯 Game Plan' : 'Game Plan' },
+          { id: 'learning',   label: '🧠 Learning' },
+          { id: 'evals',      label: `Re-Evals (${tradeEvals.length})` },
+        ].map(tab => (
           <button
-            key={tab}
-            onClick={() => setActiveTab(tab)}
-            className={`px-4 py-2 text-xs font-semibold border-b-2 -mb-px ${activeTab === tab ? 'border-sky-400 text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id as typeof activeTab)}
+            className={`px-3 py-2 text-xs font-semibold border-b-2 -mb-px ${activeTab === tab.id ? 'border-sky-400 text-sky-400' : 'border-transparent text-slate-500 hover:text-slate-300'}`}
             style={{ transition: 'color 0.1s' }}
           >
-            {tab === 'open' ? `Open (${openTrades.length})` : tab === 'closed' ? `Closed (${closedTrades.length})` : 'Performance'}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -689,6 +740,182 @@ export default function SandboxClient({
                       </td>
                     </tr>
                   ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* #12 — Game Plan tab */}
+      {activeTab === 'gameplan' && (
+        <div className="flex flex-col gap-3">
+          {!premktPlan || premktPlan.picks.length === 0 ? (
+            <div className="border border-white/[0.07] rounded-xl p-10 text-center flex flex-col items-center gap-3">
+              <Crosshair className="w-8 h-8 text-slate-700" />
+              <p className="text-sm text-slate-400">No game plan for today</p>
+              <p className="text-xs text-slate-600">Groq builds a pre-market game plan at 8:15am ET each trading day.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center gap-2 px-1">
+                <Crosshair className="w-4 h-4 text-sky-400" />
+                <span className="text-sm font-bold text-white">Today&apos;s Game Plan</span>
+                <span className="text-xs text-slate-500">{premktPlan.date}</span>
+                {premktPlan.outlook_direction && (
+                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ml-auto ${premktPlan.outlook_direction === 'bullish' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : premktPlan.outlook_direction === 'bearish' ? 'text-red-400 border-red-500/25 bg-red-500/8' : 'text-slate-400 border-white/10'}`}>
+                    {premktPlan.outlook_direction.toUpperCase()} OUTLOOK
+                  </span>
+                )}
+              </div>
+              {premktPlan.picks.map((pick, i) => {
+                const rr = pick.direction === 'long'
+                  ? (pick.target - pick.entry_zone) / (pick.entry_zone - pick.stop)
+                  : (pick.entry_zone - pick.target) / (pick.stop - pick.entry_zone)
+                const isEntered = openTrades.some(t => t.ticker === pick.ticker)
+                return (
+                  <div key={i} className={`border rounded-xl p-4 flex flex-col gap-2.5 ${isEntered ? 'border-sky-500/30' : 'border-white/[0.07]'}`} style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-bold text-white font-mono">{pick.ticker}</span>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${pick.direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>
+                        {pick.direction.toUpperCase()}
+                      </span>
+                      <span className="text-[10px] text-slate-500 border border-white/[0.07] px-1.5 py-0.5 rounded">{pick.trade_type}</span>
+                      {isEntered && <span className="text-[10px] text-sky-400 border border-sky-500/20 bg-sky-500/8 px-1.5 py-0.5 rounded">ENTERED</span>}
+                      <div className="ml-auto flex items-center gap-1.5">
+                        <span className="text-[11px] text-slate-500">conviction</span>
+                        <span className={`text-sm font-bold ${pick.conviction >= 8 ? 'text-emerald-400' : pick.conviction >= 6 ? 'text-yellow-400' : 'text-slate-400'}`}>{pick.conviction}/10</span>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-2 text-xs tabular-nums">
+                      <div className="bg-white/[0.03] border border-white/[0.07] rounded-lg p-2 text-center">
+                        <p className="text-[10px] text-slate-500 mb-0.5">ENTRY ZONE</p>
+                        <p className="font-bold text-white">${pick.entry_zone.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-red-500/8 border border-red-500/15 rounded-lg p-2 text-center">
+                        <p className="text-[10px] text-slate-500 mb-0.5">STOP</p>
+                        <p className="font-bold text-red-400">${pick.stop.toFixed(2)}</p>
+                      </div>
+                      <div className="bg-emerald-500/8 border border-emerald-500/15 rounded-lg p-2 text-center">
+                        <p className="text-[10px] text-slate-500 mb-0.5">TARGET</p>
+                        <p className="font-bold text-emerald-400">${pick.target.toFixed(2)}</p>
+                      </div>
+                    </div>
+                    <p className="text-[10px] text-slate-500">R:R <span className="text-white font-semibold">{rr > 0 ? rr.toFixed(2) : '—'}:1</span></p>
+                    <p className="text-xs text-slate-300 leading-relaxed">{pick.thesis}</p>
+                  </div>
+                )
+              })}
+            </>
+          )}
+        </div>
+      )}
+
+      {/* #14 — Learning tab */}
+      {activeTab === 'learning' && (
+        <div className="flex flex-col gap-4">
+          <div>
+            <div className="flex items-center gap-2 mb-2 px-1">
+              <Brain className="w-4 h-4 text-purple-400" />
+              <span className="text-sm font-bold text-white">Self-Critiques</span>
+              <span className="text-xs text-slate-500">Groq&apos;s nightly review of its own decisions</span>
+            </div>
+            {groqSelfCritiques.length === 0 ? (
+              <div className="border border-white/[0.07] rounded-xl p-6 text-center">
+                <p className="text-xs text-slate-500">Self-critiques appear after the first trading day closes at 5pm ET.</p>
+              </div>
+            ) : groqSelfCritiques.map((c, i) => {
+              const kf = c.key_factors as Record<string, unknown> | null
+              return (
+                <div key={i} className="border border-purple-500/20 bg-purple-500/5 rounded-xl p-4 mb-2">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[11px] text-purple-400 font-bold">{c.date}</span>
+                    {kf && (
+                      <span className="text-[10px] text-slate-500 ml-auto">
+                        {String(kf.wins ?? 0)}W/{String(kf.losses ?? 0)}L · {Number(kf.gross_pnl ?? 0) >= 0 ? '+' : ''}${Number(kf.gross_pnl ?? 0).toFixed(0)} P&amp;L
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{c.lesson.slice(0, 800)}{c.lesson.length > 800 ? '…' : ''}</p>
+                </div>
+              )
+            })}
+          </div>
+          {groqPatterns && (
+            <div>
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <Activity className="w-4 h-4 text-yellow-400" />
+                <span className="text-sm font-bold text-white">Pattern Rules</span>
+                <span className="text-xs text-slate-500">{groqPatterns.date}</span>
+              </div>
+              <div className="border border-yellow-500/20 bg-yellow-500/5 rounded-xl p-4">
+                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{groqPatterns.lesson.slice(0, 1000)}</p>
+              </div>
+            </div>
+          )}
+          {groqWeekly && (
+            <div>
+              <div className="flex items-center gap-2 mb-2 px-1">
+                <BookOpen className="w-4 h-4 text-sky-400" />
+                <span className="text-sm font-bold text-white">Weekly Review</span>
+                <span className="text-xs text-slate-500">{groqWeekly.date}</span>
+              </div>
+              <div className="border border-sky-500/20 bg-sky-500/5 rounded-xl p-4">
+                <p className="text-xs text-slate-300 leading-relaxed whitespace-pre-wrap">{groqWeekly.lesson.slice(0, 1000)}</p>
+              </div>
+            </div>
+          )}
+          {!groqPatterns && !groqWeekly && groqSelfCritiques.length === 0 && (
+            <div className="border border-white/[0.07] rounded-xl p-10 text-center">
+              <p className="text-xs text-slate-500">Learning rules appear after the first week of trading.</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* #13 — Re-Evals tab */}
+      {activeTab === 'evals' && (
+        <div className="flex flex-col gap-2">
+          {tradeEvals.length === 0 ? (
+            <div className="border border-white/[0.07] rounded-xl p-10 text-center flex flex-col items-center gap-3">
+              <Zap className="w-8 h-8 text-slate-700" />
+              <p className="text-sm text-slate-400">No re-evaluations yet</p>
+              <p className="text-xs text-slate-600">Groq re-evaluates open swing trades every 30 min and logs each hold/exit decision here.</p>
+            </div>
+          ) : (
+            <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.07] bg-white/[0.02]">
+                    <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Time</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Ticker</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Decision</th>
+                    <th className="text-right px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">P&amp;L at eval</th>
+                    <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Reason</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tradeEvals.map(e => {
+                    const isExit = e.decision === 'exit' || e.decision === 'exit_at_open'
+                    const evalTime = new Date(e.evaluated_at)
+                    return (
+                      <tr key={e.id} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                        <td className="px-3 py-2 text-slate-500 font-mono text-[10px]">
+                          {evalTime.toLocaleDateString()} {evalTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </td>
+                        <td className="px-3 py-2 font-bold text-white font-mono">{e.ticker}</td>
+                        <td className="px-3 py-2">
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${isExit ? 'text-red-400 border-red-500/25 bg-red-500/8' : 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8'}`}>
+                            {e.decision.toUpperCase().replace('_', ' ')}
+                          </span>
+                        </td>
+                        <td className={`px-3 py-2 text-right font-bold tabular-nums ${pnlColor(e.pnl_pct_at_eval)}`}>
+                          {e.pnl_pct_at_eval >= 0 ? '+' : ''}{Number(e.pnl_pct_at_eval).toFixed(2)}%
+                        </td>
+                        <td className="px-3 py-2 text-slate-400 max-w-xs truncate">{e.reason || '—'}</td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

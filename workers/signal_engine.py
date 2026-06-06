@@ -203,44 +203,21 @@ Write a plain-English daily recap in 150 words or less. Cover:
 
 No bullet points. Direct sentences. Trader-focused."""
 
-    key = _rotator.current()
-    if not key:
-        return {"status": "skipped", "reason": "no Groq keys available"}
-
-    payload = {
-        "model": GROQ_MODEL,
-        "max_tokens": 350,
-        "temperature": 0.3,
-        "messages": [
-            {"role": "system", "content": "You are an experienced trader writing end-of-day internal recaps. Direct, specific, never generic."},
-            {"role": "user", "content": prompt},
-        ],
-    }
-
+    from groq_pool import call_llm
     try:
-        async with httpx.AsyncClient() as client:
-            r = await client.post(
-                GROQ_URL,
-                headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-                json=payload,
-                timeout=20,
-            )
-        if r.status_code == 429:
-            retry_after = int(r.headers.get("retry-after", 60))
-            _rotator.mark_rate_limited(key, retry_after)
-            return {"status": "skipped", "reason": "Groq rate limited"}
-        if r.status_code != 200:
-            log.warning(f"Groq daily recap {r.status_code}: {r.text[:200]}")
-            return {"status": "error", "reason": f"Groq {r.status_code}"}
-        try:
-            content = r.json()["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError, TypeError) as parse_err:
-            log.warning(f"Groq malformed daily recap response: {parse_err}")
-            return {"status": "error", "reason": "malformed response"}
-        _rotator.advance()
+        content = await call_llm(
+            prompt,
+            max_tokens=350,
+            temperature=0.3,
+            model=GROQ_MODEL,
+            system="You are an experienced trader writing end-of-day internal recaps. Direct, specific, never generic.",
+        )
     except Exception as e:
         log.error(f"Daily recap Groq error: {e}")
         return {"status": "error", "reason": str(e)}
+
+    if not content:
+        return {"status": "skipped", "reason": "Groq returned empty response"}
 
     tickers_covered = [t for t, _ in ranked]
     insert_signal(

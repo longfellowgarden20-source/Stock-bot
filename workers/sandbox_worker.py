@@ -57,18 +57,71 @@ CONVERGENCE_MIN_CONFIDENCE = 55  # convergence overrides normal bar (signal does
 
 # Sector mapping for correlation limit (#6)
 SECTOR_MAP: dict[str, str] = {
+    # Tech — software/cloud
     "AAPL": "tech", "MSFT": "tech", "NVDA": "tech", "AMD": "tech", "META": "tech",
     "GOOGL": "tech", "GOOG": "tech", "AMZN": "tech", "TSLA": "tech", "PLTR": "tech",
     "CRM": "tech", "ORCL": "tech", "ADBE": "tech", "INTC": "tech", "MDB": "tech",
     "DELL": "tech", "SNOW": "tech", "NET": "tech", "CRWD": "tech", "DDOG": "tech",
+    "IBM": "tech", "QCOM": "tech", "TXN": "tech", "AVGO": "tech", "MU": "tech",
+    "AMAT": "tech", "KLAC": "tech", "LRCX": "tech", "MRVL": "tech", "NXPI": "tech",
+    "NOW": "tech", "WDAY": "tech", "VEEV": "tech", "ZS": "tech", "OKTA": "tech",
+    "PANW": "tech", "FTNT": "tech", "SPLK": "tech", "ESTC": "tech", "HUBS": "tech",
+    "SHOP": "tech", "U": "tech", "RBLX": "tech", "TWLO": "tech", "ZM": "tech",
+    "DOCU": "tech", "BOX": "tech", "WORK": "tech", "DBX": "tech", "DOCN": "tech",
+    "APP": "tech", "TEAM": "tech", "DSGX": "tech", "WIX": "tech", "SMAR": "tech",
+    "ACN": "tech", "INFY": "tech", "WIT": "tech", "CTSH": "tech",
+    # Finance
     "JPM": "finance", "BAC": "finance", "GS": "finance", "MS": "finance", "WFC": "finance",
     "C": "finance", "BLK": "finance", "SCHW": "finance", "AXP": "finance",
+    "COF": "finance", "DFS": "finance", "SYF": "finance", "ALLY": "finance",
+    "USB": "finance", "PNC": "finance", "TFC": "finance", "FITB": "finance",
+    "V": "finance", "MA": "finance", "PYPL": "finance", "SQ": "finance", "AFRM": "finance",
+    "COIN": "finance", "HOOD": "finance", "SOFI": "finance", "NU": "finance",
+    "ICE": "finance", "CME": "finance", "CBOE": "finance", "NDAQ": "finance",
+    "BX": "finance", "KKR": "finance", "APO": "finance", "ARES": "finance",
+    # Healthcare
     "JNJ": "health", "UNH": "health", "PFE": "health", "ABBV": "health", "MRK": "health",
     "LLY": "health", "DHR": "health", "TMO": "health", "AMGN": "health",
+    "GILD": "health", "BIIB": "health", "REGN": "health", "VRTX": "health",
+    "BMY": "health", "AZN": "health", "NVO": "health", "SNY": "health",
+    "CVS": "health", "CI": "health", "HUM": "health", "MOH": "health",
+    "ISRG": "health", "BSX": "health", "MDT": "health", "EW": "health", "SYK": "health",
+    "ZBH": "health", "BDX": "health", "HOLX": "health", "DXCM": "health",
+    # Energy
     "XOM": "energy", "CVX": "energy", "COP": "energy", "SLB": "energy", "EOG": "energy",
-    "SPY": "index", "QQQ": "index", "IWM": "index", "DIA": "index",
+    "PXD": "energy", "DVN": "energy", "MPC": "energy", "PSX": "energy", "VLO": "energy",
+    "OXY": "energy", "HAL": "energy", "BKR": "energy", "FANG": "energy",
+    "KMI": "energy", "WMB": "energy", "ET": "energy", "MPLX": "energy",
+    # Defense
     "LMT": "defense", "RTX": "defense", "NOC": "defense", "GD": "defense", "HII": "defense",
-    "ACN": "consulting", "IBM": "tech",
+    "BA": "defense", "TDG": "defense", "HEI": "defense", "LDOS": "defense", "SAIC": "defense",
+    "L3H": "defense", "KTOS": "defense", "RCAT": "defense",
+    # Consumer discretionary
+    "AMZN": "consumer", "TSLA": "consumer", "HD": "consumer", "LOW": "consumer",
+    "TJX": "consumer", "ROST": "consumer", "TGT": "consumer", "WMT": "consumer",
+    "COST": "consumer", "DG": "consumer", "DLTR": "consumer",
+    "MCD": "consumer", "SBUX": "consumer", "CMG": "consumer", "YUM": "consumer",
+    "NKE": "consumer", "LULU": "consumer", "VFC": "consumer", "RL": "consumer",
+    "DECK": "consumer", "ONON": "consumer", "CROX": "consumer",
+    "BKNG": "consumer", "EXPE": "consumer", "ABNB": "consumer", "LYFT": "consumer", "UBER": "consumer",
+    "GM": "consumer", "F": "consumer", "RIVN": "consumer", "LCID": "consumer",
+    # Industrials
+    "CAT": "industrial", "DE": "industrial", "HON": "industrial", "MMM": "industrial",
+    "GE": "industrial", "EMR": "industrial", "ETN": "industrial", "PH": "industrial",
+    "ROK": "industrial", "DOV": "industrial", "ITW": "industrial", "FTV": "industrial",
+    "UPS": "industrial", "FDX": "industrial", "XPO": "industrial", "SAIA": "industrial",
+    "CSX": "industrial", "NSC": "industrial", "UNP": "industrial",
+    "NUE": "industrial", "STLD": "industrial", "X": "industrial", "CLF": "industrial",
+    "AA": "industrial", "FCX": "industrial",
+    # Real estate / REITs
+    "AMT": "realestate", "PLD": "realestate", "EQIX": "realestate", "CCI": "realestate",
+    "SPG": "realestate", "O": "realestate", "VICI": "realestate", "WELL": "realestate",
+    "EQR": "realestate", "AVB": "realestate", "DLR": "realestate",
+    # Utilities
+    "NEE": "utilities", "DUK": "utilities", "SO": "utilities", "D": "utilities",
+    "AEP": "utilities", "EXC": "utilities", "SRE": "utilities", "PCG": "utilities",
+    # Indices / ETFs (skip sector limit for these — filtered out anyway)
+    "SPY": "index", "QQQ": "index", "IWM": "index", "DIA": "index",
 }
 
 
@@ -87,18 +140,24 @@ async def _call_groq(prompt: str, max_tokens: int = 500) -> str | None:
 # ─── Data helpers ─────────────────────────────────────────────────────────────
 
 def get_premarket_plan() -> list[dict]:
-    """Return today's pre-market game plan picks, sorted by conviction desc."""
+    """Return today's pre-market game plan picks, sorted by conviction desc.
+    Only returns picks if the plan was created today — never uses a stale plan."""
     try:
         today = date.today().isoformat()
         res = (
             supabase().table("sandbox_premarket_plans")
-            .select("picks")
+            .select("picks,date,created_at")
             .eq("date", today)
             .limit(1)
             .execute()
         )
         if res.data:
-            picks = res.data[0].get("picks") or []
+            plan = res.data[0]
+            # Double-check date matches today (guards against timezone edge cases)
+            if plan.get("date") != today:
+                log.warning(f"Pre-market plan date mismatch: {plan.get('date')} != {today} — ignoring stale plan")
+                return []
+            picks = plan.get("picks") or []
             return sorted(picks, key=lambda p: p.get("conviction", 0), reverse=True)
     except Exception as e:
         log.debug(f"Pre-market plan fetch failed: {e}")
@@ -332,6 +391,60 @@ def get_open_positions() -> list[dict]:
         return []
 
 
+def get_30day_performance_summary() -> str:
+    """Returns a compact stats block for the last 30 days of closed trades."""
+    try:
+        since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+        res = (
+            supabase().table("sandbox_trades")
+            .select("direction,trade_type,pnl,pnl_pct,exit_reason,confidence_used,signals_at_entry")
+            .eq("status", "closed")
+            .gte("updated_at", since)
+            .execute()
+        )
+        trades = res.data or []
+        if len(trades) < 5:
+            return ""
+
+        wins = [t for t in trades if (t.get("pnl") or 0) > 0]
+        losses = [t for t in trades if (t.get("pnl") or 0) <= 0]
+        total = len(trades)
+        wr = len(wins) / total * 100
+
+        # By direction
+        long_t  = [t for t in trades if t.get("direction") == "long"]
+        short_t = [t for t in trades if t.get("direction") == "short"]
+        long_wr  = sum(1 for t in long_t if (t.get("pnl") or 0) > 0) / len(long_t) * 100 if long_t else 0
+        short_wr = sum(1 for t in short_t if (t.get("pnl") or 0) > 0) / len(short_t) * 100 if short_t else 0
+
+        # By trade type
+        day_t   = [t for t in trades if t.get("trade_type") == "day"]
+        swing_t = [t for t in trades if t.get("trade_type") == "swing"]
+        day_wr   = sum(1 for t in day_t if (t.get("pnl") or 0) > 0) / len(day_t) * 100 if day_t else 0
+        swing_wr = sum(1 for t in swing_t if (t.get("pnl") or 0) > 0) / len(swing_t) * 100 if swing_t else 0
+
+        # By confidence
+        high_conf  = [t for t in trades if float(t.get("confidence_used") or 0) >= 80]
+        med_conf   = [t for t in trades if 65 <= float(t.get("confidence_used") or 0) < 80]
+        low_conf   = [t for t in trades if float(t.get("confidence_used") or 0) < 65]
+        hc_wr = sum(1 for t in high_conf if (t.get("pnl") or 0) > 0) / len(high_conf) * 100 if high_conf else 0
+        mc_wr = sum(1 for t in med_conf if (t.get("pnl") or 0) > 0) / len(med_conf) * 100 if med_conf else 0
+        lc_wr = sum(1 for t in low_conf if (t.get("pnl") or 0) > 0) / len(low_conf) * 100 if low_conf else 0
+
+        avg_win  = sum(t.get("pnl_pct") or 0 for t in wins) / len(wins) if wins else 0
+        avg_loss = sum(t.get("pnl_pct") or 0 for t in losses) / len(losses) if losses else 0
+
+        return (
+            f"30-DAY STATS ({total} trades): {wr:.0f}% WR | avg win {avg_win:+.1f}% avg loss {avg_loss:+.1f}%\n"
+            f"  Direction: LONG {long_wr:.0f}% ({len(long_t)} trades) | SHORT {short_wr:.0f}% ({len(short_t)} trades)\n"
+            f"  Type: day {day_wr:.0f}% ({len(day_t)}) | swing {swing_wr:.0f}% ({len(swing_t)})\n"
+            f"  Confidence: high(80+) {hc_wr:.0f}% ({len(high_conf)}) | med(65-79) {mc_wr:.0f}% ({len(med_conf)}) | low(<65) {lc_wr:.0f}% ({len(low_conf)})"
+        )
+    except Exception as e:
+        log.debug(f"30-day summary failed: {e}")
+        return ""
+
+
 def get_overall_win_rate() -> tuple[int, int, float]:
     """Returns (wins, total, win_rate_pct)."""
     try:
@@ -391,8 +504,8 @@ def calculate_position_size(entry: float, stop: float, account_balance: float) -
     if risk_per_share <= 0:
         return 1, entry, entry
 
-    # Dollar risk = 1% of account
-    dollar_risk = account_balance * (RISK_PER_TRADE_PCT / 100)
+    # Dollar risk = 1% of account (RISK_PCT_BASE)
+    dollar_risk = account_balance * (RISK_PCT_BASE / 100)
 
     # Shares = dollar risk / risk per share
     shares = max(1, int(dollar_risk / risk_per_share))
@@ -594,6 +707,31 @@ def get_signal_freshness(ticker: str) -> tuple[bool, int]:
         return False, 99
     except Exception:
         return True, 0  # fail open
+
+
+MAX_CONSECUTIVE_LOSSES = 5   # halt all entries for the day after N consecutive losses
+MAX_DRAWDOWN_HALT_PCT  = 20.0  # auto-halt all entries if account drawdown exceeds this
+
+def get_consecutive_losses() -> int:
+    """Returns number of consecutive losses in the most recent closed trades."""
+    try:
+        res = (
+            supabase().table("sandbox_trades")
+            .select("pnl")
+            .eq("status", "closed")
+            .order("updated_at", desc=True)
+            .limit(MAX_CONSECUTIVE_LOSSES)
+            .execute()
+        )
+        count = 0
+        for r in (res.data or []):
+            if (r.get("pnl") or 0) < 0:
+                count += 1
+            else:
+                break
+        return count
+    except Exception:
+        return 0
 
 
 def get_daily_pnl() -> float:
@@ -1027,9 +1165,11 @@ async def decide_entry(
     # Score conviction — determines position size and confidence bar
     risk_pct, conviction_label, is_convergence = score_setup_conviction(signals, convergence_ctx, recent_wr)
 
+    perf_summary = get_30day_performance_summary()
     critique_block = f"\nYOUR RULES FROM YESTERDAY'S SELF-CRITIQUE (FOLLOW THESE):\n{self_critique}" if self_critique else ""
     weekly_block = f"\nWEEKLY REVIEW RULES:\n{weekly_rules}" if weekly_rules else ""
     pattern_block_str = f"\nHIGHEST WIN-RATE PATTERNS (follow these):\n{pattern_rules}" if pattern_rules else ""
+    perf_block = f"\nYOUR 30-DAY PERFORMANCE (use this to calibrate direction/type/confidence):\n{perf_summary}" if perf_summary else ""
     user_brain_block = f"\nUSER-PROVIDED RULES AND OBSERVATIONS (MUST FOLLOW):\n{brain_block}" if brain_block else ""
     sector_block = f"\nTicker sector: {ticker_sector}" + (f"\nRecent macro signals: {'; '.join(sector_signals)}" if sector_signals else "")
     account_block = (
@@ -1057,6 +1197,7 @@ CONVICTION LEVEL: {conviction_label}
 {playbook}
 {sector_block}{account_block}
 {user_brain_block}
+{perf_block}
 {pattern_block_str}
 {weekly_block}
 {critique_block}
@@ -1259,14 +1400,26 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             except Exception as e:
                 log.debug(f"Trailing stop update failed for {ticker}: {e}")
 
-    # #11 — Partial exit at Target 1 (halfway)
+    # #11 — Partial exit at Target 1 (conviction-based sizing, not always 50%)
     target1 = float(trade.get("target1") or 0)
     partial_done = trade.get("partial_exit_done", False)
     if target1 > 0 and not partial_done:
         t1_hit = (direction == "long" and price >= target1) or (direction == "short" and price <= target1)
         if t1_hit:
-            # Close half the position at Target 1
-            half_shares = max(1, int(float(trade.get("shares") or 1) / 2))
+            # Conviction-based partial exit:
+            # - Convergence setup: close 25% (let winners run — high conviction)
+            # - Standard setup: close 50%
+            # - Low conviction (confidence < 70): close 75% (lock in most gains)
+            total_shares = float(trade.get("shares") or 1)
+            confidence = float(trade.get("confidence_used") or 65)
+            is_conv = trade.get("is_convergence", False)
+            if is_conv or confidence >= 80:
+                exit_fraction = 0.25   # let it run
+            elif confidence >= 70:
+                exit_fraction = 0.50   # standard
+            else:
+                exit_fraction = 0.75   # lock in gains early
+            half_shares = max(1, int(total_shares * exit_fraction))
             # Bug fix: correct P&L sign for both directions
             half_pnl = half_shares * ((price - entry) if direction == "long" else (entry - price))
             update_account_balance(half_pnl)
@@ -1341,8 +1494,24 @@ Exit if: thesis is broken, new bearish signals, or P&L at risk of turning from w
                     if text.startswith("json"):
                         text = text[4:]
                 parsed = json.loads(text.strip())
+                decision = "exit" if parsed.get("exit") else "hold"
+                reason = str(parsed.get("reason", ""))[:300]
+
+                # Log every re-eval decision so we can review Groq's reasoning
+                try:
+                    supabase().table("sandbox_trade_evals").insert({
+                        "trade_id": trade.get("id"),
+                        "ticker": ticker,
+                        "decision": decision,
+                        "reason": reason,
+                        "price_at_eval": round(price, 4),
+                        "pnl_pct_at_eval": round(pnl_pct, 4),
+                        "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                    }).execute()
+                except Exception as e:
+                    log.debug(f"Re-eval log failed for {ticker}: {e}")
+
                 if parsed.get("exit"):
-                    reason = str(parsed.get("reason", "Groq exited"))[:300]
                     await close_trade(trade, price, "groq_exit", reason)
                     return
             except Exception as e:
@@ -1363,6 +1532,7 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
         pnl = (entry - exit_price) * shares
         pnl_pct = (entry - exit_price) / entry * 100
 
+    # #18 — Trade update FIRST, balance SECOND. If trade update fails, we don't touch balance.
     try:
         supabase().table("sandbox_trades").update({
             "status": "closed",
@@ -1377,10 +1547,10 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
         outcome = "WIN" if pnl > 0 else "LOSS"
         log.info(f"Sandbox closed {direction} {ticker}: {outcome} {pnl_pct:+.1f}% (${pnl:+.2f}) reason={exit_reason}")
     except Exception as e:
-        log.error(f"close_trade failed for {ticker}: {e}")
-        return
+        log.error(f"close_trade failed for {ticker}: {e} — balance NOT updated to avoid inconsistency")
+        return  # Don't update balance if trade update failed
 
-    # Update account balance with real P&L
+    # Only update balance after trade is confirmed closed
     new_balance = update_account_balance(pnl)
     log.info(f"Account balance: ${new_balance:,.2f}")
 
@@ -1392,9 +1562,9 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
         push_body = f"${entry:.2f} → ${exit_price:.2f} ({pnl_pct:+.1f}%) | {exit_reason.replace('_', ' ')} | Balance: ${new_balance:,.0f}"
         send_push_notification(push_title, push_body, severity=8.0 if exit_reason == "target_hit" else 7.0)
 
-    # Write lesson and equity snapshot asynchronously
-    asyncio.create_task(_write_trade_lesson(trade, exit_price, exit_reason, pnl_pct))
-    asyncio.create_task(_record_equity_snapshot())
+    # Write lesson and equity snapshot — awaited so failures are visible, not silently dropped
+    await _write_trade_lesson(trade, exit_price, exit_reason, pnl_pct)
+    await _record_equity_snapshot()
 
 
 async def _write_trade_lesson(trade: dict, exit_price: float, exit_reason: str, pnl_pct: float) -> None:
@@ -1429,8 +1599,9 @@ Write ONE specific sentence that captures what this trade teaches about trading 
             "actual_bias": direction if is_win else ("short" if direction == "long" else "long"),
             "in_range": is_win,
             "lesson": lesson,
-            "confidence_pct": min(99, max(1, int(abs(pnl_pct) * 5))),
-            "key_factors": {"exit_reason": exit_reason, "pnl_pct": round(pnl_pct, 2), "source": "sandbox"},
+            # confidence_pct = entry confidence used, not derived from P&L size
+            "confidence_pct": min(99, max(1, int(trade.get("confidence_used") or max(1, int(abs(pnl_pct) * 5))))),
+            "key_factors": {"exit_reason": exit_reason, "pnl_pct": round(pnl_pct, 2), "source": "sandbox", "confidence_used": trade.get("confidence_used")},
             "signals_used": trade.get("signals_at_entry"),
         }, on_conflict="ticker,date").execute()
         log.info(f"Sandbox lesson written for {ticker}: {lesson[:80]}")
@@ -1702,6 +1873,8 @@ async def run_once() -> dict:
 
         # 9:30am–12:30pm ET: scan for new entries
         in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
+        # #19 — Block first 10 minutes of open (9:30-9:40 ET) — too whippy, except convergence
+        in_open_block = (hour == 9 and 30 <= minute < 40)
         if in_entry_window:
 
             # #1 — Regime detection: skip all entries if market is choppy
@@ -1719,6 +1892,23 @@ async def run_once() -> dict:
             if daily_loss_pct <= -2.0:
                 log.info(f"Daily loss limit hit: {daily_loss_pct:.1f}% — stopping entries for today")
                 return {"status": "skipped", "reason": f"daily loss limit hit ({daily_loss_pct:.1f}%)"}
+
+            # #4 — Consecutive loss circuit breaker: halt after 5 straight losses
+            consec_losses = get_consecutive_losses()
+            if consec_losses >= MAX_CONSECUTIVE_LOSSES:
+                log.info(f"Circuit breaker: {consec_losses} consecutive losses — halting entries for today")
+                return {"status": "skipped", "reason": f"circuit breaker: {consec_losses} consecutive losses"}
+
+            # #15 — Max drawdown halt: stop all entries if account is down 20%+ from peak
+            _, _, drawdown_pct = get_account_streak()
+            if drawdown_pct >= MAX_DRAWDOWN_HALT_PCT:
+                log.warning(f"Max drawdown halt: {drawdown_pct:.1f}% drawdown — halting all entries")
+                send_push_notification(
+                    f"⚠️ Sandbox Drawdown Alert: {drawdown_pct:.1f}%",
+                    f"Account is {drawdown_pct:.1f}% below peak. All new entries halted until drawdown recovers below {MAX_DRAWDOWN_HALT_PCT}%.",
+                    severity=9.0
+                )
+                return {"status": "skipped", "reason": f"max drawdown halt ({drawdown_pct:.1f}%)"}
 
             # Count how many trades already entered today
             today_str = date.today().isoformat()
@@ -1751,9 +1941,23 @@ async def run_once() -> dict:
                         break
                     if ticker in open_tickers:
                         continue
+                    # #5 — Re-check VIX every 3 entries (catches mid-session spikes)
+                    if entries > 0 and entries % 3 == 0 and is_choppy_market():
+                        log.info("VIX spiked mid-session — halting further entries")
+                        break
                     try:
                         trade = await decide_entry(client, ticker, open_tickers, open_positions)
                         if trade:
+                            # #19 — Skip non-convergence entries in first 10 min (9:30-9:40 ET)
+                            if in_open_block and not trade.get("is_convergence", False):
+                                log.debug(f"Open block: skipping non-convergence {ticker} entry (9:30-9:40 window)")
+                                continue
+                            # #17 — Idempotency: check no open trade already exists for this ticker today
+                            existing = supabase().table("sandbox_trades").select("id").eq("ticker", ticker).eq("status", "open").limit(1).execute()
+                            if existing.data:
+                                log.debug(f"Idempotency: {ticker} already has an open trade — skipping insert")
+                                open_tickers.add(ticker)
+                                continue
                             res = supabase().table("sandbox_trades").insert(trade).execute()
                             if res.data:
                                 inserted = res.data[0]
@@ -1800,6 +2004,71 @@ async def run_once() -> dict:
                 log.debug(f"Daily P&L push failed: {e}")
 
             return {"status": "ok", "action": "eod_close", "evaluated": closed}
+
+        # 4:30–4:45 ET: post-market swing review with after-hours prices
+        if hour == 16 and 30 <= minute < 45:
+            swing_positions = [p for p in open_positions if p.get("trade_type") == "swing"]
+            if swing_positions:
+                reviewed = 0
+                for trade in swing_positions:
+                    try:
+                        # Get AH price (Finnhub returns last trade including AH)
+                        price = await get_current_price(client, trade["ticker"])
+                        if not price:
+                            continue
+                        entry = float(trade["entry_price"])
+                        direction = trade["direction"]
+                        pnl_pct = (price - entry) / entry * 100 if direction == "long" else (entry - price) / entry * 100
+                        ah_signals = await get_recent_signals(trade["ticker"], hours=4)
+                        sig_lines = [f"- [{s['signal_type']} sev={s['severity']}] {s['title']}" for s in ah_signals]
+                        sig_block = "\n".join(sig_lines) if sig_lines else "No after-hours signals."
+
+                        prompt = f"""Market just closed. You have an open {direction} swing trade on {trade['ticker']}.
+
+Entry: ${entry:.2f} | Close price: ${price:.2f} | P&L today: {pnl_pct:+.1f}%
+Original thesis: {trade.get('groq_thesis', 'N/A')}
+
+After-hours signals:
+{sig_block}
+
+Should you hold overnight or exit at open tomorrow?
+Respond ONLY with JSON: {{"hold": true | false, "reason": "<one sentence>"}}
+
+Exit if: news broke after close that breaks thesis, AH price action is alarming, or you're sitting on a large gain you want to protect."""
+
+                        raw = await _call_groq(prompt, max_tokens=100)
+                        if raw:
+                            text = raw.strip()
+                            if "```" in text:
+                                parts = text.split("```")
+                                text = parts[1][4:] if parts[1].startswith("json") else parts[1]
+                            parsed = json.loads(text.strip())
+                            decision = "hold" if parsed.get("hold", True) else "exit_at_open"
+                            reason = str(parsed.get("reason", ""))[:300]
+                            try:
+                                supabase().table("sandbox_trade_evals").insert({
+                                    "trade_id": trade.get("id"),
+                                    "ticker": trade["ticker"],
+                                    "decision": decision,
+                                    "reason": reason,
+                                    "price_at_eval": round(price, 4),
+                                    "pnl_pct_at_eval": round(pnl_pct, 4),
+                                    "evaluated_at": datetime.now(timezone.utc).isoformat(),
+                                }).execute()
+                            except Exception:
+                                pass
+                            if not parsed.get("hold", True):
+                                # Flag for exit at tomorrow's open — update thesis note
+                                supabase().table("sandbox_trades").update({
+                                    "groq_exit_note": f"[POST-MARKET] Exit at open: {reason}",
+                                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                                }).eq("id", trade["id"]).execute()
+                                log.info(f"Post-market: {trade['ticker']} flagged for exit at open — {reason}")
+                        reviewed += 1
+                    except Exception as e:
+                        log.debug(f"Post-market review failed for {trade['ticker']}: {e}")
+                    await asyncio.sleep(1)
+                return {"status": "ok", "action": "postmarket_swing_review", "reviewed": reviewed}
 
         # 5:00–5:15 ET: nightly self-critique
         if hour == 17 and minute < 15:
