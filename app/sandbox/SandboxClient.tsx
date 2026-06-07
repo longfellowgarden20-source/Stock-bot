@@ -109,6 +109,45 @@ function QualityBadge({ score }: { score: number }) {
   )
 }
 
+// Feature 2: Personal trade note — persisted in localStorage
+function TradeNoteEditor({ tradeId }: { tradeId: string }) {
+  const [note, setNote] = useState<string>(() => {
+    try { return JSON.parse(localStorage.getItem('sandbox.tradeNotes') ?? '{}')[tradeId] ?? '' } catch { return '' }
+  })
+  const [saved, setSaved] = useState(false)
+  function save() {
+    try {
+      const all = JSON.parse(localStorage.getItem('sandbox.tradeNotes') ?? '{}')
+      all[tradeId] = note
+      localStorage.setItem('sandbox.tradeNotes', JSON.stringify(all))
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1500)
+    } catch { /* quota */ }
+  }
+  return (
+    <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-3">
+      <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1.5 flex items-center gap-1">
+        📝 My Note
+      </p>
+      <textarea
+        value={note}
+        onChange={e => setNote(e.target.value)}
+        onClick={e => e.stopPropagation()}
+        placeholder="Your personal note on this trade…"
+        rows={2}
+        className="w-full bg-transparent text-xs text-slate-300 placeholder-slate-600 resize-none focus:outline-none"
+      />
+      <button
+        onClick={e => { e.stopPropagation(); save() }}
+        className="mt-1 text-[10px] font-semibold text-sky-400 hover:text-sky-300"
+        style={{ transition: 'color 0.1s' }}
+      >
+        {saved ? '✓ Saved' : 'Save note'}
+      </button>
+    </div>
+  )
+}
+
 // Fetch latest snapshot price from DB via API
 async function fetchLatestPrice(ticker: string): Promise<number | null> {
   try {
@@ -421,6 +460,9 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
             </div>
           )}
 
+          {/* Feature 2: Personal trade note */}
+          <TradeNoteEditor tradeId={trade.id} />
+
           {/* #20 — Quality scorecard for closed trades */}
           {isClosed && (() => {
             const { score, reasons } = computeTradeQuality(trade)
@@ -718,6 +760,60 @@ export default function SandboxClient({
   const [historyDirection, setHistoryDirection] = useState<'all' | 'long' | 'short'>('all')
   const [historyExit, setHistoryExit] = useState<'all' | 'target_hit' | 'stop_hit' | 'groq_exit' | 'day_close' | 'max_hold'>('all')
   const [historyOutcome, setHistoryOutcome] = useState<'all' | 'win' | 'loss'>('all')
+
+  // Feature 2: trade notes (stored in localStorage, keyed by trade id)
+  const [tradeNotes, setTradeNotes] = useState<Record<string, string>>(() => {
+    try { return JSON.parse(localStorage.getItem('sandbox.tradeNotes') ?? '{}') } catch { return {} }
+  })
+  function saveNote(id: string, note: string) {
+    setTradeNotes(prev => {
+      const next = { ...prev, [id]: note }
+      try { localStorage.setItem('sandbox.tradeNotes', JSON.stringify(next)) } catch { /* quota */ }
+      return next
+    })
+  }
+
+  // Feature 3: re-entry detector — tickers traded 3+ times
+  const reentryTickers = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const t of [...openTrades, ...closedTrades]) {
+      counts[t.ticker] = (counts[t.ticker] ?? 0) + 1
+    }
+    return new Set(Object.entries(counts).filter(([, n]) => n >= 3).map(([t]) => t))
+  }, [openTrades, closedTrades])
+
+  // Feature 5: position size heatmap data — closed trades sorted by $ size
+  const positionSizes = useMemo(() => {
+    return [...closedTrades]
+      .map(t => ({
+        id: t.id, ticker: t.ticker, direction: t.direction,
+        size: Number(t.entry_price) * Number(t.shares || 1),
+        pnl: t.pnl ?? 0,
+      }))
+      .sort((a, b) => b.size - a.size)
+      .slice(0, 20)
+  }, [closedTrades])
+
+  // Feature 6: time-of-day win rate (buckets: pre-market, morning, midday, afternoon)
+  const timeOfDayStats = useMemo(() => {
+    const buckets = [
+      { label: 'Pre-mkt', range: '4–9:30', check: (h: number) => h < 9 || (h === 9 && 0 < 30) },
+      { label: 'Morning', range: '9:30–11', check: (h: number) => h >= 9 && h < 11 },
+      { label: 'Midday', range: '11–13', check: (h: number) => h >= 11 && h < 13 },
+      { label: 'Afternoon', range: '13–16', check: (h: number) => h >= 13 && h < 16 },
+    ]
+    return buckets.map(b => {
+      const trades = closedTrades.filter(t => {
+        const et = new Date(t.entry_date)
+        const h = et.getHours()
+        return b.check(h)
+      })
+      const wins = trades.filter(t => (t.pnl ?? 0) > 0).length
+      const wr = trades.length > 0 ? wins / trades.length * 100 : null
+      const pnl = trades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+      return { ...b, total: trades.length, wins, wr, pnl }
+    }).filter(b => b.total > 0)
+  }, [closedTrades])
 
   // #1 — Fetch worker status on mount
   useEffect(() => {
@@ -1697,6 +1793,108 @@ export default function SandboxClient({
                 <span className="ml-auto">hover for details</span>
               </div>
             </div>
+
+            {/* Feature 6: Time-of-day win rate */}
+            {timeOfDayStats.length > 0 && (
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Entry Time Win Rate</p>
+                <div className="flex gap-2 flex-wrap">
+                  {timeOfDayStats.map(b => (
+                    <div key={b.label} className="flex flex-col items-center gap-1 flex-1 min-w-[72px] border border-white/[0.07] rounded-xl p-3">
+                      <span className="text-[10px] text-slate-500">{b.label}</span>
+                      <span className="text-[9px] text-slate-600">{b.range} ET</span>
+                      <span className={`text-lg font-bold tabular-nums mt-1 ${b.wr != null && b.wr >= 60 ? 'text-emerald-400' : b.wr != null && b.wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                        {b.wr != null ? `${b.wr.toFixed(0)}%` : '—'}
+                      </span>
+                      <span className="text-[10px] text-slate-600">{b.total} trades</span>
+                      <span className={`text-[10px] tabular-nums ${pnlColor(b.pnl)}`}>{b.pnl >= 0 ? '+' : ''}${b.pnl.toFixed(0)}</span>
+                    </div>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-600 mt-2">Best time to enter = highest win rate window</p>
+              </div>
+            )}
+
+            {/* Feature 4: MAE / MFE */}
+            {(() => {
+              const withPeak = closed.filter(t => t.peak_pnl_pct != null && t.pnl_pct != null)
+              if (withPeak.length === 0) return null
+              const avgMAE = withPeak.reduce((s, t) => {
+                const entryStop = t.direction === 'long'
+                  ? (Number(t.entry_price) - Number(t.stop_loss)) / Number(t.entry_price) * 100
+                  : (Number(t.stop_loss) - Number(t.entry_price)) / Number(t.entry_price) * 100
+                return s + Math.min(0, t.pnl_pct ?? 0) - entryStop
+              }, 0) / withPeak.length
+              const avgMFE = withPeak.reduce((s, t) => s + (t.peak_pnl_pct ?? 0), 0) / withPeak.length
+              const avgClose = withPeak.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / withPeak.length
+              return (
+                <div className="grid grid-cols-3 gap-3">
+                  <div className="border border-white/[0.07] rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Avg Peak Gain (MFE)</p>
+                    <p className="text-xl font-bold text-emerald-400 tabular-nums">{avgMFE.toFixed(2)}%</p>
+                    <p className="text-[10px] text-slate-600 mt-1">Max favorable excursion</p>
+                  </div>
+                  <div className="border border-white/[0.07] rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">Avg Close</p>
+                    <p className={`text-xl font-bold tabular-nums ${pnlColor(avgClose)}`}>{avgClose >= 0 ? '+' : ''}{avgClose.toFixed(2)}%</p>
+                    <p className="text-[10px] text-slate-600 mt-1">Where you exited</p>
+                  </div>
+                  <div className="border border-white/[0.07] rounded-xl p-4 text-center" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-wider mb-1">MFE vs Close Gap</p>
+                    <p className="text-xl font-bold text-yellow-400 tabular-nums">{(avgMFE - avgClose).toFixed(2)}%</p>
+                    <p className="text-[10px] text-slate-600 mt-1">Left on table avg</p>
+                  </div>
+                </div>
+              )
+            })()}
+
+            {/* Feature 5: Position size heatmap */}
+            {positionSizes.length >= 3 && (
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Position Size vs Outcome</p>
+                <div className="flex flex-col gap-1.5">
+                  {positionSizes.slice(0, 10).map(pos => {
+                    const maxSize = positionSizes[0].size
+                    const widthPct = (pos.size / maxSize) * 100
+                    return (
+                      <div key={pos.id} className="flex items-center gap-2">
+                        <span className="font-mono text-[10px] text-white w-10 shrink-0">{pos.ticker}</span>
+                        <div className="flex-1 h-3 bg-white/[0.04] rounded-full overflow-hidden">
+                          <div
+                            className={`h-full rounded-full ${pos.pnl > 0 ? 'bg-emerald-500/50' : 'bg-red-500/50'}`}
+                            style={{ width: `${widthPct}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-slate-500 tabular-nums w-16 text-right">${pos.size.toFixed(0)}</span>
+                        <span className={`text-[10px] font-bold tabular-nums w-16 text-right ${pnlColor(pos.pnl)}`}>{pos.pnl >= 0 ? '+' : ''}${pos.pnl.toFixed(0)}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-600 mt-2">Bar width = position size. Color = outcome.</p>
+              </div>
+            )}
+
+            {/* Feature 3: Re-entry detector */}
+            {reentryTickers.size > 0 && (
+              <div className="border border-yellow-500/20 bg-yellow-500/5 rounded-xl p-4">
+                <p className="text-[11px] text-yellow-400 font-bold mb-2 uppercase tracking-wider">⚠️ Re-entry Patterns (3+ trades)</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {[...reentryTickers].map(ticker => {
+                    const count = [...openTrades, ...closedTrades].filter(t => t.ticker === ticker).length
+                    const wins = closedTrades.filter(t => t.ticker === ticker && (t.pnl ?? 0) > 0).length
+                    const total = closedTrades.filter(t => t.ticker === ticker).length
+                    const wr = total > 0 ? (wins / total * 100).toFixed(0) : '?'
+                    return (
+                      <span key={ticker} className="text-[11px] px-2 py-1 rounded-lg border border-yellow-500/25 text-yellow-300 bg-yellow-500/8 font-mono font-bold">
+                        {ticker} ×{count} · {wr}% WR
+                      </span>
+                    )
+                  })}
+                </div>
+                <p className="text-[10px] text-slate-600 mt-2">Trading same tickers repeatedly. Check if this is a strength or bias.</p>
+              </div>
+            )}
 
             {/* Row 7 — Profit efficiency + R stats */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

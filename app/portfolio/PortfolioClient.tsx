@@ -78,6 +78,35 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
   const totalPnl = totalValue - totalCost
   const totalPnlPct = totalCost > 0 ? (totalPnl / totalCost) * 100 : 0
 
+  // Feature 19: sector concentration warning
+  const SECTOR_MAP: Record<string, string> = {
+    AAPL: 'Tech', MSFT: 'Tech', NVDA: 'Tech', AMD: 'Tech', META: 'Tech',
+    GOOGL: 'Tech', GOOG: 'Tech', AMZN: 'Tech', TSLA: 'Tech', PLTR: 'Tech',
+    CRM: 'Tech', NET: 'Tech', CRWD: 'Tech', DDOG: 'Tech', SNOW: 'Tech',
+    AVGO: 'Tech', QCOM: 'Tech', TXN: 'Tech', MU: 'Tech', AMAT: 'Tech',
+    JPM: 'Finance', GS: 'Finance', MS: 'Finance', BAC: 'Finance', V: 'Finance',
+    MA: 'Finance', PYPL: 'Finance', SQ: 'Finance', AXP: 'Finance', WFC: 'Finance',
+    JNJ: 'Healthcare', PFE: 'Healthcare', MRNA: 'Healthcare', LLY: 'Healthcare',
+    UNH: 'Healthcare', ABBV: 'Healthcare', GILD: 'Healthcare', BMY: 'Healthcare',
+    XOM: 'Energy', CVX: 'Energy', COP: 'Energy', OXY: 'Energy', SLB: 'Energy',
+    NFLX: 'Media', DIS: 'Media', BA: 'Industrial', CAT: 'Industrial',
+    GM: 'Auto', F: 'Auto', RIVN: 'Auto', WMT: 'Retail', COST: 'Retail',
+  }
+  const sectorGroups = useMemo(() => {
+    const groups: Record<string, string[]> = {}
+    for (const pos of portfolio) {
+      const s = SECTOR_MAP[pos.ticker] ?? null
+      if (s) {
+        if (!groups[s]) groups[s] = []
+        groups[s].push(pos.ticker)
+      }
+    }
+    return Object.entries(groups).filter(([, tickers]) => tickers.length >= 2)
+  }, [portfolio])
+
+  // Feature 20: target exit calculator state (per-ticker)
+  const [targetPct, setTargetPct] = useState<Record<string, string>>({})
+
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-start justify-between flex-wrap gap-3">
@@ -200,6 +229,20 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
         </button>
       </div>
 
+      {/* Feature 19: sector concentration warning */}
+      {sectorGroups.length > 0 && (
+        <div className="flex flex-col gap-1.5 px-4 py-3 border border-yellow-500/25 bg-yellow-500/8 rounded-xl text-xs">
+          <p className="font-bold text-yellow-400 flex items-center gap-1.5">
+            ⚠️ Sector Concentration Risk
+          </p>
+          {sectorGroups.map(([sector, tickers]) => (
+            <p key={sector} className="text-yellow-300/80">
+              <span className="font-semibold">{sector}:</span> {tickers.join(', ')} — {tickers.length} positions. Consider reducing exposure.
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* Heat Map View */}
       {viewMode === 'heatmap' && portfolio.length > 0 && (
         <HeatMapView portfolio={portfolio} snapshots={snapshots} />
@@ -236,14 +279,38 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
                 <p className="text-xs text-slate-500 mt-0.5">
                   {pos.shares} shares @ ${pos.avg_cost.toFixed(2)} avg · Current: ${currentPrice.toFixed(2)}
                 </p>
-                {/* Break-even: cost basis / shares — shows what price needed to profit */}
+                {/* Break-even info */}
                 <p className="text-[11px] text-slate-600 mt-0.5">
-                  Cost basis: ${(pos.avg_cost * pos.shares).toFixed(0)} ·
+                  Cost: ${(pos.avg_cost * pos.shares).toFixed(0)} ·
                   Break-even: ${pos.avg_cost.toFixed(2)} ·
                   <span className={pnl >= 0 ? ' text-emerald-500/70' : ' text-red-500/70'}>
                     {pnl >= 0 ? ` $${Math.abs(currentPrice - pos.avg_cost).toFixed(2)}/sh above` : ` $${Math.abs(currentPrice - pos.avg_cost).toFixed(2)}/sh below`}
                   </span>
                 </p>
+                {/* Feature 20: target exit calculator */}
+                <div className="flex items-center gap-1.5 mt-1">
+                  <span className="text-[10px] text-slate-600">Exit at</span>
+                  <input
+                    type="number"
+                    placeholder="5"
+                    value={targetPct[pos.id] ?? ''}
+                    onChange={e => setTargetPct(p => ({ ...p, [pos.id]: e.target.value }))}
+                    onClick={e => e.stopPropagation()}
+                    className="w-12 px-1.5 py-0.5 text-[10px] bg-white/[0.04] border border-white/[0.08] rounded text-white focus:outline-none focus:border-sky-500/40 tabular-nums"
+                  />
+                  <span className="text-[10px] text-slate-600">% gain →</span>
+                  {targetPct[pos.id] && (() => {
+                    const pct = parseFloat(targetPct[pos.id])
+                    if (isNaN(pct)) return null
+                    const exitPrice = pos.avg_cost * (1 + pct / 100)
+                    const gain = (exitPrice - pos.avg_cost) * pos.shares
+                    return (
+                      <span className="text-[10px] text-emerald-400 tabular-nums font-semibold">
+                        ${exitPrice.toFixed(2)} (+${gain.toFixed(0)})
+                      </span>
+                    )
+                  })()}
+                </div>
                 {pos.notes && <p className="text-xs text-slate-600 mt-0.5">{pos.notes}</p>}
               </div>
               <div className="relative z-10 text-right shrink-0">

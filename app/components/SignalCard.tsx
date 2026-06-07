@@ -154,8 +154,15 @@ export default function SignalCard({
               {Number(signal.severity).toFixed(1)}
             </span>
 
-            {/* Time */}
-            <span className="text-[11px] text-slate-600 tabular-nums">{timeAgo(signal.created_at)}</span>
+            {/* Feature 8: Time with age-based color — fresh=green, stale=red */}
+            {(() => {
+              const ageMs = Date.now() - new Date(signal.created_at).getTime()
+              const color = ageMs < 1800000 ? 'text-emerald-500/70' // <30min = fresh green
+                : ageMs < 7200000 ? 'text-slate-500'              // <2h = normal
+                : ageMs < 14400000 ? 'text-yellow-600/60'         // <4h = slightly stale
+                : 'text-red-500/50'                                // 4h+ = stale red
+              return <span className={`text-[11px] tabular-nums ${color}`}>{timeAgo(signal.created_at)}</span>
+            })()}
 
             {/* Unread dot */}
             {!signal.read && (

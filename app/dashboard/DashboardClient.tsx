@@ -76,6 +76,8 @@ export default function DashboardClient({
   const [sort, setSort] = useLocalStorage<SortKey>('dash.sort', 'newest')
   const [density, setDensity] = useLocalStorage<Density>('dash.density', 'comfortable')
   const [groupByTicker, setGroupByTicker] = useLocalStorage<boolean>('dash.groupByTicker', false)
+  // Feature 9: deduplicate signals — collapse same type+ticker within 1h
+  const [dedupeMode, setDedupeMode] = useLocalStorage<boolean>('dash.dedupe', false)
   const [autoRefresh, setAutoRefresh] = useLocalStorage<boolean>('dash.autoRefresh', false)
   const [soundEnabled, setSoundEnabled] = useLocalStorage<boolean>('dash.sound', false)
   const [pinned, setPinned] = useLocalStorage<string[]>('dash.pinned', [])
@@ -211,8 +213,30 @@ export default function DashboardClient({
           return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
       }
     })
+    // Feature 9: dedupe — collapse same type+ticker within 1h window, keep highest severity
+    if (dedupeMode) {
+      const seen = new Map<string, Signal>()
+      const deduped: Signal[] = []
+      for (const s of list) {
+        const key = `${s.ticker}::${s.signal_type}`
+        const existing = seen.get(key)
+        if (!existing) {
+          seen.set(key, s)
+          deduped.push(s)
+        } else {
+          const ageGap = Math.abs(new Date(s.created_at).getTime() - new Date(existing.created_at).getTime())
+          if (ageGap > 3600000) { // >1h apart = different event
+            seen.set(key, s)
+            deduped.push(s)
+          }
+          // else skip — it's a duplicate within 1h
+        }
+      }
+      return deduped
+    }
+
     return list
-  }, [signals, historySignals, historyMode, search, muted, pinned, rangeMinutes, rangeCutoff, typeFilter, severityFilter, sort])
+  }, [signals, historySignals, historyMode, search, muted, pinned, rangeMinutes, rangeCutoff, typeFilter, severityFilter, sort, dedupeMode])
 
   // --- Group by ticker (memoized) ---
   const grouped = useMemo(() => {
@@ -437,6 +461,11 @@ export default function DashboardClient({
     'f': () => refresh(),
     '+': () => setAddOpen(true),
     '?': () => setHelpOpen(true),
+    // Feature 10: 'e' to expand/collapse focused signal
+    'e': () => {
+      const s = filtered[focusIdx]
+      if (s) toggleExpand(s.id)
+    },
     'Escape': () => {
       if (addOpen) setAddOpen(false)
       else if (helpOpen) setHelpOpen(false)
@@ -575,6 +604,43 @@ export default function DashboardClient({
                 Showing {filtered.length} signal{filtered.length !== 1 ? 's' : ''} from {historyFrom} to {historyTo}
               </span>
           }
+        </div>
+      )}
+
+      {/* Feature 7: Pinned ticker mini-watchdog strip */}
+      {pinned.length > 0 && (
+        <div className="flex gap-2 overflow-x-auto pb-1 scrollbar-none -mx-1 px-1">
+          {pinned.map(ticker => {
+            const tickerSignals = signals.filter(s => s.ticker === ticker)
+            const latest = tickerSignals.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]
+            const unread = tickerSignals.filter(s => !s.read).length
+            const maxSev = tickerSignals.length > 0 ? Math.max(...tickerSignals.map(s => s.severity)) : 0
+            const ageMs = latest ? Date.now() - new Date(latest.created_at).getTime() : Infinity
+            const ageLabel = ageMs < 3600000 ? `${Math.round(ageMs / 60000)}m`
+              : ageMs < 86400000 ? `${Math.round(ageMs / 3600000)}h` : '24h+'
+            return (
+              <button
+                key={ticker}
+                onClick={() => setSearch(ticker)}
+                className={`flex items-center gap-2 px-3 py-2 rounded-xl shrink-0 border ${maxSev >= 8 ? 'bg-orange-500/10 border-orange-500/25' : maxSev >= 6 ? 'bg-yellow-500/8 border-yellow-500/20' : 'bg-white/[0.04] border-white/[0.08]'}`}
+                style={{ transition: 'all 0.1s' }}
+              >
+                <span className="text-xs font-bold font-mono text-white">📌 {ticker}</span>
+                {tickerSignals.length > 0 && (
+                  <>
+                    <span className={`text-[10px] font-bold ${maxSev >= 8 ? 'text-orange-400' : maxSev >= 6 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                      {maxSev}/10
+                    </span>
+                    {unread > 0 && (
+                      <span className="text-[9px] font-bold text-sky-400 bg-sky-500/15 px-1 rounded">{unread}</span>
+                    )}
+                    <span className="text-[9px] text-slate-600">{ageLabel}</span>
+                  </>
+                )}
+                {tickerSignals.length === 0 && <span className="text-[10px] text-slate-600">no signals</span>}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -723,6 +789,16 @@ export default function DashboardClient({
             title={groupByTicker ? 'Ungroup' : 'Group by ticker'}
           >
             <Layers className="w-3.5 h-3.5" />
+          </button>
+
+          {/* Feature 9: dedupe toggle */}
+          <button
+            onClick={() => setDedupeMode(v => !v)}
+            className={`flex items-center gap-1 px-2 py-1 border rounded text-[11px] font-semibold ${dedupeMode ? 'text-purple-400 border-purple-500/30 bg-purple-500/10' : 'text-slate-500 hover:text-slate-200 border-white/[0.08] hover:bg-white/[0.04]'}`}
+            style={{ transition: 'color 0.1s, background 0.1s' }}
+            title="Collapse duplicate signals (same type+ticker within 1h)"
+          >
+            Dedup
           </button>
 
           <span className="text-slate-600 ml-auto tabular-nums" style={{ fontSize: '11px' }}>{filtered.length}</span>

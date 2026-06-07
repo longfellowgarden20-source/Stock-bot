@@ -963,6 +963,111 @@ function Performance({ trades }: { trades: Trade[] }) {
         </div>
       </div>
 
+      {/* Feature 18: Win rate by day of week */}
+      {closed.length >= 3 && (() => {
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+        const dayStats = days.map((label, idx) => {
+          const dayTrades = closed.filter(t => {
+            const d = new Date(t.date + 'T12:00:00')
+            return d.getDay() === idx
+          })
+          const wins = dayTrades.filter(t => (t.pnl ?? 0) > 0).length
+          const pnl = dayTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+          const wr = dayTrades.length > 0 ? wins / dayTrades.length * 100 : null
+          return { label, total: dayTrades.length, wins, wr, pnl }
+        }).filter(d => d.total > 0)
+
+        if (dayStats.length === 0) return null
+
+        return (
+          <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-purple-400" /> Win Rate by Day of Week
+            </h3>
+            <div className="flex gap-2 flex-wrap">
+              {dayStats.map(d => (
+                <div key={d.label} className="flex flex-col items-center gap-1 flex-1 min-w-[48px]">
+                  <span className="text-[10px] text-slate-500">{d.label}</span>
+                  <div
+                    className={`w-full rounded-lg flex items-end justify-center p-1 min-h-[32px] ${d.wr != null && d.wr >= 60 ? 'bg-[#22c55e]/15 border border-[#22c55e]/25' : d.wr != null && d.wr >= 40 ? 'bg-[#f59e0b]/10 border border-[#f59e0b]/20' : 'bg-[#ef4444]/10 border border-[#ef4444]/20'}`}
+                  >
+                    <span className={`text-xs font-bold tabular-nums ${d.wr != null && d.wr >= 60 ? 'text-[#22c55e]' : d.wr != null && d.wr >= 40 ? 'text-[#f59e0b]' : 'text-[#ef4444]'}`}>
+                      {d.wr != null ? `${d.wr.toFixed(0)}%` : '—'}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-slate-600">{d.total}t</span>
+                  <span className={`text-[10px] tabular-nums ${pnlColor(d.pnl)}`}>{d.pnl >= 0 ? '+' : ''}${d.pnl.toFixed(0)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Feature 17: Monthly P&L calendar heatmap */}
+      {closed.length >= 2 && (() => {
+        // Build map of date → pnl
+        const byDate: Record<string, number> = {}
+        for (const t of closed) {
+          if (!t.date) continue
+          byDate[t.date] = (byDate[t.date] ?? 0) + (t.pnl ?? 0)
+        }
+        if (Object.keys(byDate).length === 0) return null
+
+        const dates = Object.keys(byDate).sort()
+        const latestDate = new Date(dates[dates.length - 1] + 'T12:00:00')
+        const year = latestDate.getFullYear()
+        const month = latestDate.getMonth()
+        const monthName = latestDate.toLocaleString('default', { month: 'long', year: 'numeric' })
+
+        // Get all days in month
+        const daysInMonth = new Date(year, month + 1, 0).getDate()
+        const firstDay = new Date(year, month, 1).getDay() // 0=Sun
+        const cells: Array<{ day: number | null; pnl: number | null; dateStr: string | null }> = []
+        for (let i = 0; i < firstDay; i++) cells.push({ day: null, pnl: null, dateStr: null })
+        for (let d = 1; d <= daysInMonth; d++) {
+          const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`
+          cells.push({ day: d, pnl: byDate[dateStr] ?? null, dateStr })
+        }
+
+        const maxAbsPnl = Math.max(1, ...Object.values(byDate).map(Math.abs))
+
+        return (
+          <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-[#0ea5e9]" /> Monthly P&L — {monthName}
+            </h3>
+            <div className="grid grid-cols-7 gap-1 text-center">
+              {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
+                <div key={i} className="text-[10px] text-slate-600 pb-1">{d}</div>
+              ))}
+              {cells.map((cell, i) => {
+                if (!cell.day) return <div key={i} />
+                const intensity = cell.pnl != null ? Math.min(1, Math.abs(cell.pnl) / maxAbsPnl) : 0
+                const bg = cell.pnl == null ? 'bg-white/[0.04]'
+                  : cell.pnl > 0 ? `bg-[#22c55e]/${Math.round(intensity * 30 + 8)}`
+                  : cell.pnl < 0 ? `bg-[#ef4444]/${Math.round(intensity * 30 + 8)}`
+                  : 'bg-white/[0.04]'
+                return (
+                  <div
+                    key={i}
+                    title={cell.pnl != null ? `${cell.dateStr}: ${cell.pnl >= 0 ? '+' : ''}$${cell.pnl.toFixed(0)}` : String(cell.day)}
+                    className={`rounded-md flex items-center justify-center aspect-square text-[10px] border ${cell.pnl == null ? 'border-white/[0.04] text-slate-700' : cell.pnl > 0 ? 'border-[#22c55e]/20 text-[#22c55e]' : 'border-[#ef4444]/20 text-[#ef4444]'} ${bg}`}
+                  >
+                    {cell.day}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="flex gap-4 mt-2 text-[10px] text-slate-600">
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-[#22c55e]/20 border border-[#22c55e]/25 inline-block" /> Profit</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-[#ef4444]/20 border border-[#ef4444]/25 inline-block" /> Loss</span>
+              <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-white/[0.04] border border-white/[0.06] inline-block" /> No trades</span>
+            </div>
+          </div>
+        )
+      })()}
+
       {/* Recent trades table */}
       <div className="bg-white/2 border border-white/8 rounded-2xl overflow-hidden">
         <div className="px-4 py-3 border-b border-white/5">
