@@ -1044,15 +1044,18 @@ function Performance({ trades }: { trades: Trade[] }) {
               {cells.map((cell, i) => {
                 if (!cell.day) return <div key={i} />
                 const intensity = cell.pnl != null ? Math.min(1, Math.abs(cell.pnl) / maxAbsPnl) : 0
-                const bg = cell.pnl == null ? 'bg-white/[0.04]'
-                  : cell.pnl > 0 ? `bg-[#22c55e]/${Math.round(intensity * 30 + 8)}`
-                  : cell.pnl < 0 ? `bg-[#ef4444]/${Math.round(intensity * 30 + 8)}`
-                  : 'bg-white/[0.04]'
+                // Dynamic opacity must be an inline style — Tailwind can't generate
+                // interpolated arbitrary-opacity classes (e.g. `bg-[#22c55e]/23`) at runtime.
+                const fillAlpha = (intensity * 0.30 + 0.08).toFixed(3)
+                const bgColor = cell.pnl == null || cell.pnl === 0 ? 'rgba(255,255,255,0.04)'
+                  : cell.pnl > 0 ? `rgba(34,197,94,${fillAlpha})`
+                  : `rgba(239,68,68,${fillAlpha})`
                 return (
                   <div
                     key={i}
                     title={cell.pnl != null ? `${cell.dateStr}: ${cell.pnl >= 0 ? '+' : ''}$${cell.pnl.toFixed(0)}` : String(cell.day)}
-                    className={`rounded-md flex items-center justify-center aspect-square text-[10px] border ${cell.pnl == null ? 'border-white/[0.04] text-slate-700' : cell.pnl > 0 ? 'border-[#22c55e]/20 text-[#22c55e]' : 'border-[#ef4444]/20 text-[#ef4444]'} ${bg}`}
+                    style={{ background: bgColor }}
+                    className={`rounded-md flex items-center justify-center aspect-square text-[10px] border ${cell.pnl == null ? 'border-white/[0.04] text-slate-700' : cell.pnl > 0 ? 'border-[#22c55e]/20 text-[#22c55e]' : 'border-[#ef4444]/20 text-[#ef4444]'}`}
                   >
                     {cell.day}
                   </div>

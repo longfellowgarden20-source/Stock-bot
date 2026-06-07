@@ -44,6 +44,30 @@ function WatchlistRow({ item, onRemove }: { item: WatchlistItem; onRemove: (id: 
   )
 }
 
+type SortField = 'added' | 'ticker' | 'sector' | 'threshold'
+
+// Hoisted to module scope: defining a component inside the parent would recreate
+// it on every render and remount the button each time.
+function SortBtn({ field, label, sortBy, sortAsc, onSort }: {
+  field: SortField
+  label: string
+  sortBy: SortField
+  sortAsc: boolean
+  onSort: (field: SortField) => void
+}) {
+  const active = sortBy === field
+  return (
+    <button
+      onClick={() => onSort(field)}
+      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${active ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' : 'text-slate-500 border-white/[0.08] hover:text-slate-300'}`}
+      style={{ transition: 'all 0.1s' }}
+    >
+      {label}
+      {active ? (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
+    </button>
+  )
+}
+
 type BulkResult = {
   added: string[]
   existed: string[]
@@ -66,7 +90,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
   const [bulkResult, setBulkResult] = useState<BulkResult | null>(null)
 
   // Feature 14: sort
-  const [sortBy, setSortBy] = useState<'added' | 'ticker' | 'sector' | 'threshold'>('added')
+  const [sortBy, setSortBy] = useState<SortField>('added')
   const [sortAsc, setSortAsc] = useState(false)
   // Feature 16: sector grouping
   const [groupBySector, setGroupBySector] = useState(false)
@@ -109,18 +133,9 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
     })
   }
 
-  function SortBtn({ field, label }: { field: typeof sortBy; label: string }) {
-    const active = sortBy === field
-    return (
-      <button
-        onClick={() => { if (active) setSortAsc(a => !a); else { setSortBy(field); setSortAsc(true) } }}
-        className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${active ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' : 'text-slate-500 border-white/[0.08] hover:text-slate-300'}`}
-        style={{ transition: 'all 0.1s' }}
-      >
-        {label}
-        {active ? (sortAsc ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />) : <ArrowUpDown className="w-3 h-3 opacity-40" />}
-      </button>
-    )
+  function handleSort(field: SortField) {
+    if (sortBy === field) setSortAsc(a => !a)
+    else { setSortBy(field); setSortAsc(true) }
   }
 
   const add = async () => {
@@ -328,10 +343,10 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
       {watchlist.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-[11px] text-slate-500">Sort:</span>
-          <SortBtn field="added" label="Date" />
-          <SortBtn field="ticker" label="Ticker" />
-          <SortBtn field="sector" label="Sector" />
-          <SortBtn field="threshold" label="Alert %" />
+          <SortBtn field="added" label="Date" sortBy={sortBy} sortAsc={sortAsc} onSort={handleSort} />
+          <SortBtn field="ticker" label="Ticker" sortBy={sortBy} sortAsc={sortAsc} onSort={handleSort} />
+          <SortBtn field="sector" label="Sector" sortBy={sortBy} sortAsc={sortAsc} onSort={handleSort} />
+          <SortBtn field="threshold" label="Alert %" sortBy={sortBy} sortAsc={sortAsc} onSort={handleSort} />
           <button
             onClick={() => setGroupBySector(g => !g)}
             className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold border ${groupBySector ? 'text-purple-400 border-purple-500/30 bg-purple-500/10' : 'text-slate-500 border-white/[0.08] hover:text-slate-300'}`}

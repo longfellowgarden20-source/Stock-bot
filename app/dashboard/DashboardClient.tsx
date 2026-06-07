@@ -686,7 +686,7 @@ export default function DashboardClient({
       )}
 
       {/* Search + filters (sticky) */}
-      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#080c14]/95 backdrop-blur-md py-2 -my-2">
+      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#070b13]/90 backdrop-blur-md py-2 -my-2">
         {/* Search */}
         <div className="relative mb-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
@@ -868,7 +868,7 @@ export default function DashboardClient({
       </div>
 
       {/* Signal feed */}
-      <div ref={filteredRef} className="flex flex-col gap-2 pb-24 md:pb-12">
+      <div ref={filteredRef} className={`flex flex-col pb-24 md:pb-12 ${groupByTicker && grouped ? 'gap-2' : filtered.length === 0 ? '' : 'panel overflow-hidden'}`}>
         {filtered.length === 0 ? (
           <EmptyState
             hasFilters={search.length > 0 || typeFilter !== 'all' || severityFilter !== 'all' || timeRange !== 'all'}

@@ -1,11 +1,14 @@
 @import "tailwindcss";
 
 :root {
-  --background: #080c14;
+  --background: #070b13;
   --foreground: #cbd5e1;
   --surface: #0d1220;
+  --surface-2: #0b1018;
   --border: rgba(255,255,255,0.07);
   --border-strong: rgba(255,255,255,0.12);
+  --accent: #38bdf8;
+  --accent-glow: rgba(56,189,248,0.35);
 }
 
 @theme inline {
@@ -15,30 +18,81 @@
   --font-mono: var(--font-geist-mono);
 }
 
+html { height: 100%; }
+
 body {
-  background: #080c14;
+  /* Layered radial depth on top of a deep base — subtle, never distracting */
+  background-color: #070b13;
+  background-image:
+    radial-gradient(1200px 600px at 12% -8%, rgba(56,189,248,0.05), transparent 60%),
+    radial-gradient(1000px 500px at 100% 0%, rgba(99,102,241,0.045), transparent 55%);
+  background-attachment: fixed;
   color: #cbd5e1;
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
   font-size: 14px;
   line-height: 1.6;
 }
 
+/* Selection */
+::selection { background: rgba(56,189,248,0.25); color: #f1f5f9; }
+
 /* Scrollbar */
-::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 2px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.15); }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+
+/* Consistent focus ring for keyboard users across the whole app */
+:focus-visible {
+  outline: 2px solid rgba(56,189,248,0.55);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
 
 /* Signal pulse animation for critical alerts */
 @keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.3); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.35); }
   50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
 }
 .pulse-red { animation: pulse-red 2s infinite; }
 
+/* Soft entrance for newly mounted content */
+@keyframes fade-in-up {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.fade-in-up { animation: fade-in-up 0.22s ease-out both; }
+
+/* Accent glow utility — for active/hot elements */
+.glow-accent { box-shadow: 0 0 0 1px rgba(56,189,248,0.25), 0 0 18px -4px var(--accent-glow); }
+
 /* Number tabular figures — apply to all mono spans */
 .tabular, [class*="font-mono"] { font-variant-numeric: tabular-nums; }
+
+/* ───────────────────────── Panels / cards ─────────────────────────
+   A reusable surface with depth. Opt-in: add `panel` to any container.
+   Gives a layered background, hairline border, soft shadow, and a faint
+   top highlight that reads as a light source from above. */
+.panel {
+  position: relative;
+  background:
+    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0) 40%),
+    var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,0.03) inset,
+    0 8px 24px -16px rgba(0,0,0,0.8);
+}
+.panel-hover { transition: border-color 0.12s, box-shadow 0.12s; }
+.panel-hover:hover {
+  border-color: var(--border-strong);
+  box-shadow:
+    0 1px 0 0 rgba(255,255,255,0.05) inset,
+    0 10px 30px -16px rgba(0,0,0,0.85);
+}
 
 /* Terminal-style section headers */
 .section-header {
@@ -46,7 +100,7 @@ body {
   font-weight: 600;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: #475569;
+  color: #64748b;
   border-bottom: 1px solid var(--border);
   padding-bottom: 6px;
   margin-bottom: 12px;
@@ -60,23 +114,25 @@ body {
   padding: 4px 10px;
   font-size: 11px;
   font-weight: 500;
-  color: #64748b;
+  color: #94a3b8;
   border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 3px;
-  background: transparent;
+  border-radius: 5px;
+  background: rgba(255,255,255,0.015);
   cursor: pointer;
-  transition: color 0.1s, border-color 0.1s, background 0.1s;
+  transition: color 0.12s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
   white-space: nowrap;
 }
 .btn-terminal:hover {
   color: #e2e8f0;
-  border-color: rgba(255,255,255,0.18);
-  background: rgba(255,255,255,0.04);
+  border-color: rgba(255,255,255,0.2);
+  background: rgba(255,255,255,0.05);
 }
+.btn-terminal:active { transform: translateY(0.5px); }
 .btn-terminal.active {
   color: #38bdf8;
-  border-color: rgba(56,189,248,0.3);
-  background: rgba(56,189,248,0.08);
+  border-color: rgba(56,189,248,0.35);
+  background: rgba(56,189,248,0.1);
+  box-shadow: 0 0 14px -6px var(--accent-glow);
 }
 
 /* Severity left-border accent on signal rows */
@@ -95,11 +151,11 @@ body {
   color: #f1f5f9;
 }
 
-/* Section header */
-.section-header {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: #475569;
+/* Page title — used for big H1s, gives a subtle gradient ink */
+.page-title {
+  background: linear-gradient(180deg, #ffffff, #c2cad6);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: -0.01em;
 }

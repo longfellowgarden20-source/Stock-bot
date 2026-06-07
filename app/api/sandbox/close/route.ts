@@ -62,18 +62,28 @@ export async function POST(req: NextRequest) {
 
     if (closeErr) return NextResponse.json({ error: closeErr.message }, { status: 500 })
 
-    // Update account balance
+    // Update account balance + stats — mirror the worker's update_account_balance()
+    // so force-closed trades count toward peak/win-rate/trade totals just like
+    // worker-closed trades do. (Previously only `balance` was updated, leaving
+    // peak_balance, total_trades and win/loss counters stale.)
     const { data: acct } = await supabase
       .from('sandbox_account')
-      .select('id,balance')
+      .select('id,balance,peak_balance,total_trades,winning_trades,losing_trades')
       .limit(1)
       .single()
 
     if (acct) {
-      const newBalance = Number(acct.balance) + pnl
+      const newBalance = Math.round((Number(acct.balance) + pnl) * 100) / 100
       await supabase
         .from('sandbox_account')
-        .update({ balance: Math.round(newBalance * 100) / 100, updated_at: new Date().toISOString() })
+        .update({
+          balance: newBalance,
+          peak_balance: Math.max(Number(acct.peak_balance) || newBalance, newBalance),
+          total_trades: (Number(acct.total_trades) || 0) + 1,
+          winning_trades: (Number(acct.winning_trades) || 0) + (pnl > 0 ? 1 : 0),
+          losing_trades: (Number(acct.losing_trades) || 0) + (pnl < 0 ? 1 : 0),
+          updated_at: new Date().toISOString(),
+        })
         .eq('id', acct.id)
     }
 

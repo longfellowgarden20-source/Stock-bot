@@ -28,10 +28,12 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden md:flex flex-col w-52 min-h-screen border-r border-white/[0.06] bg-[#060a11] fixed left-0 top-0 z-30">
+      <aside className="hidden md:flex flex-col w-52 min-h-screen border-r border-white/[0.06] bg-[#060a11]/85 backdrop-blur-xl fixed left-0 top-0 z-30">
         {/* Logo */}
         <div className="flex items-center gap-2.5 px-4 py-4 border-b border-white/[0.06]">
-          <TrendingUp className="w-3.5 h-3.5 text-sky-400 shrink-0" />
+          <div className="flex items-center justify-center w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/25 shrink-0" style={{ boxShadow: '0 0 16px -6px rgba(56,189,248,0.6)' }}>
+            <TrendingUp className="w-3.5 h-3.5 text-sky-400" />
+          </div>
           <div>
             <p className="text-xs font-bold text-white tracking-widest uppercase">StockBot</p>
             <p className="text-[9px] text-slate-600 tracking-widest uppercase">Intelligence</p>
@@ -49,12 +51,12 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
               <Link
                 key={href}
                 href={href}
-                className={`flex items-center gap-3 px-4 py-2.5 text-sm font-medium border-l-2 ${
+                className={`relative flex items-center gap-3 px-4 py-2.5 text-sm font-medium border-l-2 ${
                   active
-                    ? 'border-l-sky-400 text-sky-400 bg-sky-400/[0.06]'
+                    ? 'border-l-sky-400 text-sky-400 bg-sky-400/[0.08]'
                     : 'border-l-transparent text-slate-500 hover:text-slate-200 hover:bg-white/[0.03]'
                 }`}
-                style={{ transition: 'background 0.1s, color 0.1s' }}
+                style={active ? { transition: 'background 0.1s, color 0.1s', boxShadow: 'inset 8px 0 18px -14px rgba(56,189,248,0.9)' } : { transition: 'background 0.1s, color 0.1s' }}
               >
                 <Icon className="w-4 h-4 shrink-0" />
                 {label}
@@ -93,7 +95,7 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
 
       {/* Mobile bottom bar */}
       <nav
-        className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#060a11] border-t border-white/[0.08]"
+        className="md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-center bg-[#060a11]/90 backdrop-blur-xl border-t border-white/[0.08]"
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         {links.map(({ href, label, icon: Icon }) => {

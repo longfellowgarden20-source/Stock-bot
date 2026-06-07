@@ -761,17 +761,21 @@ export default function SandboxClient({
   const [historyExit, setHistoryExit] = useState<'all' | 'target_hit' | 'stop_hit' | 'groq_exit' | 'day_close' | 'max_hold'>('all')
   const [historyOutcome, setHistoryOutcome] = useState<'all' | 'win' | 'loss'>('all')
 
-  // Feature 2: trade notes (stored in localStorage, keyed by trade id)
-  const [tradeNotes, setTradeNotes] = useState<Record<string, string>>(() => {
-    try { return JSON.parse(localStorage.getItem('sandbox.tradeNotes') ?? '{}') } catch { return {} }
-  })
-  function saveNote(id: string, note: string) {
-    setTradeNotes(prev => {
-      const next = { ...prev, [id]: note }
-      try { localStorage.setItem('sandbox.tradeNotes', JSON.stringify(next)) } catch { /* quota */ }
-      return next
-    })
-  }
+  // Derived account values — declared before the effects/memos that read them
+  // (the live P&L effect closes over `starting`).
+  const starting = account?.starting_balance ?? 50000
+  const balance = account?.balance ?? starting
+  const peak = account?.peak_balance ?? starting
+  const totalPnl = balance - starting
+  const totalPnlPct = (totalPnl / starting) * 100
+  const drawdown = peak > 0 ? ((peak - balance) / peak) * 100 : 0
+  const winRate = account && account.total_trades > 0
+    ? (account.winning_trades / account.total_trades) * 100
+    : 0
+  const confThreshold = winRate < 40 ? 70 : winRate < 50 ? 60 : winRate >= 65 ? 45 : 50
+
+  // Note: per-trade notes are persisted directly by the <TradeNoteEditor> component
+  // (keyed by trade id in localStorage), so no shared state is needed here.
 
   // Feature 3: re-entry detector — tickers traded 3+ times
   const reentryTickers = useMemo(() => {
@@ -796,9 +800,11 @@ export default function SandboxClient({
 
   // Feature 6: time-of-day win rate (buckets: pre-market, morning, midday, afternoon)
   const timeOfDayStats = useMemo(() => {
+    // Hour-resolution buckets (entry_date is parsed to a local hour). Ranges are
+    // non-overlapping so a trade lands in exactly one bucket.
     const buckets = [
-      { label: 'Pre-mkt', range: '4–9:30', check: (h: number) => h < 9 || (h === 9 && 0 < 30) },
-      { label: 'Morning', range: '9:30–11', check: (h: number) => h >= 9 && h < 11 },
+      { label: 'Pre-mkt', range: '4–9', check: (h: number) => h >= 4 && h < 9 },
+      { label: 'Morning', range: '9–11', check: (h: number) => h >= 9 && h < 11 },
       { label: 'Midday', range: '11–13', check: (h: number) => h >= 11 && h < 13 },
       { label: 'Afternoon', range: '13–16', check: (h: number) => h >= 13 && h < 16 },
     ]
@@ -967,17 +973,6 @@ export default function SandboxClient({
     intradayRef.current = [...intradayRef.current.slice(-60), snap] // keep last 60 points
     setIntradayEquity([...intradayRef.current])
   }, [livePrices]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const starting = account?.starting_balance ?? 50000
-  const balance = account?.balance ?? starting
-  const peak = account?.peak_balance ?? starting
-  const totalPnl = balance - starting
-  const totalPnlPct = (totalPnl / starting) * 100
-  const drawdown = peak > 0 ? ((peak - balance) / peak) * 100 : 0
-  const winRate = account && account.total_trades > 0
-    ? (account.winning_trades / account.total_trades) * 100
-    : 0
-  const confThreshold = winRate < 40 ? 70 : winRate < 50 ? 60 : winRate >= 65 ? 45 : 50
 
   const stats = useMemo(() => {
     const wins = closedTrades.filter(t => (t.pnl ?? 0) > 0).length

@@ -66,8 +66,6 @@ function matchTrades(rows: ParsedRow[]): { matched: MatchedTrade[]; open: Matche
     // Separate into buy-side and sell-side queues
     // Long: Buy/BTO are entries, Sell/STC are exits
     // Short: STO are entries, BTC are exits
-    const longBuys: ParsedRow[] = []  // Buy, BTO
-    const longSells: ParsedRow[] = [] // Sell, STC
     const shortSells: ParsedRow[] = [] // STO
     const shortBuys: ParsedRow[] = []  // BTC
 

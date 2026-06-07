@@ -62,7 +62,7 @@ export default async function PositionDetailPage({
   // Compute total portfolio market value for position sizing
   // Fetch latest snapshots for all portfolio tickers to get market prices
   const allTickers = (allPortfolio ?? []).map(p => p.ticker)
-  let allSnapshotMap: Record<string, number> = {}
+  const allSnapshotMap: Record<string, number> = {}
   if (allTickers.length > 0) {
     const { data: allSnaps } = await supabase
       .from('snapshots')
