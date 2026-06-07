@@ -3,7 +3,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
-import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter } from 'lucide-react'
+import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter, Copy, Check, Trophy, Flame, TrendingUp as TUp } from 'lucide-react'
 
 const MAX_OPEN_POSITIONS = 20
 
@@ -700,7 +700,7 @@ export default function SandboxClient({
   spyBenchmark?: SpyPoint[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals' | 'history'>('open')
+  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals' | 'history' | 'stats'>('open')
   const [livePrices, setLivePrices] = useState<Record<string, number>>({})
   const [liveMode, setLiveMode] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
@@ -1141,6 +1141,7 @@ export default function SandboxClient({
           { id: 'open',       label: `Open (${openTrades.length})` },
           { id: 'closed',     label: `Closed (${closedTrades.length})` },
           { id: 'history',    label: '📋 History' },
+          { id: 'stats',      label: '📊 Stats' },
           { id: 'performance',label: 'Performance' },
           { id: 'gameplan',   label: premktPlan ? '🎯 Game Plan' : 'Game Plan' },
           { id: 'learning',   label: '🧠 Learning' },
@@ -1403,6 +1404,337 @@ export default function SandboxClient({
                 </table>
               </div>
             )}
+          </div>
+        )
+      })()}
+
+      {/* Stats — 12 deep analytics, zero Groq */}
+      {activeTab === 'stats' && (() => {
+        const closed = closedTrades.filter(t => t.status === 'closed')
+        if (closed.length === 0) return (
+          <div className="border border-white/[0.07] rounded-xl p-10 text-center flex flex-col items-center gap-3">
+            <BarChart2 className="w-8 h-8 text-slate-700" />
+            <p className="text-sm text-slate-400">Stats appear after first closed trade</p>
+          </div>
+        )
+
+        // ── 1. Per-ticker breakdown ───────────────────────────────────────────
+        const byTicker: Record<string, { wins: number; losses: number; pnl: number; trades: number }> = {}
+        for (const t of closed) {
+          if (!byTicker[t.ticker]) byTicker[t.ticker] = { wins: 0, losses: 0, pnl: 0, trades: 0 }
+          byTicker[t.ticker].trades++
+          byTicker[t.ticker].pnl += t.pnl ?? 0
+          if ((t.pnl ?? 0) > 0) byTicker[t.ticker].wins++
+          else byTicker[t.ticker].losses++
+        }
+        const tickerRows = Object.entries(byTicker).sort((a, b) => b[1].pnl - a[1].pnl)
+        const bestTicker = tickerRows[0]
+        const worstTicker = tickerRows[tickerRows.length - 1]
+
+        // ── 2. Profit factor ─────────────────────────────────────────────────
+        const grossWins = closed.filter(t => (t.pnl ?? 0) > 0).reduce((s, t) => s + (t.pnl ?? 0), 0)
+        const grossLosses = Math.abs(closed.filter(t => (t.pnl ?? 0) < 0).reduce((s, t) => s + (t.pnl ?? 0), 0))
+        const profitFactor = grossLosses > 0 ? grossWins / grossLosses : grossWins > 0 ? Infinity : 0
+
+        // ── 3. Exit reason breakdown ─────────────────────────────────────────
+        const exitCounts: Record<string, { wins: number; total: number; pnl: number }> = {}
+        for (const t of closed) {
+          const r = t.exit_reason ?? 'unknown'
+          if (!exitCounts[r]) exitCounts[r] = { wins: 0, total: 0, pnl: 0 }
+          exitCounts[r].total++
+          exitCounts[r].pnl += t.pnl ?? 0
+          if ((t.pnl ?? 0) > 0) exitCounts[r].wins++
+        }
+
+        // ── 4. Day vs swing breakdown ────────────────────────────────────────
+        const dayTrades = closed.filter(t => t.trade_type === 'day')
+        const swingTrades = closed.filter(t => t.trade_type === 'swing')
+        const dayWr = dayTrades.length > 0 ? dayTrades.filter(t => (t.pnl ?? 0) > 0).length / dayTrades.length * 100 : 0
+        const swingWr = swingTrades.length > 0 ? swingTrades.filter(t => (t.pnl ?? 0) > 0).length / swingTrades.length * 100 : 0
+        const dayPnl = dayTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+        const swingPnl = swingTrades.reduce((s, t) => s + (t.pnl ?? 0), 0)
+
+        // ── 5. Long vs short breakdown ───────────────────────────────────────
+        const longs = closed.filter(t => t.direction === 'long')
+        const shorts = closed.filter(t => t.direction === 'short')
+        const longWr = longs.length > 0 ? longs.filter(t => (t.pnl ?? 0) > 0).length / longs.length * 100 : 0
+        const shortWr = shorts.length > 0 ? shorts.filter(t => (t.pnl ?? 0) > 0).length / shorts.length * 100 : 0
+        const longPnl = longs.reduce((s, t) => s + (t.pnl ?? 0), 0)
+        const shortPnl = shorts.reduce((s, t) => s + (t.pnl ?? 0), 0)
+
+        // ── 6. Confidence vs win rate (buckets: <60, 60-70, 70-80, 80+) ─────
+        const confBuckets: Record<string, { wins: number; total: number }> = {
+          '<60': { wins: 0, total: 0 },
+          '60–70': { wins: 0, total: 0 },
+          '70–80': { wins: 0, total: 0 },
+          '80+': { wins: 0, total: 0 },
+        }
+        for (const t of closed) {
+          const c = t.confidence_used ?? 0
+          const b = c < 60 ? '<60' : c < 70 ? '60–70' : c < 80 ? '70–80' : '80+'
+          confBuckets[b].total++
+          if ((t.pnl ?? 0) > 0) confBuckets[b].wins++
+        }
+
+        // ── 7. R-multiple distribution ───────────────────────────────────────
+        const rMultiples = closed.map(t => {
+          const entry = Number(t.entry_price)
+          const stop = Number(t.stop_loss)
+          const risk = t.direction === 'long' ? entry - stop : stop - entry
+          if (risk <= 0 || !t.pnl) return null
+          return t.pnl / (risk * Number(t.shares || 1))
+        }).filter((r): r is number => r !== null)
+        const avgR = rMultiples.length > 0 ? rMultiples.reduce((a, b) => a + b, 0) / rMultiples.length : 0
+        const posR = rMultiples.filter(r => r > 0).length
+        const negR = rMultiples.filter(r => r <= 0).length
+
+        // ── 8. Holding period (entry to exit in calendar days) ───────────────
+        const holdingDays = closed.map(t => {
+          if (!t.exit_date) return null
+          return Math.round((new Date(t.exit_date).getTime() - new Date(t.entry_date).getTime()) / 86400000)
+        }).filter((d): d is number => d !== null && d >= 0)
+        const avgHold = holdingDays.length > 0 ? holdingDays.reduce((a, b) => a + b, 0) / holdingDays.length : 0
+
+        // ── 9. Profit efficiency (pnl_pct / peak_pnl_pct) ───────────────────
+        const efficiencies = closed
+          .filter(t => t.profit_efficiency != null && t.profit_efficiency > 0)
+          .map(t => t.profit_efficiency as number)
+        const avgEff = efficiencies.length > 0 ? efficiencies.reduce((a, b) => a + b, 0) / efficiencies.length : null
+
+        // ── 10. Win streak calendar (last 20 trades) ─────────────────────────
+        const last20 = [...closed].reverse().slice(0, 20)
+
+        // ── 11. Consecutive losses (drawdown streaks) ────────────────────────
+        let maxLossStreak = 0, curStreak = 0
+        for (const t of closed) {
+          if ((t.pnl ?? 0) < 0) { curStreak++; maxLossStreak = Math.max(maxLossStreak, curStreak) }
+          else curStreak = 0
+        }
+
+        // ── 12. Expected value per trade ─────────────────────────────────────
+        const wins2 = closed.filter(t => (t.pnl ?? 0) > 0)
+        const losses2 = closed.filter(t => (t.pnl ?? 0) < 0)
+        const avgWinPnlPct = wins2.length > 0 ? wins2.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / wins2.length : 0
+        const avgLossPnlPct = losses2.length > 0 ? Math.abs(losses2.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / losses2.length) : 0
+        const wrFrac = closed.length > 0 ? wins2.length / closed.length : 0
+        const expectedValue = (wrFrac * avgWinPnlPct) - ((1 - wrFrac) * avgLossPnlPct)
+
+        return (
+          <div className="flex flex-col gap-4">
+
+            {/* Row 1 — Key ratios */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              {[
+                { label: 'Profit Factor', value: profitFactor === Infinity ? '∞' : profitFactor.toFixed(2), sub: '>1.5 is solid', color: profitFactor >= 1.5 ? 'text-emerald-400' : profitFactor >= 1 ? 'text-yellow-400' : 'text-red-400' },
+                { label: 'Avg R-Multiple', value: avgR.toFixed(2) + 'R', sub: `${posR} pos / ${negR} neg`, color: avgR >= 1 ? 'text-emerald-400' : avgR >= 0 ? 'text-yellow-400' : 'text-red-400' },
+                { label: 'Expected Value', value: `${expectedValue >= 0 ? '+' : ''}${expectedValue.toFixed(2)}%`, sub: 'per trade avg', color: expectedValue > 0 ? 'text-emerald-400' : 'text-red-400' },
+                { label: 'Avg Hold Time', value: `${avgHold.toFixed(1)}d`, sub: `${holdingDays.length} trades measured`, color: 'text-slate-300' },
+              ].map(s => (
+                <div key={s.label} className="border border-white/[0.07] rounded-xl p-3.5 flex flex-col gap-1" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider">{s.label}</p>
+                  <p className={`text-xl font-bold tabular-nums ${s.color}`}>{s.value}</p>
+                  <p className="text-[11px] text-slate-600">{s.sub}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Row 2 — Day vs Swing / Long vs Short */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Day vs Swing */}
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Day vs Swing</p>
+                <div className="flex flex-col gap-2">
+                  {[
+                    { label: 'Day', count: dayTrades.length, wr: dayWr, pnl: dayPnl, color: 'bg-sky-500' },
+                    { label: 'Swing', count: swingTrades.length, wr: swingWr, pnl: swingPnl, color: 'bg-purple-500' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-10 shrink-0">{row.label}</span>
+                      <div className="flex-1 h-2 bg-white/[0.05] rounded-full overflow-hidden">
+                        <div className={`h-full ${row.color} rounded-full opacity-60`} style={{ width: `${row.wr}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold tabular-nums w-10 text-right ${row.wr >= 60 ? 'text-emerald-400' : row.wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{row.wr.toFixed(0)}%</span>
+                      <span className={`text-[11px] tabular-nums w-16 text-right ${pnlColor(row.pnl)}`}>{row.pnl >= 0 ? '+' : ''}${row.pnl.toFixed(0)}</span>
+                      <span className="text-[10px] text-slate-600 w-6 text-right">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Long vs Short */}
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Long vs Short</p>
+                <div className="flex flex-col gap-2">
+                  {[
+                    { label: 'Long', count: longs.length, wr: longWr, pnl: longPnl, color: 'bg-emerald-500' },
+                    { label: 'Short', count: shorts.length, wr: shortWr, pnl: shortPnl, color: 'bg-red-500' },
+                  ].map(row => (
+                    <div key={row.label} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-10 shrink-0">{row.label}</span>
+                      <div className="flex-1 h-2 bg-white/[0.05] rounded-full overflow-hidden">
+                        <div className={`h-full ${row.color} rounded-full opacity-60`} style={{ width: `${row.wr}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold tabular-nums w-10 text-right ${row.wr >= 60 ? 'text-emerald-400' : row.wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{row.wr.toFixed(0)}%</span>
+                      <span className={`text-[11px] tabular-nums w-16 text-right ${pnlColor(row.pnl)}`}>{row.pnl >= 0 ? '+' : ''}${row.pnl.toFixed(0)}</span>
+                      <span className="text-[10px] text-slate-600 w-6 text-right">{row.count}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* Row 3 — Confidence buckets */}
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Confidence vs Win Rate</p>
+              <div className="flex flex-col gap-2">
+                {Object.entries(confBuckets).map(([bucket, { wins, total }]) => {
+                  const wr = total > 0 ? wins / total * 100 : 0
+                  return (
+                    <div key={bucket} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-12 shrink-0 tabular-nums">{bucket}%</span>
+                      <div className="flex-1 h-2 bg-white/[0.05] rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full opacity-70 ${wr >= 60 ? 'bg-emerald-500' : wr >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: total > 0 ? `${wr}%` : '0%' }} />
+                      </div>
+                      <span className={`text-xs font-bold tabular-nums w-12 text-right ${wr >= 60 ? 'text-emerald-400' : wr >= 50 ? 'text-yellow-400' : total === 0 ? 'text-slate-600' : 'text-red-400'}`}>{total > 0 ? `${wr.toFixed(0)}%` : '—'}</span>
+                      <span className="text-[10px] text-slate-600 w-12 text-right">{total} trades</span>
+                    </div>
+                  )
+                })}
+                <p className="text-[10px] text-slate-600 mt-1">Higher confidence = should mean higher win rate. If not, Groq is overconfident.</p>
+              </div>
+            </div>
+
+            {/* Row 4 — Exit reason breakdown */}
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Exit Reason Breakdown</p>
+              <div className="flex flex-col gap-2">
+                {Object.entries(exitCounts).sort((a, b) => b[1].total - a[1].total).map(([reason, { wins, total, pnl }]) => {
+                  const wr = total > 0 ? wins / total * 100 : 0
+                  const label = exitReasonLabel(reason) ?? reason
+                  return (
+                    <div key={reason} className="flex items-center gap-3">
+                      <span className="text-xs text-slate-400 w-28 shrink-0">{label}</span>
+                      <div className="flex-1 h-2 bg-white/[0.05] rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full opacity-70 ${wr >= 60 ? 'bg-emerald-500' : wr >= 50 ? 'bg-yellow-500' : 'bg-red-500'}`} style={{ width: `${wr}%` }} />
+                      </div>
+                      <span className={`text-xs font-bold tabular-nums w-10 text-right ${wr >= 60 ? 'text-emerald-400' : wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>{wr.toFixed(0)}%</span>
+                      <span className={`text-[11px] tabular-nums w-16 text-right ${pnlColor(pnl)}`}>{pnl >= 0 ? '+' : ''}${pnl.toFixed(0)}</span>
+                      <span className="text-[10px] text-slate-600 w-6 text-right">{total}</span>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Row 5 — Per-ticker leaderboard */}
+            <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-white/[0.06] flex items-center gap-2">
+                <Trophy className="w-4 h-4 text-yellow-400" />
+                <span className="text-sm font-bold text-white">Per-Ticker Leaderboard</span>
+                {bestTicker && <span className="text-[11px] text-emerald-400 ml-auto">Best: {bestTicker[0]}</span>}
+                {worstTicker && bestTicker?.[0] !== worstTicker?.[0] && <span className="text-[11px] text-red-400">Worst: {worstTicker[0]}</span>}
+              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-white/[0.06] bg-white/[0.02]">
+                    <th className="text-left px-4 py-2 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Ticker</th>
+                    <th className="text-right px-4 py-2 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Trades</th>
+                    <th className="text-right px-4 py-2 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">W/L</th>
+                    <th className="text-right px-4 py-2 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Win %</th>
+                    <th className="text-right px-4 py-2 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">P&L</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tickerRows.slice(0, 10).map(([ticker, d]) => {
+                    const wr = d.trades > 0 ? d.wins / d.trades * 100 : 0
+                    return (
+                      <tr key={ticker} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                        <td className="px-4 py-2.5 font-bold text-white font-mono">{ticker}</td>
+                        <td className="px-4 py-2.5 text-right text-slate-400 tabular-nums">{d.trades}</td>
+                        <td className="px-4 py-2.5 text-right tabular-nums">
+                          <span className="text-emerald-400">{d.wins}W</span>
+                          <span className="text-slate-600"> / </span>
+                          <span className="text-red-400">{d.losses}L</span>
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${wr >= 60 ? 'text-emerald-400' : wr >= 50 ? 'text-yellow-400' : 'text-red-400'}`}>
+                          {wr.toFixed(0)}%
+                        </td>
+                        <td className={`px-4 py-2.5 text-right font-bold tabular-nums ${pnlColor(d.pnl)}`}>
+                          {d.pnl >= 0 ? '+' : ''}${d.pnl.toFixed(0)}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Row 6 — Last 20 trades win/loss streak calendar */}
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <div className="flex items-center gap-2 mb-3">
+                <Flame className="w-4 h-4 text-orange-400" />
+                <p className="text-sm font-bold text-white">Last 20 Trades</p>
+                <span className="text-[11px] text-slate-500 ml-auto">Max loss streak: {maxLossStreak}</span>
+              </div>
+              <div className="flex gap-1.5 flex-wrap">
+                {last20.map((t, i) => {
+                  const isWin = (t.pnl ?? 0) > 0
+                  const pct = t.pnl_pct ?? 0
+                  return (
+                    <div
+                      key={t.id}
+                      title={`${t.ticker} ${isWin ? '+' : ''}${pct.toFixed(2)}% — ${t.exit_date ?? t.entry_date}`}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-[10px] font-bold border ${isWin ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400' : 'bg-red-500/15 border-red-500/30 text-red-400'}`}
+                    >
+                      {t.ticker.slice(0, 2)}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="flex gap-3 mt-2 text-[10px] text-slate-600">
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-emerald-500/20 border border-emerald-500/30 inline-block" /> Win</span>
+                <span className="flex items-center gap-1"><span className="w-3 h-3 rounded bg-red-500/20 border border-red-500/30 inline-block" /> Loss</span>
+                <span className="ml-auto">hover for details</span>
+              </div>
+            </div>
+
+            {/* Row 7 — Profit efficiency + R stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-2">Profit Efficiency</p>
+                <p className={`text-2xl font-bold tabular-nums ${avgEff != null ? (avgEff >= 0.7 ? 'text-emerald-400' : avgEff >= 0.4 ? 'text-yellow-400' : 'text-red-400') : 'text-slate-600'}`}>
+                  {avgEff != null ? `${(avgEff * 100).toFixed(0)}%` : '—'}
+                </p>
+                <p className="text-[11px] text-slate-600 mt-1">% of peak gain captured before exit. 70%+ is strong.</p>
+              </div>
+              <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+                <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-2">R Distribution</p>
+                <div className="flex gap-3 items-end mt-1">
+                  {[-3, -2, -1, 0, 1, 2, 3].map(bucket => {
+                    const count = rMultiples.filter(r => bucket === -3 ? r < -2 : bucket === 3 ? r >= 2 : Math.floor(r) === bucket).length
+                    const maxCount = Math.max(1, ...[-3, -2, -1, 0, 1, 2, 3].map(b =>
+                      rMultiples.filter(r => b === -3 ? r < -2 : b === 3 ? r >= 2 : Math.floor(r) === b).length
+                    ))
+                    const h = count > 0 ? Math.max(8, (count / maxCount) * 48) : 0
+                    return (
+                      <div key={bucket} className="flex flex-col items-center gap-1 flex-1">
+                        <span className="text-[9px] text-slate-600 tabular-nums">{count}</span>
+                        <div className="w-full flex items-end justify-center" style={{ height: 48 }}>
+                          <div
+                            className={`w-full rounded-t ${bucket >= 1 ? 'bg-emerald-500/50' : bucket === 0 ? 'bg-slate-500/50' : 'bg-red-500/50'}`}
+                            style={{ height: h }}
+                          />
+                        </div>
+                        <span className={`text-[9px] tabular-nums ${bucket >= 1 ? 'text-emerald-500' : bucket === 0 ? 'text-slate-500' : 'text-red-500'}`}>
+                          {bucket === -3 ? '<-2' : bucket === 3 ? '2+' : `${bucket}R`}
+                        </span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
           </div>
         )
       })()}

@@ -835,10 +835,157 @@ export default function DashboardClient({
       </div>
       </div>{/* end main column */}
 
-      {/* Right sidebar — Fear & Greed + Reddit Sentiment panels */}
-      <div className="w-full xl:w-80 xl:shrink-0 pb-8 xl:pb-0 xl:sticky xl:top-4">
+      {/* Right sidebar — Fear & Greed + Reddit Sentiment + signal analytics */}
+      <div className="w-full xl:w-80 xl:shrink-0 pb-8 xl:pb-0 xl:sticky xl:top-4 flex flex-col gap-4">
         <FearGreedWidget />
         <TickerSentiment />
+
+        {/* Signal velocity — how fast signals are arriving vs last hour */}
+        {(() => {
+          const now = Date.now()
+          const lastHour = signals.filter(s => now - new Date(s.created_at).getTime() < 3600000).length
+          const prevHour = signals.filter(s => {
+            const age = now - new Date(s.created_at).getTime()
+            return age >= 3600000 && age < 7200000
+          }).length
+          const velocity = lastHour - prevHour
+          const pct = prevHour > 0 ? ((velocity / prevHour) * 100).toFixed(0) : null
+          return (
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-2">Signal Velocity</p>
+              <div className="flex items-end gap-2">
+                <span className="text-2xl font-bold text-white tabular-nums">{lastHour}</span>
+                <span className="text-xs text-slate-500 mb-0.5">last hour</span>
+                {pct != null && (
+                  <span className={`text-xs font-bold ml-auto mb-0.5 ${velocity > 0 ? 'text-orange-400' : velocity < 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {velocity > 0 ? '↑' : velocity < 0 ? '↓' : '='}{Math.abs(Number(pct))}% vs prev hour
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-1 mt-2">
+                {Array.from({ length: 12 }).map((_, i) => {
+                  const from = now - (12 - i) * 300000
+                  const to = now - (11 - i) * 300000
+                  const count = signals.filter(s => {
+                    const t = new Date(s.created_at).getTime()
+                    return t >= from && t < to
+                  }).length
+                  const maxCount = 5
+                  return (
+                    <div key={i} className="flex-1 flex items-end" style={{ height: 24 }}>
+                      <div
+                        className={`w-full rounded-sm ${count > 0 ? 'bg-sky-400/60' : 'bg-white/[0.05]'}`}
+                        style={{ height: count > 0 ? `${Math.min(100, (count / maxCount) * 100)}%` : '20%' }}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-[10px] text-slate-600 mt-1">5-min bars · last 60 min</p>
+            </div>
+          )
+        })()}
+
+        {/* Ticker leaderboard — most active tickers in current view */}
+        {(() => {
+          const tickerCounts: Record<string, { count: number; maxSev: number; unread: number }> = {}
+          for (const s of filtered) {
+            if (!tickerCounts[s.ticker]) tickerCounts[s.ticker] = { count: 0, maxSev: 0, unread: 0 }
+            tickerCounts[s.ticker].count++
+            if (s.severity > tickerCounts[s.ticker].maxSev) tickerCounts[s.ticker].maxSev = s.severity
+            if (!s.read) tickerCounts[s.ticker].unread++
+          }
+          const ranked = Object.entries(tickerCounts).sort((a, b) => b[1].maxSev - a[1].maxSev || b[1].count - a[1].count).slice(0, 7)
+          if (ranked.length === 0) return null
+          return (
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Hottest Tickers</p>
+              <div className="flex flex-col gap-2">
+                {ranked.map(([ticker, { count, maxSev, unread }]) => (
+                  <div key={ticker} className="flex items-center gap-2">
+                    <button
+                      onClick={() => setSearch(ticker)}
+                      className="font-bold font-mono text-xs text-white hover:text-sky-400 w-14 text-left shrink-0"
+                      style={{ transition: 'color 0.1s' }}
+                    >
+                      {ticker}
+                    </button>
+                    <div className="flex-1 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${maxSev >= 9 ? 'bg-red-400' : maxSev >= 7 ? 'bg-orange-400' : maxSev >= 5 ? 'bg-yellow-400' : 'bg-sky-400'}`}
+                        style={{ width: `${Math.min(100, (count / Math.max(...ranked.map(r => r[1].count))) * 100)}%`, opacity: 0.7 }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-slate-500 tabular-nums w-8 text-right">{count}</span>
+                    {unread > 0 && <span className="text-[9px] text-sky-400 font-bold w-6 text-right">{unread}n</span>}
+                    <span className={`text-[10px] font-bold w-6 text-right ${maxSev >= 9 ? 'text-red-400' : maxSev >= 7 ? 'text-orange-400' : maxSev >= 5 ? 'text-yellow-400' : 'text-slate-400'}`}>
+                      {maxSev}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <p className="text-[10px] text-slate-600 mt-2">click ticker to filter · sorted by severity</p>
+            </div>
+          )
+        })()}
+
+        {/* Severity trend — sparkline of avg severity over last 24h in 2h buckets */}
+        {(() => {
+          const now = Date.now()
+          const buckets = Array.from({ length: 12 }).map((_, i) => {
+            const from = now - (12 - i) * 7200000
+            const to = now - (11 - i) * 7200000
+            const bucket = signals.filter(s => {
+              const t = new Date(s.created_at).getTime()
+              return t >= from && t < to
+            })
+            const avg = bucket.length > 0 ? bucket.reduce((s, x) => s + x.severity, 0) / bucket.length : 0
+            return { avg, count: bucket.length, hour: new Date(from).getHours() }
+          })
+          const maxAvg = Math.max(...buckets.map(b => b.avg), 1)
+          return (
+            <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+              <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Severity Trend (24h)</p>
+              <div className="flex gap-1 items-end" style={{ height: 40 }}>
+                {buckets.map((b, i) => (
+                  <div key={i} className="flex-1 flex flex-col items-center gap-0.5" title={`${b.hour}:00 — avg ${b.avg.toFixed(1)}, ${b.count} signals`}>
+                    <div
+                      className={`w-full rounded-t ${b.avg >= 8 ? 'bg-red-400/70' : b.avg >= 6 ? 'bg-orange-400/70' : b.avg >= 4 ? 'bg-yellow-400/70' : b.count > 0 ? 'bg-sky-400/50' : 'bg-white/[0.05]'}`}
+                      style={{ height: b.count > 0 ? `${Math.max(15, (b.avg / maxAvg) * 100)}%` : '15%' }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between mt-1 text-[10px] text-slate-600 tabular-nums">
+                <span>24h ago</span>
+                <span>now</span>
+              </div>
+            </div>
+          )
+        })()}
+
+        {/* Signal type breakdown mini bar chart */}
+        {typeBreakdown.length > 0 && (
+          <div className="border border-white/[0.07] rounded-xl p-4" style={{ background: 'rgba(255,255,255,0.02)' }}>
+            <p className="text-[11px] text-slate-500 uppercase tracking-wider mb-3">Signal Mix</p>
+            <div className="flex flex-col gap-1.5">
+              {typeBreakdown.map(([type, count]) => {
+                const { label } = getTypeMeta(type)
+                const maxCount = typeBreakdown[0][1]
+                return (
+                  <div key={type} className="flex items-center gap-2">
+                    <span className="text-[10px] text-slate-400 w-24 truncate shrink-0">{label}</span>
+                    <div className="flex-1 h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
+                      <div className="h-full bg-sky-400/50 rounded-full" style={{ width: `${(count / maxCount) * 100}%` }} />
+                    </div>
+                    <span className="text-[10px] text-slate-500 tabular-nums w-4 text-right">{count}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
   )

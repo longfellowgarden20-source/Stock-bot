@@ -236,6 +236,14 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
                 <p className="text-xs text-slate-500 mt-0.5">
                   {pos.shares} shares @ ${pos.avg_cost.toFixed(2)} avg · Current: ${currentPrice.toFixed(2)}
                 </p>
+                {/* Break-even: cost basis / shares — shows what price needed to profit */}
+                <p className="text-[11px] text-slate-600 mt-0.5">
+                  Cost basis: ${(pos.avg_cost * pos.shares).toFixed(0)} ·
+                  Break-even: ${pos.avg_cost.toFixed(2)} ·
+                  <span className={pnl >= 0 ? ' text-emerald-500/70' : ' text-red-500/70'}>
+                    {pnl >= 0 ? ` $${Math.abs(currentPrice - pos.avg_cost).toFixed(2)}/sh above` : ` $${Math.abs(currentPrice - pos.avg_cost).toFixed(2)}/sh below`}
+                  </span>
+                </p>
                 {pos.notes && <p className="text-xs text-slate-600 mt-0.5">{pos.notes}</p>}
               </div>
               <div className="relative z-10 text-right shrink-0">

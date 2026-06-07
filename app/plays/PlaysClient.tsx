@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { Crosshair, TrendingUp, TrendingDown, Loader2, AlertTriangle, Zap, Target, Shield, Clock, BarChart2, Brain, ChevronDown, ChevronUp, Activity } from 'lucide-react'
+import { useState, useCallback } from 'react'
+import { Crosshair, TrendingUp, TrendingDown, Loader2, AlertTriangle, Zap, Target, Shield, Clock, BarChart2, Brain, ChevronDown, ChevronUp, Activity, Copy, Check, History, X } from 'lucide-react'
 
 type AnalysisResult = {
   analysis: string
@@ -58,6 +58,11 @@ export default function PlaysClient() {
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<AnalysisResult | null>(null)
   const [expandedSection, setExpandedSection] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  const [savedAnalyses, setSavedAnalyses] = useState<Array<{ ticker: string; direction: string; analysis: string; price: number | null; ts: number }>>(() => {
+    try { return JSON.parse(localStorage.getItem('plays.history') ?? '[]') } catch { return [] }
+  })
+  const [showHistory, setShowHistory] = useState(false)
 
   const sections = result ? parseAnalysis(result.analysis) : []
 
@@ -85,12 +90,31 @@ export default function PlaysClient() {
       const data = await r.json()
       if (!r.ok) throw new Error(data.error || `HTTP ${r.status}`)
       setResult(data)
+      // Auto-save to history
+      const entry = { ticker: data.ticker, direction, analysis: data.analysis, price: data.price, ts: Date.now() }
+      setSavedAnalyses(prev => {
+        const next = [entry, ...prev].slice(0, 20)
+        try { localStorage.setItem('plays.history', JSON.stringify(next)) } catch { /* quota */ }
+        return next
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to analyze')
     } finally {
       setLoading(false)
     }
   }
+
+  const copyTrade = useCallback(() => {
+    if (!result) return
+    const entrySection = sections.find(s => s.header === 'ENTRY')?.body ?? ''
+    const stopSection = sections.find(s => s.header === 'STOP LOSS')?.body ?? ''
+    const targetSection = sections.find(s => s.header === 'TARGET')?.body ?? ''
+    const text = `${result.ticker} ${direction.toUpperCase()} @ $${result.price?.toFixed(2) ?? '?'}\nEntry: ${entrySection}\nStop: ${stopSection}\nTarget: ${targetSection}`
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
+  }, [result, sections, direction])
 
   return (
     <div className="max-w-3xl mx-auto flex flex-col gap-5">
@@ -100,6 +124,27 @@ export default function PlaysClient() {
         <div>
           <h1 className="text-lg font-bold text-white">Play Analyzer</h1>
           <p className="text-xs text-slate-500">Propose a trade — Groq pulls signals, news, and price data to give you a full breakdown</p>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {result && (
+            <button
+              onClick={copyTrade}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border rounded-lg text-slate-400 border-white/[0.08] hover:text-white hover:border-white/20"
+              style={{ transition: 'color 0.1s, border-color 0.1s' }}
+              title="Copy entry/stop/target"
+            >
+              {copied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+              {copied ? 'Copied!' : 'Copy'}
+            </button>
+          )}
+          <button
+            onClick={() => setShowHistory(h => !h)}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-semibold border rounded-lg ${showHistory ? 'text-sky-400 border-sky-500/30 bg-sky-500/10' : 'text-slate-400 border-white/[0.08] hover:text-white'}`}
+            style={{ transition: 'all 0.1s' }}
+          >
+            <History className="w-3.5 h-3.5" />
+            History {savedAnalyses.length > 0 && `(${savedAnalyses.length})`}
+          </button>
         </div>
       </div>
 
@@ -190,6 +235,36 @@ export default function PlaysClient() {
         <div className="flex items-center gap-2 px-4 py-3 bg-red-500/10 border border-red-500/25 rounded-lg">
           <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
           <span className="text-sm text-red-400">{error}</span>
+        </div>
+      )}
+
+      {/* History panel */}
+      {showHistory && (
+        <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-white/[0.06] bg-white/[0.02]">
+            <History className="w-4 h-4 text-slate-400" />
+            <span className="text-sm font-bold text-white">Recent Analyses</span>
+            <button onClick={() => setShowHistory(false)} className="ml-auto text-slate-500 hover:text-white"><X className="w-3.5 h-3.5" /></button>
+          </div>
+          {savedAnalyses.length === 0 ? (
+            <p className="text-xs text-slate-500 p-4">No history yet — run an analysis first.</p>
+          ) : (
+            <div className="flex flex-col divide-y divide-white/[0.05]">
+              {savedAnalyses.map((a, i) => (
+                <button
+                  key={i}
+                  onClick={() => { setTicker(a.ticker); setDirection(a.direction as 'long' | 'short'); setShowHistory(false) }}
+                  className="flex items-center gap-3 px-4 py-2.5 hover:bg-white/[0.03] text-left"
+                  style={{ transition: 'background 0.1s' }}
+                >
+                  <span className="font-bold font-mono text-white text-sm">{a.ticker}</span>
+                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded border ${a.direction === 'long' ? 'text-emerald-400 border-emerald-500/25 bg-emerald-500/8' : 'text-red-400 border-red-500/25 bg-red-500/8'}`}>{a.direction.toUpperCase()}</span>
+                  {a.price && <span className="text-xs text-slate-500 tabular-nums">${a.price.toFixed(2)}</span>}
+                  <span className="text-[10px] text-slate-600 ml-auto">{new Date(a.ts).toLocaleDateString()}</span>
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
