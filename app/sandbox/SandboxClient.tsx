@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
-import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap } from 'lucide-react'
+import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter } from 'lucide-react'
 
 const MAX_OPEN_POSITIONS = 20
 
@@ -395,6 +395,24 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
             </div>
           )}
 
+          {/* Signal source attribution — top signals shown as pills */}
+          {trade.signals_at_entry && trade.signals_at_entry.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              <span className="text-[10px] text-slate-600 self-center">Triggered by:</span>
+              {trade.signals_at_entry.slice(0, 5).map((s, i) => {
+                const color = s.sev >= 9 ? 'text-red-400 border-red-500/30 bg-red-500/8'
+                  : s.sev >= 7 ? 'text-orange-400 border-orange-500/30 bg-orange-500/8'
+                  : s.sev >= 5 ? 'text-yellow-400 border-yellow-500/25 bg-yellow-500/8'
+                  : 'text-slate-400 border-white/[0.08] bg-white/[0.03]'
+                return (
+                  <span key={i} className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${color}`} title={s.title}>
+                    {s.type.replace(/_/g, ' ')} · {s.sev}
+                  </span>
+                )
+              })}
+            </div>
+          )}
+
           {/* Exit note */}
           {trade.groq_exit_note && (
             <div className="bg-white/[0.02] border border-white/[0.06] rounded-lg p-3">
@@ -491,6 +509,58 @@ type TradeEval = {
   price_at_eval: number
   pnl_pct_at_eval: number
   evaluated_at: string
+}
+
+// Intraday live P&L sparkline — shows balance movement during current session
+function IntradaySparkline({ points, starting }: { points: { t: number; balance: number }[]; starting: number }) {
+  if (points.length < 2) return null
+  const W = 320, H = 48, PAD = { l: 4, r: 4, t: 4, b: 4 }
+  const cW = W - PAD.l - PAD.r
+  const cH = H - PAD.t - PAD.b
+  const balances = points.map(p => p.balance)
+  const minB = Math.min(...balances, starting * 0.998)
+  const maxB = Math.max(...balances, starting * 1.002)
+  const range = maxB - minB || 1
+  const toX = (i: number) => PAD.l + (i / (points.length - 1)) * cW
+  const toY = (b: number) => PAD.t + (1 - (b - minB) / range) * cH
+  const pts = points.map((p, i) => `${toX(i)},${toY(p.balance)}`).join(' ')
+  const last = points[points.length - 1]
+  const isUp = last.balance >= starting
+  const pct = ((last.balance - starting) / starting * 100)
+  const startTime = new Date(points[0].t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const lastTime = new Date(last.t).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+  const stroke = isUp ? '#10b981' : '#ef4444'
+
+  return (
+    <div className="mt-3 pt-3 border-t border-white/[0.06]">
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-[10px] text-slate-500 uppercase tracking-wider flex items-center gap-1">
+          <Activity className="w-3 h-3 text-emerald-400 animate-pulse" /> Intraday Live
+        </span>
+        <span className={`text-xs font-bold tabular-nums ${isUp ? 'text-emerald-400' : 'text-red-400'}`}>
+          {pct >= 0 ? '+' : ''}{pct.toFixed(3)}% today
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ height: 48 }}>
+        {/* Zero line (starting balance) */}
+        <line x1={PAD.l} y1={toY(starting)} x2={W - PAD.r} y2={toY(starting)} stroke="rgba(255,255,255,0.08)" strokeWidth="1" strokeDasharray="3 3" />
+        {/* Filled area */}
+        <polygon
+          points={`${toX(0)},${toY(starting)} ${pts} ${toX(points.length - 1)},${toY(starting)}`}
+          fill={isUp ? 'rgba(16,185,129,0.08)' : 'rgba(239,68,68,0.08)'}
+        />
+        {/* Line */}
+        <polyline points={pts} fill="none" stroke={stroke} strokeWidth="1.5" strokeLinejoin="round" strokeLinecap="round" />
+        {/* End dot */}
+        <circle cx={toX(points.length - 1)} cy={toY(last.balance)} r="3" fill={stroke} />
+      </svg>
+      <div className="flex justify-between text-[10px] text-slate-600 mt-0.5 tabular-nums">
+        <span>{startTime}</span>
+        <span>{points.length} snapshots</span>
+        <span>{lastTime}</span>
+      </div>
+    </div>
+  )
 }
 
 // #4 — SPY benchmark: { date, balance } where balance = starting * (1 + cumulative_return)
@@ -630,7 +700,7 @@ export default function SandboxClient({
   spyBenchmark?: SpyPoint[]
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals'>('open')
+  const [activeTab, setActiveTab] = useState<'open' | 'closed' | 'performance' | 'gameplan' | 'learning' | 'evals' | 'history'>('open')
   const [livePrices, setLivePrices] = useState<Record<string, number>>({})
   const [liveMode, setLiveMode] = useState(false)
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
@@ -638,6 +708,16 @@ export default function SandboxClient({
   const [forceClosing, setForceClosing] = useState<string | null>(null)
   const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number } | null>(null)
   const [dataFreshness, setDataFreshness] = useState<Record<string, { age_minutes: number; is_stale_10min: boolean; is_stale_1hr: boolean }>>({}) // #7
+
+  // Live P&L graph — intraday equity points (balance snapshots every 60s from open positions)
+  const [intradayEquity, setIntradayEquity] = useState<{ t: number; balance: number }[]>([])
+  const intradayRef = useRef<{ t: number; balance: number }[]>([])
+
+  // History tab filters
+  const [historySearch, setHistorySearch] = useState('')
+  const [historyDirection, setHistoryDirection] = useState<'all' | 'long' | 'short'>('all')
+  const [historyExit, setHistoryExit] = useState<'all' | 'target_hit' | 'stop_hit' | 'groq_exit' | 'day_close' | 'max_hold'>('all')
+  const [historyOutcome, setHistoryOutcome] = useState<'all' | 'win' | 'loss'>('all')
 
   // #1 — Fetch worker status on mount
   useEffect(() => {
@@ -774,6 +854,23 @@ export default function SandboxClient({
     }, 60_000)
     return () => clearInterval(interval)
   }, [liveMode, openTrades]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Live P&L graph — build intraday equity curve from live prices
+  // Every time livePrices updates during market hours, snapshot the total account balance
+  useEffect(() => {
+    if (Object.keys(livePrices).length === 0) return
+    const unrealized = openTrades.reduce((sum, t) => {
+      const price = livePrices[t.ticker]
+      if (price == null) return sum
+      const entry = Number(t.entry_price)
+      const shares = Number(t.shares || 1)
+      const pnl = t.direction === 'long' ? (price - entry) * shares : (entry - price) * shares
+      return sum + pnl
+    }, 0)
+    const snap = { t: Date.now(), balance: (account?.balance ?? starting) + unrealized }
+    intradayRef.current = [...intradayRef.current.slice(-60), snap] // keep last 60 points
+    setIntradayEquity([...intradayRef.current])
+  }, [livePrices]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const starting = account?.starting_balance ?? 50000
   const balance = account?.balance ?? starting
@@ -985,6 +1082,11 @@ export default function SandboxClient({
           }))}
         />
 
+        {/* Intraday live P&L sparkline — only shown during market hours when live mode is on */}
+        {liveMode && intradayEquity.length >= 2 && (
+          <IntradaySparkline points={intradayEquity} starting={account?.balance ?? starting} />
+        )}
+
         {/* Unrealized P&L strip — only when open positions have prices */}
         {unrealizedPnl.priced > 0 && (
           <div className="mt-3 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
@@ -1038,6 +1140,7 @@ export default function SandboxClient({
         {[
           { id: 'open',       label: `Open (${openTrades.length})` },
           { id: 'closed',     label: `Closed (${closedTrades.length})` },
+          { id: 'history',    label: '📋 History' },
           { id: 'performance',label: 'Performance' },
           { id: 'gameplan',   label: premktPlan ? '🎯 Game Plan' : 'Game Plan' },
           { id: 'learning',   label: '🧠 Learning' },
@@ -1135,6 +1238,174 @@ export default function SandboxClient({
           ))}
         </div>
       )}
+
+      {/* History — searchable, filterable full trade log */}
+      {activeTab === 'history' && (() => {
+        const allTrades = [...openTrades, ...closedTrades].sort((a, b) =>
+          new Date(b.entry_date).getTime() - new Date(a.entry_date).getTime()
+        )
+        const filtered = allTrades.filter(t => {
+          if (historySearch && !t.ticker.toLowerCase().includes(historySearch.toLowerCase()) &&
+              !(t.groq_thesis ?? '').toLowerCase().includes(historySearch.toLowerCase())) return false
+          if (historyDirection !== 'all' && t.direction !== historyDirection) return false
+          if (historyExit !== 'all' && t.exit_reason !== historyExit) return false
+          if (historyOutcome === 'win' && (t.pnl ?? 0) <= 0 && t.status === 'closed') return false
+          if (historyOutcome === 'loss' && (t.pnl ?? 0) >= 0 && t.status === 'closed') return false
+          return true
+        })
+        const wins = filtered.filter(t => t.status === 'closed' && (t.pnl ?? 0) > 0).length
+        const losses = filtered.filter(t => t.status === 'closed' && (t.pnl ?? 0) < 0).length
+        const gross = filtered.filter(t => t.status === 'closed').reduce((s, t) => s + (t.pnl ?? 0), 0)
+
+        return (
+          <div className="flex flex-col gap-3">
+            {/* Filters */}
+            <div className="flex flex-wrap gap-2 items-center">
+              {/* Search */}
+              <div className="flex items-center gap-1.5 border border-white/[0.08] bg-white/[0.03] rounded-lg px-2.5 py-1.5 flex-1 min-w-[160px]">
+                <Search className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <input
+                  value={historySearch}
+                  onChange={e => setHistorySearch(e.target.value)}
+                  placeholder="Search ticker or thesis…"
+                  className="bg-transparent text-xs text-slate-300 placeholder-slate-600 outline-none w-full"
+                />
+                {historySearch && (
+                  <button onClick={() => setHistorySearch('')} className="text-slate-500 hover:text-slate-300">×</button>
+                )}
+              </div>
+              {/* Direction */}
+              <div className="flex items-center gap-1 border border-white/[0.07] rounded-lg p-0.5">
+                {(['all', 'long', 'short'] as const).map(d => (
+                  <button key={d} onClick={() => setHistoryDirection(d)}
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold ${historyDirection === d ? 'bg-sky-500/20 text-sky-400' : 'text-slate-500 hover:text-slate-300'}`}
+                    style={{ transition: 'all 0.1s' }}>
+                    {d === 'all' ? 'All' : d === 'long' ? '↑ Long' : '↓ Short'}
+                  </button>
+                ))}
+              </div>
+              {/* Outcome */}
+              <div className="flex items-center gap-1 border border-white/[0.07] rounded-lg p-0.5">
+                {(['all', 'win', 'loss'] as const).map(o => (
+                  <button key={o} onClick={() => setHistoryOutcome(o)}
+                    className={`px-2.5 py-1 rounded text-[10px] font-bold ${historyOutcome === o ? (o === 'win' ? 'bg-emerald-500/20 text-emerald-400' : o === 'loss' ? 'bg-red-500/20 text-red-400' : 'bg-sky-500/20 text-sky-400') : 'text-slate-500 hover:text-slate-300'}`}
+                    style={{ transition: 'all 0.1s' }}>
+                    {o === 'all' ? 'All' : o === 'win' ? 'Wins' : 'Losses'}
+                  </button>
+                ))}
+              </div>
+              {/* Exit reason */}
+              <select
+                value={historyExit}
+                onChange={e => setHistoryExit(e.target.value as typeof historyExit)}
+                className="border border-white/[0.07] bg-[#0a0f1a] text-slate-400 text-[10px] rounded-lg px-2 py-1.5 outline-none"
+              >
+                <option value="all">All exits</option>
+                <option value="target_hit">🎯 Target hit</option>
+                <option value="stop_hit">🛑 Stop hit</option>
+                <option value="groq_exit">🤖 Groq exit</option>
+                <option value="day_close">📅 EOD close</option>
+                <option value="max_hold">⏰ Max hold</option>
+              </select>
+            </div>
+
+            {/* Summary bar */}
+            {filtered.length > 0 && (
+              <div className="flex items-center gap-4 px-3 py-2 border border-white/[0.07] rounded-lg bg-white/[0.02] text-xs">
+                <span className="text-slate-500">{filtered.length} trades</span>
+                <span className="text-emerald-400 font-semibold">{wins}W</span>
+                <span className="text-red-400 font-semibold">{losses}L</span>
+                {(wins + losses) > 0 && <span className={`font-bold ${wins / (wins + losses) >= 0.5 ? 'text-emerald-400' : 'text-red-400'}`}>{(wins / (wins + losses) * 100).toFixed(1)}% WR</span>}
+                <span className={`ml-auto font-bold tabular-nums ${pnlColor(gross)}`}>{gross >= 0 ? '+' : ''}${gross.toFixed(0)} P&L</span>
+              </div>
+            )}
+
+            {/* Trade table */}
+            {filtered.length === 0 ? (
+              <div className="border border-white/[0.07] rounded-xl p-10 text-center">
+                <p className="text-sm text-slate-400">No trades match filters</p>
+              </div>
+            ) : (
+              <div className="border border-white/[0.07] rounded-xl overflow-hidden">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="border-b border-white/[0.07] bg-white/[0.02]">
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">Ticker</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden sm:table-cell">Dir</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden sm:table-cell">Type</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden md:table-cell">Signals</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden sm:table-cell">Exit</th>
+                      <th className="text-left px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden sm:table-cell">Date</th>
+                      <th className="text-right px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider">P&L</th>
+                      <th className="text-right px-3 py-2.5 text-[11px] text-slate-500 font-semibold uppercase tracking-wider hidden md:table-cell">Quality</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.map(t => {
+                      const isWin = (t.pnl ?? 0) > 0
+                      const topSignal = (t.signals_at_entry ?? [])[0]
+                      return (
+                        <tr
+                          key={t.id}
+                          className="border-b border-white/[0.04] hover:bg-white/[0.02] cursor-pointer"
+                          onClick={() => { setActiveTab('open'); setExpandedId(t.id) }}
+                        >
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center gap-2">
+                              {t.direction === 'long'
+                                ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                : <TrendingDown className="w-3.5 h-3.5 text-red-400 shrink-0" />}
+                              <span className="font-bold text-white font-mono">{t.ticker}</span>
+                              {t.status === 'open' && (
+                                <span className="text-[9px] text-sky-400 border border-sky-500/25 px-1 rounded animate-pulse">LIVE</span>
+                              )}
+                            </div>
+                          </td>
+                          <td className="px-3 py-2.5 hidden sm:table-cell">
+                            <span className={`text-[10px] font-bold ${t.direction === 'long' ? 'text-emerald-400' : 'text-red-400'}`}>
+                              {t.direction.toUpperCase()}
+                            </span>
+                          </td>
+                          <td className="px-3 py-2.5 hidden sm:table-cell text-slate-500">{t.trade_type}</td>
+                          <td className="px-3 py-2.5 hidden md:table-cell">
+                            {topSignal ? (
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded border ${topSignal.sev >= 8 ? 'text-red-400 border-red-500/25 bg-red-500/8' : topSignal.sev >= 6 ? 'text-orange-400 border-orange-500/25 bg-orange-500/8' : 'text-yellow-400 border-yellow-500/25 bg-yellow-500/8'}`}>
+                                {topSignal.type.replace(/_/g, ' ')} ·{topSignal.sev}
+                              </span>
+                            ) : <span className="text-slate-600">—</span>}
+                            {(t.signals_at_entry ?? []).length > 1 && (
+                              <span className="text-[10px] text-slate-600 ml-1">+{(t.signals_at_entry ?? []).length - 1}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 hidden sm:table-cell text-slate-500 text-[10px]">{exitReasonLabel(t.exit_reason)}</td>
+                          <td className="px-3 py-2.5 hidden sm:table-cell text-slate-600 tabular-nums text-[10px]">{t.exit_date ?? t.entry_date}</td>
+                          <td className="px-3 py-2.5 text-right">
+                            {t.status === 'open' ? (
+                              <span className="text-sky-400 text-[10px]">open</span>
+                            ) : (
+                              <div className="flex flex-col items-end">
+                                <span className={`font-bold tabular-nums ${pnlColor(t.pnl_pct)}`}>
+                                  {(t.pnl_pct ?? 0) >= 0 ? '+' : ''}{(t.pnl_pct ?? 0).toFixed(2)}%
+                                </span>
+                                <span className={`text-[10px] tabular-nums ${pnlColor(t.pnl)}`}>
+                                  {(t.pnl ?? 0) >= 0 ? '+' : ''}${(t.pnl ?? 0).toFixed(0)}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5 text-right hidden md:table-cell">
+                            {t.status === 'closed' && <QualityBadge score={computeTradeQuality(t).score} />}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Performance */}
       {activeTab === 'performance' && (
