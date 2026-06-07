@@ -1,7 +1,7 @@
 import Groq from 'groq-sdk'
 
 const CEREBRAS_BASE = 'https://api.cerebras.ai/v1/chat/completions'
-const CEREBRAS_MODEL = 'llama-3.3-70b'
+const CEREBRAS_MODEL = 'gpt-oss-120b'
 
 function getGroqKeys(): string[] {
   return [
