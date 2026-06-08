@@ -332,9 +332,8 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
     for t in watchlist_tickers:
         scores[t] = scores.get(t, 0) + 5
 
-    # Sort by score descending, take top 8 (was 20) — reduces Groq calls 60%
-    # Each decide_entry costs 300 tokens; 20*300 = 6k per scan. Now 8*300 = 2.4k
-    ranked = sorted(tickers, key=lambda t: scores.get(t, 0), reverse=True)[:8]
+    # Sort by score descending, take top 15 — balance coverage vs Groq cost
+    ranked = sorted(tickers, key=lambda t: scores.get(t, 0), reverse=True)[:15]
     log.info(f"Sandbox scan universe: {len(tickers)} tickers → top {len(ranked)} by signal score")
     return ranked
 
@@ -2922,12 +2921,6 @@ async def run_once() -> dict:
                 entries = 0
                 slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
 
-                # #10 — Stagger entries: slot = 15min window since 9:30 ET
-                # CONVERGENCE setups can always enter; non-convergence slots stagger by index
-                from market_hours import now_et as _now_et
-                _et_now = _now_et()
-                _minutes_since_open = max(0, (_et_now.hour - 9) * 60 + _et_now.minute - 30)
-                _stagger_slot = _minutes_since_open // 15  # 0=9:30, 1=9:45, 2=10:00, ...
 
                 for ticker_idx, ticker in enumerate(tickers):
                     if entries >= slots_left:
@@ -2941,10 +2934,6 @@ async def run_once() -> dict:
                     try:
                         trade = await decide_entry(client, ticker, open_tickers, open_positions)
                         if trade:
-                            # #10 — Stagger: non-convergence ticker[N] needs slot >= N
-                            if not trade.get("is_convergence") and ticker_idx > _stagger_slot:
-                                log.debug(f"Stagger: {ticker} is pick #{ticker_idx}, slot={_stagger_slot} — wait")
-                                continue
                             # #19 — Skip non-convergence entries in first 10 min (9:30-9:40 ET)
                             if in_open_block and not trade.get("is_convergence", False):
                                 log.debug(f"Open block: skipping non-convergence {ticker} entry (9:30-9:40 window)")
