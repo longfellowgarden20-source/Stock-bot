@@ -2866,17 +2866,14 @@ async def run_once() -> dict:
             if is_in_dead_zone():
                 return {"status": "skipped", "reason": "dead zone 12-2pm ET"}
 
-            # #9 — Daily loss limit: stop trading if account down 2% today
+            # #9 — Daily loss limit: stop trading if realized P&L today is down 2%
+            # Unrealized is excluded — sandbox_trades has no current_price column so
+            # any attempt to read it returns 0 and produces a false loss signal.
             daily_pnl = get_daily_pnl()
             account_balance = get_account_balance()
-            # FIX #14: Include unrealized P&L from open positions
-            unrealized_pnl = sum(((p.get("current_price", 0) - p.get("entry_price", 0)) * p.get("shares", 0)) if p.get("direction") == "long"
-                                  else ((p.get("entry_price", 0) - p.get("current_price", 0)) * p.get("shares", 0))
-                                  for p in open_positions)
-            total_loss_today = daily_pnl + unrealized_pnl
-            daily_loss_pct = (total_loss_today / account_balance * 100) if account_balance > 0 else 0
+            daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
             if daily_loss_pct <= -2.0:
-                log.info(f"Daily loss limit hit (realized + unrealized): {daily_loss_pct:.1f}% — stopping entries for today")
+                log.info(f"Daily loss limit hit (realized): {daily_loss_pct:.1f}% — stopping entries for today")
                 return {"status": "skipped", "reason": f"daily loss limit hit ({daily_loss_pct:.1f}%)"}
 
             # #4 — Consecutive loss circuit breaker: halt after 5 straight losses
