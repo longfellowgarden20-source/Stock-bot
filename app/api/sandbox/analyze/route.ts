@@ -27,10 +27,10 @@ export async function POST(req: NextRequest) {
 
     // Fetch snapshots around the trade period for P&L simulation
     const entryDate = new Date(trade.entry_date + 'T09:30:00Z')
+    // For closed trades: include full exit day. For open trades: use now, no +1.
     const endDate = trade.exit_date
-      ? new Date(trade.exit_date + 'T23:59:00Z')
+      ? (() => { const d = new Date(trade.exit_date + 'T23:59:00Z'); d.setDate(d.getDate() + 1); return d })()
       : new Date()
-    endDate.setDate(endDate.getDate() + 1)
 
     const { data: snapshots } = await supabase
       .from('snapshots')

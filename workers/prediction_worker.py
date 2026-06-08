@@ -276,7 +276,7 @@ async def generate_lesson(pred: dict, actual_close: float) -> str | None:
     predicted_high = float(pred.get("predicted_high") or 0)
     bias = pred.get("bias", "neutral")
     actual_bias = _actual_bias(float(pred.get("open_price") or actual_close), actual_close)
-    in_range = predicted_low <= actual_close <= predicted_high if predicted_low and predicted_high else False
+    in_range = predicted_low <= actual_close <= predicted_high if predicted_high > 0 else False
     key_factors = pred.get("key_factors") or []
 
     # Only generate lessons for wrong predictions — saves Groq calls

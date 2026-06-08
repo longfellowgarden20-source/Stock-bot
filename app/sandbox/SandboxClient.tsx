@@ -1814,12 +1814,8 @@ export default function SandboxClient({
             {(() => {
               const withPeak = closed.filter(t => t.peak_pnl_pct != null && t.pnl_pct != null)
               if (withPeak.length === 0) return null
-              const avgMAE = withPeak.reduce((s, t) => {
-                const entryStop = t.direction === 'long'
-                  ? (Number(t.entry_price) - Number(t.stop_loss)) / Number(t.entry_price) * 100
-                  : (Number(t.stop_loss) - Number(t.entry_price)) / Number(t.entry_price) * 100
-                return s + Math.min(0, t.pnl_pct ?? 0) - entryStop
-              }, 0) / withPeak.length
+              // MAE = average worst drawdown reached during the trade (always <= 0)
+              const avgMAE = withPeak.reduce((s, t) => s + Math.min(0, t.pnl_pct ?? 0), 0) / withPeak.length
               const avgMFE = withPeak.reduce((s, t) => s + (t.peak_pnl_pct ?? 0), 0) / withPeak.length
               const avgClose = withPeak.reduce((s, t) => s + (t.pnl_pct ?? 0), 0) / withPeak.length
               return (

@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
 
   const prompt = `You are a trading performance coach. Analyze these trades and writeups. Find patterns, recurring mistakes, and tendencies. Be specific and direct. Call out exact patterns by name. Format: 2-3 paragraphs. First: what's working. Second: recurring mistakes/tendencies with exact counts. Third: one specific thing to focus on this week.
 
-Trades (${trades.length} total, ${winRate.toFixed(1)}% win rate):
+Trades (${closedTrades.length} closed, ${winRate.toFixed(1)}% win rate):
 ${tradesSummary}`
 
   let noteText = ''

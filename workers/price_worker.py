@@ -212,7 +212,7 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
     if price is None:
         return
 
-    insert_snapshot(ticker, float(price), int(volume) if volume else None, change_pct)
+    insert_snapshot(ticker, float(price), int(volume) if volume is not None else None, change_pct)
 
     # Volume spike detection
     if volume:
