@@ -1330,12 +1330,18 @@ def is_on_cooldown(ticker: str, proposed_direction: str | None = None) -> bool:
 
         # BUG FIX #1 & #2: Check 3+ consecutive wins BEFORE checking 2 losses
         # Original code used non-existent variable 'past' and checked len(last_two) >= 3 (impossible, always 0-2)
+        # Overconfidence check — only block same direction after 3 wins, not opposite.
+        # e.g. 3 long wins should NOT block a convergence short entry.
         if len(trades) >= 3:
             last_three = trades[:3]
             three_wins = all((t.get("pnl") or 0) > 0 for t in last_three)
             if three_wins:
-                log.debug(f"Overconfidence halt: {ticker} has 3+ consecutive wins — blocking entry")
-                return True
+                win_direction = last_three[0].get("direction")
+                if proposed_direction and win_direction and proposed_direction != win_direction:
+                    log.debug(f"Overconfidence override: {ticker} has 3 {win_direction} wins, but new direction={proposed_direction} — allowed")
+                else:
+                    log.debug(f"Overconfidence halt: {ticker} has 3+ consecutive {win_direction} wins — blocking same-direction entry")
+                    return True
 
         if not both_losses:
             return False
@@ -1944,7 +1950,7 @@ ENTRY RULES:
         "status": "open",
         "entry_price": round(limit_entry, 4),  # #13 limit entry
         "stop_loss": round(stop, 4),
-        "peak_pnl_pct": 0.0,  # FIX #2: Initialize to 0, not NULL
+        "peak_pnl_pct": -9999.0,  # sentinel so first real pnl_pct always wins the max() check
         "target_price": round(target, 4),
         "shares": int(shares),  # #5 — always store as int, never fractional
         "position_size": position_size,
@@ -2573,7 +2579,7 @@ async def run_nightly_critique() -> dict:
         efficiency = t.get("profit_efficiency")
         eff_str = f" | efficiency={efficiency:.0%}" if efficiency is not None else ""
         peak = t.get("peak_pnl_pct")
-        peak_str = f" peak={peak:+.1f}%" if peak else ""
+        peak_str = f" peak={peak:+.1f}%" if peak is not None and peak > -999 else ""
         trade_lines.append(
             f"[{outcome}] {ticker} {direction.upper()} @ ${entry:.2f} → ${exit_p:.2f} "
             f"({pnl_pct:+.1f}%{peak_str}{eff_str}) | conf={conf} | exit={reason}\n"
