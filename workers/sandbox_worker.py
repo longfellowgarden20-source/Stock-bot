@@ -56,9 +56,9 @@ HEALTH_MULTIPLIER_90 = 0.7   # <10% from peak → 70% of normal risk
 HEALTH_MULTIPLIER_85 = 0.5   # <15% from peak → 50% of normal risk
 
 # Confidence thresholds — high bar by default
-BASE_CONFIDENCE_THRESHOLD = 65   # raised from 50 — sniper mode
-HIGH_BAR_CONFIDENCE       = 75   # used when win rate < 50%
-CONVERGENCE_MIN_CONFIDENCE = 55  # convergence overrides normal bar (signal does the work)
+BASE_CONFIDENCE_THRESHOLD = 55   # lowered — more entries, still selective
+HIGH_BAR_CONFIDENCE       = 70   # used when win rate < 40%
+CONVERGENCE_MIN_CONFIDENCE = 50  # convergence overrides normal bar (signal does the work)
 
 # Sector mapping for correlation limit (#6)
 SECTOR_MAP: dict[str, str] = {
@@ -640,14 +640,14 @@ def get_confidence_threshold(win_rate: float, total_trades: int) -> int:
     - Win rate > 65%: lower to 45, press the advantage
     """
     if total_trades < 10:
-        return BASE_CONFIDENCE_THRESHOLD
+        return BASE_CONFIDENCE_THRESHOLD  # 55 — learning mode, stay active
     if win_rate < 40:
-        return HIGH_BAR_CONFIDENCE      # 70 — something is wrong, be selective
+        return HIGH_BAR_CONFIDENCE        # 70 — something is wrong, be selective
     if win_rate < 50:
-        return 60                        # underperforming, tighten up
+        return 60                          # underperforming, tighten up
     if win_rate >= 65:
-        return 45                        # on a roll, press the edge
-    return BASE_CONFIDENCE_THRESHOLD    # normal operation
+        return 45                          # on a roll, press the edge
+    return BASE_CONFIDENCE_THRESHOLD      # 55 — normal operation
 
 
 def get_account_health_multiplier() -> tuple[float, str]:
@@ -2835,8 +2835,8 @@ async def run_once() -> dict:
             open_positions = get_open_positions()
             open_tickers = {p["ticker"] for p in open_positions}
 
-        # 9:30am–12:30pm ET: scan for new entries
-        in_entry_window = (hour == 9 and minute >= 30) or (9 < hour < 12) or (hour == 12 and minute <= 30)
+        # 9:30am–3:50pm ET: full trading day entry window
+        in_entry_window = (hour == 9 and minute >= 30) or (10 <= hour <= 14) or (hour == 15 and minute <= 50)
         # #19 — Block first 10 minutes of open (9:30-9:40 ET) — too whippy, except convergence
         in_open_block = (hour == 9 and 30 <= minute < 40)
 
