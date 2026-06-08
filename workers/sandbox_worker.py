@@ -2862,9 +2862,9 @@ async def run_once() -> dict:
             if is_choppy_market():
                 return {"status": "skipped", "reason": "choppy market regime — VIX too high"}
 
-            # #3 — Dead zone: block 12pm-2pm ET
-            if is_in_dead_zone():
-                return {"status": "skipped", "reason": "dead zone 12-2pm ET"}
+            # #3 — Dead zone: block 12pm-2pm ET (temporarily disabled)
+            # if is_in_dead_zone():
+            #     return {"status": "skipped", "reason": "dead zone 12-2pm ET"}
 
             # #9 — Daily loss limit: stop trading if realized P&L today is down 2%
             # Unrealized is excluded — sandbox_trades has no current_price column so
