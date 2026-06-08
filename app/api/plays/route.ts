@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
       ? `\nTRADER'S THESIS: ${thesis.trim()}`
       : ''
 
-    const prompt = `You are a senior trading analyst. A trader is considering a ${direction?.toUpperCase() ?? 'LONG'} trade on ${sym} over a ${timeframe ?? 'swing'} timeframe.${userThesis}
+    const prompt = `You are a senior trading analyst. A trader wants to ${direction?.toUpperCase() ?? 'LONG'} ${sym} over a ${timeframe ?? 'swing'} timeframe.${userThesis}
 
 CURRENT PRICE DATA:
 ${priceBlock}
@@ -96,29 +96,29 @@ ${newsBlock}
 PAST PREDICTION ACCURACY FOR ${sym}:
 ${lessonsBlock}
 
-Your job: give an honest, unbiased analysis. If the data says the trader picked the wrong direction, tell them directly and explain why the other side is better.
+Analyze the data objectively and give your honest recommendation. Your recommended direction should be whatever the DATA supports — if the signals support the trader's direction, confirm it. If the signals clearly contradict it, say so. Do NOT default to disagreeing with the trader.
 
 Cover ALL of these sections:
 
-**RECOMMENDED DIRECTION**: Based purely on the signals and data, should they go LONG or SHORT right now? If their chosen direction (${direction?.toUpperCase() ?? 'LONG'}) conflicts with what the data shows, say so clearly — e.g. "The data favors SHORT, not LONG — here's why." Don't just agree with the trader.
+**RECOMMENDED DIRECTION**: LONG or SHORT — based purely on the signals and data above. If the data supports the trader's chosen direction (${direction?.toUpperCase() ?? 'LONG'}), confirm it and explain why. Only recommend the opposite if the data clearly contradicts their direction.
 
-**BULL CASE**: What would need to be true for a long trade to work? Key levels, catalysts, signals supporting upside.
+**BULL CASE**: Key levels, catalysts, and signals that support a long trade.
 
-**BEAR CASE**: What would need to be true for a short trade to work? Key levels, catalysts, signals supporting downside.
+**BEAR CASE**: Key levels, catalysts, and signals that support a short trade.
 
-**ENTRY**: For the recommended direction — where exactly to enter? Specific price or range. Wait for confirmation or enter now?
+**ENTRY**: For your recommended direction — exact price or range. Enter now or wait for confirmation?
 
-**STOP LOSS**: Exact price. Why does that level invalidate the trade?
+**STOP LOSS**: Exact price and why that level invalidates the trade.
 
 **TARGET**: Target 1 (partial profit) and Target 2 (full target). Specific prices.
 
-**RISK/REWARD**: Calculate R:R based on your entry, stop, and targets.
+**RISK/REWARD**: R:R based on your entry, stop, and targets.
 
-**RISKS**: Top 2-3 things that kill this trade with specific scenarios.
+**RISKS**: Top 2-3 things that kill this trade.
 
-**CONVICTION**: Rate 1-10. Be honest — if the setup is weak or direction is wrong, say so.
+**CONVICTION**: 1-10. Be honest about setup quality.
 
-Be direct. If the trader has the direction wrong, lead with that. Specific prices only — no generic advice.`
+Specific prices only. No generic advice.`
 
     const analysis = await callGroqWithFallback(groq =>
       groq.chat.completions.create({
