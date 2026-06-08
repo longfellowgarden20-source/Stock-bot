@@ -698,8 +698,13 @@ def calculate_position_size(entry: float, stop: float, account_balance: float) -
     return shares, position_size, risk_amount
 
 
-def update_account_balance(pnl_dollar: float) -> float:
-    """Apply closed trade P&L to account balance. Returns new balance."""
+def update_account_balance(pnl_dollar: float, count_as_trade: bool = True) -> float:
+    """Apply closed trade P&L to account balance. Returns new balance.
+
+    count_as_trade=False for partial exits: the P&L and peak are recorded but
+    total_trades/winning_trades/losing_trades are NOT incremented — those counters
+    only tick when the full position closes, so win-rate stays accurate.
+    """
     try:
         res = supabase().table("sandbox_account").select("*").limit(1).execute()
         if not res.data:
@@ -707,16 +712,16 @@ def update_account_balance(pnl_dollar: float) -> float:
         acct = res.data[0]
         new_balance = round(float(acct["balance"]) + pnl_dollar, 2)
         peak = max(float(acct["peak_balance"]), new_balance)
-        wins = int(acct.get("winning_trades", 0)) + (1 if pnl_dollar > 0 else 0)
-        losses = int(acct.get("losing_trades", 0)) + (1 if pnl_dollar < 0 else 0)
-        supabase().table("sandbox_account").update({
+        update_payload: dict = {
             "balance": new_balance,
             "peak_balance": peak,
-            "total_trades": int(acct.get("total_trades", 0)) + 1,
-            "winning_trades": wins,
-            "losing_trades": losses,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", acct["id"]).execute()
+        }
+        if count_as_trade:
+            update_payload["total_trades"] = int(acct.get("total_trades", 0)) + 1
+            update_payload["winning_trades"] = int(acct.get("winning_trades", 0)) + (1 if pnl_dollar > 0 else 0)
+            update_payload["losing_trades"] = int(acct.get("losing_trades", 0)) + (1 if pnl_dollar < 0 else 0)
+        supabase().table("sandbox_account").update(update_payload).eq("id", acct["id"]).execute()
         return new_balance
     except Exception as e:
         log.error(f"update_account_balance failed: {e}")
@@ -2078,7 +2083,9 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             half_shares = max(1, int(total_shares * exit_fraction))  # FIX #1: max(1, ...) prevents orphan
             # FIX #3: correct P&L sign for shorts (entry - price for shorts, not negate the long formula)
             half_pnl = half_shares * ((price - entry) if direction == "long" else (entry - price))
-            update_account_balance(half_pnl)
+            # count_as_trade=False: balance + peak update, but trade counters only tick
+            # when the remaining shares close so win-rate reflects completed trades, not fills.
+            update_account_balance(half_pnl, count_as_trade=False)
             log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (${half_pnl:+.2f})")
             try:
                 # BUG FIX #5: Calculate remaining WITHOUT max() first, then handle edge case

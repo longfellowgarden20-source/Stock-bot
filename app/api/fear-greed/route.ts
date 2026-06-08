@@ -59,26 +59,35 @@ export async function GET() {
   }
 
   // Compute components
+  // VIX: ±30 pts so extreme readings push the score into the extreme zones.
+  // Previous ±20 meant the score could only reach 20–80, making Extreme Fear/Greed
+  // labels permanently unreachable regardless of market conditions.
   let vixScore = 0
   if (vix !== null) {
-    if (vix < 15) vixScore = 20
+    if (vix < 12) vixScore = 30         // extreme calm — Extreme Greed territory
+    else if (vix < 15) vixScore = 20
     else if (vix < 20) vixScore = 10
     else if (vix < 25) vixScore = 0
     else if (vix < 30) vixScore = -10
-    else vixScore = -20
+    else if (vix < 40) vixScore = -20
+    else vixScore = -30                  // VIX ≥ 40 — Extreme Fear territory
   }
 
   const convergenceCount = convergenceSignals?.length ?? 0
   let convergenceScore = 0
-  if (convergenceCount > 5) convergenceScore = 10
+  if (convergenceCount > 10) convergenceScore = 15  // lots of converging signals = market moving
+  else if (convergenceCount > 5) convergenceScore = 10
   else if (convergenceCount >= 2) convergenceScore = 5
 
   const severities = (allSignals24h ?? []).map(s => s.severity as number)
   const avgSeverity = severities.length > 0 ? severities.reduce((a, b) => a + b, 0) / severities.length : 0
-  // High severity = more fear (market stress), not greed
+  // High severity = more fear (market stress), not greed.
+  // Low severity + low signal count = complacency = slight greed nudge.
   let severityScore = 0
-  if (avgSeverity > 7) severityScore = -10
+  if (avgSeverity > 8) severityScore = -15
+  else if (avgSeverity > 7) severityScore = -10
   else if (avgSeverity >= 5) severityScore = -5
+  else if (avgSeverity > 0 && avgSeverity < 3) severityScore = 5  // quiet market = mild greed
 
   const raw = 50 + vixScore + convergenceScore + severityScore
   const score = Math.max(0, Math.min(100, raw))
@@ -102,6 +111,8 @@ export async function GET() {
       convergence_count: convergenceCount,
       avg_severity: Math.round(avgSeverity * 10) / 10,
     },
+    // Score range is now 0–100 with extremes reachable (VIX ≥40 → score can reach 0;
+    // VIX <12 + high convergence + quiet severity → score can reach 100).
     updated_at: new Date().toISOString(),
   })
 }
