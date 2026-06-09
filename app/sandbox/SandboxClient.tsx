@@ -772,7 +772,15 @@ export default function SandboxClient({
   const winRate = account && account.total_trades > 0
     ? (account.winning_trades / account.total_trades) * 100
     : 0
-  const confThreshold = winRate < 40 ? 70 : winRate < 50 ? 60 : winRate >= 65 ? 45 : 50
+  // Mirrors workers/sandbox_worker.py get_confidence_threshold() exactly so the
+  // displayed bar matches what the worker actually enforces (base 55, learning mode <10 trades).
+  const totalTrades = account?.total_trades ?? 0
+  const confThreshold =
+    totalTrades < 10 ? 55
+    : winRate < 40 ? 70
+    : winRate < 50 ? 60
+    : winRate >= 65 ? 45
+    : 55
 
   // Note: per-trade notes are persisted directly by the <TradeNoteEditor> component
   // (keyed by trade id in localStorage), so no shared state is needed here.

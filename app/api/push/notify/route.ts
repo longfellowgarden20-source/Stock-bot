@@ -19,7 +19,9 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => null)
-  if (!body?.signal_id || !body?.title || typeof body.severity !== 'number') {
+  // signal_id is optional: sandbox/system alerts (EOD summary, target/stop hits,
+  // drawdown + worker-down warnings) have no signal row. Only title + severity are required.
+  if (!body?.title || typeof body.severity !== 'number') {
     return NextResponse.json({ error: 'invalid payload' }, { status: 400 })
   }
 
@@ -32,13 +34,15 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!subs || subs.length === 0) return NextResponse.json({ ok: true, sent: 0 })
 
+  const isSandbox = (body.ticker || '').toUpperCase() === 'SANDBOX' || (body.ticker || '').toUpperCase() === 'GROQ_SELF'
+  const url = body.signal_id ? `/signals/${body.signal_id}` : isSandbox ? '/sandbox' : '/dashboard'
   const payload = {
     title: body.title,
     body: (body.body || '').slice(0, 200),
-    signal_id: body.signal_id,
+    signal_id: body.signal_id ?? null,
     severity: body.severity,
-    url: `/signals/${body.signal_id}`,
-    tag: body.signal_id,
+    url,
+    tag: body.signal_id || `${body.ticker || 'system'}-${Date.now()}`,
   }
 
   const expired: string[] = []

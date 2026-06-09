@@ -1786,11 +1786,11 @@ async def decide_entry(
     elif risk_pct >= 2.0:
         playbook = "Strong signal cluster detected. Be bold — set target at 2.5:1 R:R minimum. This setup has real edge."
     else:
-        playbook = "Standard setup. Be selective — only take if you genuinely see an edge. Pass if uncertain."
+        playbook = "Standard setup. Take it if you see a reasonable edge and reward-to-risk is at least 2:1 — don't hold out only for picture-perfect setups. Pass only if the signals are weak or contradict the market outlook."
 
-    prompt = f"""You are a sophisticated sniper trader managing a $50,000 paper account. Your goal: high win rate AND maximum profit.
+    prompt = f"""You are a sophisticated trader managing a $50,000 paper account. Your goal: high win rate AND maximum profit.
 
-PHILOSOPHY: Pass on 80% of setups. When everything lines up — convergence + options flow + sector alignment — go in hard and set aggressive targets. Don't be afraid to be bold when the data supports it.
+PHILOSOPHY: Be selective but DECISIVE. You are here to trade and learn from real outcomes — a day with zero trades teaches nothing and is a failure. Pass on genuinely weak or contradictory setups, but when a ticker shows a real edge (strong signals, supportive volume/sector, a clean technical level with 2:1+ reward-to-risk), TAKE THE TRADE. On a normal day you should find a few quality entries. When everything lines up — convergence + options flow + sector alignment — go in hard with aggressive targets.
 
 CURRENT SETUP: {ticker} @ ${price:.2f} | {volume_ctx}
 CONVICTION LEVEL: {conviction_label}{spread_note}
@@ -1851,7 +1851,7 @@ ENTRY RULES:
     # #27 — A/B test: 20% of entries use fast 8b model, tagged for WR comparison
     import random as _random
     use_fast_model = _random.random() < 0.20
-    raw = await _call_groq(prompt, max_tokens=200, fast=use_fast_model)  # Reduced from 300 → 200
+    raw = await _call_groq(prompt, max_tokens=320, fast=use_fast_model)  # 320: full JSON (11 fields + thesis) never truncates
     if not raw:
         return None
 
@@ -2517,6 +2517,7 @@ async def _record_equity_snapshot(client: httpx.AsyncClient | None = None) -> No
             "drawdown_pct": round(drawdown, 4),
             "win_rate": round(win_rate, 2),
         }, on_conflict="date").execute()
+        total_return_pct = (balance - STARTING_BALANCE) / STARTING_BALANCE * 100
         log.info(f"Equity snapshot recorded: ${balance:,.0f} ({total_return_pct:+.1f}%)")
     except Exception as e:
         log.error(f"Equity snapshot failed: {e}")
@@ -2772,16 +2773,16 @@ def seed_cold_start_rules() -> None:
         if existing.data:
             _cold_start_seeded = True
             return
-        bootstrap_rules = """BOOTSTRAP RULES (pre-loaded defaults, override with real data as you trade):
+        bootstrap_rules = """BOOTSTRAP RULES (pre-loaded defaults for a fresh account — you are in LEARNING MODE. The goal is to take quality setups and LEARN from real outcomes, not to sit on the sidelines. A day with zero trades teaches nothing.):
 
-**HIGHEST WIN-RATE SETUPS**: Start conservative — only take convergence alerts and dark_pool+options_unusual combos until you have 20+ trades of real history.
+**HIGHEST WIN-RATE SETUPS**: Convergence alerts and smart-money flow (dark pool, unusual options, insider/congress buys) are your highest-conviction trades — size up on these. But you should ALSO take clean technical and momentum setups: a strong single signal (severity >=7) backed by supportive volume, sector, or technical context is a perfectly valid day-trade entry. Most days will not hand you a convergence alert — trade the best setup available.
 
-**SETUPS TO AVOID**: Avoid shorting any ticker when the morning outlook is bullish. Avoid swing trades until you have 10+ closed day trades to establish a baseline.
+**SETUPS TO AVOID**: Avoid shorting into a clearly bullish morning outlook (and going long into a clearly bearish one) unless you have a specific catalyst. Avoid entries with no qualifying signal, and avoid trades whose stop fails the 2:1 reward-to-risk test.
 
 **3 CONCRETE RULES FOR ENTRY DECISIONS**:
-1. Default to day trades for the first 2 weeks — swing trades carry overnight risk before you have calibration data.
-2. Require minimum 2 signals with severity >=7 for any entry until win rate exceeds 50%.
-3. Never enter a trade with confidence below 70 during the first 10 trades — learning mode requires high bar."""
+1. You are actively trading, not waiting — on a normal day expect to find 1-4 quality entries. Use day trades when the catalyst is intraday (momentum, volume, options flow) and swing trades when the catalyst is multi-day (insider, congress, analyst, convergence).
+2. One strong signal (severity >=7) OR two or more moderate signals (severity >=6) is enough to enter when the setup is clean and reward-to-risk is at least 2:1.
+3. Enter when your confidence is 55 or higher. Reserve your largest position sizes for confidence 75+ and convergence setups."""
         supabase().table("prediction_lessons").insert({
             "ticker": "GROQ_BOOTSTRAP",
             "date": date.today().isoformat(),

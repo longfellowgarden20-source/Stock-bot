@@ -1,14 +1,15 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@supabase/supabase-js'
-import { getSupabaseServer } from '@/lib/supabase-server'
+import { cookies } from 'next/headers'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST() {
-  // Require authenticated session — only the logged-in user can reset
-  const auth = await getSupabaseServer()
-  const { data: { user } } = await auth.auth.getUser()
-  if (!user) {
+  // Auth matches the rest of the app: the sb-access password cookie set at sign-in.
+  // (This app has no Supabase user sessions, so getUser() would always be null and
+  // the Reset button would 401 forever.)
+  const access = (await cookies()).get('sb-access')?.value
+  if (!access) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
   }
 

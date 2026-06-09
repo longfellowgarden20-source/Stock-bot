@@ -36,10 +36,16 @@ export async function GET() {
     ? (now.getTime() - lastAccountUpdate.getTime()) / 3600000
     : Infinity
 
-  const workerAlive = hoursSinceEquity < 26 || hoursSinceAccount < 26
+  // The equity snapshot is written once per day (~5:15pm ET) and the worker skips
+  // weekends, so the gap legitimately spans a full weekend on Monday mornings
+  // (Fri 5pm → Mon 9am ≈ 64h). Widen the alive window on weekend/Monday so a
+  // healthy worker is never falsely reported as "offline".
+  const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const etDow = etDate.getDay() // 0 Sun … 6 Sat
+  const aliveWindow = etDow === 0 || etDow === 1 || etDow === 6 ? 74 : 28
+  const workerAlive = hoursSinceEquity < aliveWindow || hoursSinceAccount < aliveWindow
 
   // Count stale open trades — use ET date to match how sandbox_worker records entry_date
-  const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
   const today = `${etDate.getFullYear()}-${String(etDate.getMonth() + 1).padStart(2, '0')}-${String(etDate.getDate()).padStart(2, '0')}`
   const staleDayTrades = (openTrades || []).filter(
     t => t.trade_type === 'day' && t.entry_date < today

@@ -104,15 +104,15 @@ export default function Nav({ unreadCount = 0 }: { unreadCount?: number }) {
             <Link
               key={href}
               href={href}
-              className={`flex-1 flex flex-col items-center gap-1 py-3 min-w-0 ${active ? 'text-sky-400' : 'text-slate-600'}`}
+              className={`flex-1 flex flex-col items-center gap-1 pt-2 pb-1.5 min-w-0 ${active ? 'text-sky-400' : 'text-slate-500'}`}
             >
-              <div className="relative">
-                <Icon className="w-5 h-5" />
+              <div className={`relative flex items-center justify-center w-9 h-6 rounded-md ${active ? 'bg-sky-400/10' : ''}`}>
+                <Icon className="w-[18px] h-[18px]" />
                 {label === 'Signals' && unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{unreadCount}</span>
+                  <span className="absolute -top-1 -right-0.5 w-3.5 h-3.5 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">{unreadCount}</span>
                 )}
               </div>
-              <span className="text-[9px] font-medium tracking-wide uppercase">{label}</span>
+              <span className="w-full text-center text-[8px] font-semibold tracking-tight uppercase truncate px-0.5">{label}</span>
             </Link>
           )
         })}
