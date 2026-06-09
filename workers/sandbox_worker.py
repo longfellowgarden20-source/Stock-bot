@@ -27,6 +27,60 @@ from datetime import datetime, timezone, date, timedelta
 from db import supabase, insert_signal
 from market_hours import now_et, is_weekday, is_market_hours
 
+# ── Tavily live search ────────────────────────────────────────────────────────
+# Only used at the moment of entry decision — the most important call we make.
+# Fetches what's happening RIGHT NOW on a ticker before Groq decides to trade.
+# Rotates across multiple keys to stay on free tier.
+
+def _get_tavily_keys() -> list[str]:
+    return [k for k in [
+        os.environ.get("TAVILY_API_KEY"),
+        os.environ.get("TAVILY_API_KEY_2"),
+        os.environ.get("TAVILY_API_KEY_3"),
+    ] if k]
+
+async def fetch_live_news(client: httpx.AsyncClient, ticker: str) -> str:
+    """
+    Fetch live news for a ticker RIGHT BEFORE a trade entry decision.
+    Only called once per ticker per decide_entry() — not in any loop or polling.
+    Returns a short summary string for the Groq prompt, empty string on failure.
+    """
+    keys = _get_tavily_keys()
+    if not keys:
+        return ""
+    import random
+    key = random.choice(keys)
+    try:
+        res = await client.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key": key,
+                "query": f"{ticker} stock news today breaking",
+                "search_depth": "basic",   # basic = 1 credit not 2
+                "max_results": 3,
+                "include_answer": True,
+                "topic": "finance",
+            },
+            timeout=8,
+        )
+        if res.status_code == 429:
+            log.debug(f"Tavily key rate limited, skipping live news for {ticker}")
+            return ""
+        if not res.is_success:
+            return ""
+        data = res.json()
+        answer = data.get("answer", "")
+        results = data.get("results", [])
+        if answer:
+            return f"LIVE NEWS (last few hours): {answer[:300]}"
+        elif results:
+            headlines = " | ".join(r.get("title", "") for r in results[:3])
+            return f"LIVE NEWS HEADLINES: {headlines[:300]}"
+        return ""
+    except Exception as e:
+        log.debug(f"Tavily live news fetch failed for {ticker}: {e}")
+        return ""
+
 log = logging.getLogger("sandbox_worker")
 
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
@@ -1680,6 +1734,12 @@ async def decide_entry(
     elif spread_hours < 0.5 and len(signals) >= 2:
         spread_note = f"\n✅ Tight signal cluster ({spread_label}) — strong convergence quality."
 
+    # ── Tavily live news — only fetched here, right before the trade decision ──
+    # This is the ONLY place Tavily is called in the entire sandbox worker.
+    # We've passed every filter, price is confirmed, all context is loaded.
+    # One search = 1 credit. Worth it — Groq now knows what broke 20 min ago.
+    live_news_block = await fetch_live_news(client, ticker)
+
     # Score conviction — determines position size and confidence bar
     risk_pct, conviction_label, is_convergence = score_setup_conviction(signals, convergence_ctx, recent_wr)
 
@@ -1752,7 +1812,7 @@ TECHNICAL:
 
 SIGNALS (last 48h — freshest {hours_since}h ago, older signals relevant for swing):
 {sig_block}
-
+{f"{live_news_block}" if live_news_block else ""}
 PAST ACCURACY FOR {ticker}:
 {pred_block}
 
