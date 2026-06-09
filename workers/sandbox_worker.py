@@ -1859,9 +1859,12 @@ Respond ONLY with valid JSON:
 
 ENTRY RULES:
 - PASS if confidence < {CONVERGENCE_MIN_CONFIDENCE if is_convergence else BASE_CONFIDENCE_THRESHOLD} — don't force trades
-- CONVERGENCE setups: target must be 3:1 R:R minimum — go big or pass
-- Standard setups: target 2:1 R:R minimum
-- Stop must be at a real technical level (support/resistance), not arbitrary
+- REWARD:RISK IS MANDATORY AND CHECKED. Before you answer, compute it:
+    • LONG:  (target_price - {price:.2f}) must be >= 2.0 × ({price:.2f} - stop_loss)
+    • SHORT: ({price:.2f} - target_price) must be >= 2.0 × (stop_loss - {price:.2f})
+  Set your target far enough out to satisfy this. Aim for 2:1; trades below ~1.5:1 are rejected automatically.
+- Keep stop_loss within 6% of {price:.2f} (a stop wider than 6% is rejected). Place it at a real support/resistance level, not arbitrary.
+- If you cannot find a target that clears 2:1 with a stop inside 6%, set trade=false — but most clean setups CAN, so do the math and commit.
 - Direction MUST align with market outlook unless you have a very specific counter-thesis
 - If you've been losing on this ticker recently, pass unless signals are overwhelming
 - Be specific in your thesis — vague reasoning = bad trade"""
@@ -1944,8 +1947,12 @@ ENTRY RULES:
                 log.debug(f"Filter #8: {ticker} already has open {existing_dir} — blocking opposite {direction}")
                 return None
 
-    # R:R minimum — convergence plays need 3:1 (matches prompt), standard 2:1
-    min_rr = 3.0 if is_convergence else 2.0
+    # R:R minimum — convergence plays need 2.5:1, standard 1.5:1.
+    # Groq aims for 2:1 per the prompt but its targets routinely land ~1.3-1.8x;
+    # a 2.0 floor rejected nearly every otherwise-valid setup (the real reason the
+    # sandbox sat at 0 trades). 1.5:1 at a 55%+ win rate is clearly profitable and
+    # keeps the engine active so it can actually learn.
+    min_rr = 2.5 if is_convergence else 1.5
 
     # #13 — Reject negative or zero stop/target (Groq parse error)
     if stop <= 0 or target <= 0:
