@@ -1458,6 +1458,12 @@ def has_minimum_signals(ticker: str) -> bool:
 
 # ─── Entry decision ───────────────────────────────────────────────────────────
 
+# Per-scan diagnostic buffer — records each ticker's Groq decision + rejection
+# reason. Cleared at the start of each entry scan; surfaced in the manual
+# /trigger/sandbox response so we can see WHY tickers are passed on.
+_scan_diag: list[str] = []
+
+
 async def decide_entry(
     client: httpx.AsyncClient,
     ticker: str,
@@ -1886,7 +1892,14 @@ ENTRY RULES:
         parsed = json.loads(text.strip())
     except Exception as e:
         log.warning(f"Entry decision parse failed for {ticker}: {e}\nRaw: {raw[:200]}")
+        _scan_diag.append(f"{ticker}: PARSE_FAIL {str(e)[:40]}")
         return None
+
+    # ── Diagnostic: record exactly what Groq decided for this ticker ──
+    _scan_diag.append(
+        f"{ticker}@{price:.2f}: trade={parsed.get('trade')} conf={parsed.get('confidence')} "
+        f"dir={parsed.get('direction')} stop={parsed.get('stop_loss')} tgt={parsed.get('target_price')}"
+    )
 
     # BUG FIX #6: Validate field types (Groq sometimes returns "trade": "true" instead of bool)
     if not isinstance(parsed.get("trade"), bool):
@@ -1914,11 +1927,13 @@ ENTRY RULES:
             counter_threshold = max(conf_threshold, 80)
             if parsed.get("confidence", 0) < counter_threshold:
                 log.debug(f"Filter #9: {ticker} counter-trend {proposed_direction_raw} on {outlook_dir} day — needs {counter_threshold}, got {parsed.get('confidence',0)}")
+                _scan_diag.append(f"{ticker}: REJECT counter-trend {proposed_direction_raw} on {outlook_dir} day (needs {counter_threshold})")
                 return None
 
     confidence = parsed.get("confidence", 0)
     if not parsed.get("trade") or confidence < conf_threshold:
         log.debug(f"Sandbox: passed on {ticker} (confidence={confidence} < {conf_threshold}, conviction={conviction_label})")
+        _scan_diag.append(f"{ticker}: REJECT trade={parsed.get('trade')} conf={confidence}<{conf_threshold}")
         return None
 
     direction = parsed.get("direction", "long")
@@ -1957,33 +1972,40 @@ ENTRY RULES:
     # #13 — Reject negative or zero stop/target (Groq parse error)
     if stop <= 0 or target <= 0:
         log.debug(f"Sandbox: invalid levels for {ticker} — stop={stop} target={target} must be > 0")
+        _scan_diag.append(f"{ticker}: REJECT zero/neg levels stop={stop} tgt={target}")
         return None
 
     if direction == "long":
         if stop >= price or target <= price:
             log.debug(f"Sandbox: invalid levels for {ticker} long")
+            _scan_diag.append(f"{ticker}: REJECT long levels wrong side (stop={stop} price={price:.2f} tgt={target})")
             return None
         risk = price - stop
         reward = target - price
         if risk <= 0 or reward / risk < min_rr:
             log.debug(f"Sandbox: R:R {reward/risk:.2f} < {min_rr} for {ticker} long — skip")
+            _scan_diag.append(f"{ticker}: REJECT long R:R {reward/risk:.2f}<{min_rr}")
             return None
         stop_pct = (risk / price) * 100
         if stop_pct > MAX_STOP_PCT:
             log.debug(f"Filter #8: {ticker} stop too wide ({stop_pct:.1f}%) — skip")
+            _scan_diag.append(f"{ticker}: REJECT long stop too wide {stop_pct:.1f}%>{MAX_STOP_PCT}")
             return None
     else:
         if stop <= price or target >= price:
             log.debug(f"Sandbox: invalid levels for {ticker} short")
+            _scan_diag.append(f"{ticker}: REJECT short levels wrong side (stop={stop} price={price:.2f} tgt={target})")
             return None
         risk = stop - price
         reward = price - target
         if risk <= 0 or reward / risk < min_rr:
             log.debug(f"Sandbox: R:R {reward/risk:.2f} < {min_rr} for {ticker} short — skip")
+            _scan_diag.append(f"{ticker}: REJECT short R:R {reward/risk:.2f}<{min_rr}")
             return None
         stop_pct = (risk / price) * 100
         if stop_pct > MAX_STOP_PCT:
             log.debug(f"Filter #8: {ticker} short stop too wide ({stop_pct:.1f}%) — skip")
+            _scan_diag.append(f"{ticker}: REJECT short stop too wide {stop_pct:.1f}%>{MAX_STOP_PCT}")
             return None
 
     # #4 — Stop width category: tight stops need higher confidence (noise shakes them out)
@@ -1991,6 +2013,7 @@ ENTRY RULES:
         stop_category = "tight"
         if confidence < 75:
             log.debug(f"Filter #4: {ticker} tight stop ({stop_pct:.1f}%) requires conf>=75, got {confidence} — skip")
+            _scan_diag.append(f"{ticker}: REJECT tight stop {stop_pct:.1f}% needs conf>=75 got {confidence}")
             return None
     elif stop_pct > 4.5:
         stop_category = "wide"
@@ -2996,6 +3019,7 @@ async def run_once() -> dict:
             pending_count = sum(1 for p in open_positions if p.get("fill_status") == "pending")
             effective_open = len(open_positions) - pending_count + (pending_count * 0.5)
             if today_entry_count < MAX_DAILY_ENTRIES and effective_open < MAX_OPEN_POSITIONS:
+                _scan_diag.clear()  # fresh diagnostics for this scan
                 # Use pre-market game plan if available — Groq already picked the best setups
                 premarket_plan = get_premarket_plan()
                 if premarket_plan:
@@ -3049,7 +3073,7 @@ async def run_once() -> dict:
                         log.error(f"Entry decision failed for {ticker}: {e}")
                     await asyncio.sleep(2)
 
-                return {"status": "ok", "action": "entry_scan", "entries": entries, "today_total": today_entry_count + entries, "open": len(open_tickers)}
+                return {"status": "ok", "action": "entry_scan", "entries": entries, "today_total": today_entry_count + entries, "open": len(open_tickers), "diag": _scan_diag[:30]}
 
         # 4:00–4:15 ET: close all day trades + evaluate swings + record performance
         if hour == 16 and minute < 15:
