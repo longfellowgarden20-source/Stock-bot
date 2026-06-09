@@ -393,7 +393,25 @@ async def get_scan_universe(client: httpx.AsyncClient) -> list[str]:
 
 
 async def get_current_price(client: httpx.AsyncClient, ticker: str) -> float | None:
-    """Try snapshot first (paid), fall back to daily aggs (free)."""
+    """Live price via the shared price_worker fallback chain
+    (Polygon snapshot → Polygon daily aggs → Finnhub real-time → Yahoo Finance).
+
+    The sandbox previously used Polygon ONLY, which on the free tier is not
+    authorized for live snapshots and returns the *previous day's* close — so
+    entries priced off stale data. Delegating to price_worker gives the sandbox
+    the same real-time quotes the rest of the app already uses."""
+    # Primary: shared 4-source chain (Finnhub + Yahoo give real-time on free tier)
+    try:
+        import price_worker
+        snap = await price_worker.fetch_snapshot(client, ticker)
+        if snap:
+            p = (snap.get("lastTrade") or {}).get("p") or (snap.get("day") or {}).get("c")
+            if p and float(p) > 0:
+                return float(p)
+    except Exception as e:
+        log.debug(f"Shared price chain failed for {ticker}: {e}")
+
+    # Fallback: direct Polygon (safety net if price_worker is unavailable)
     if not POLYGON_KEY:
         return None
     try:
