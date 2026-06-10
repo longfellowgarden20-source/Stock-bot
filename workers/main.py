@@ -172,9 +172,11 @@ app.add_middleware(
 )
 
 
+DEPLOY_VERSION = "dc515fc-verify"  # bump on each deploy to confirm Railway is shipping latest code
+
 @app.get("/")
 async def root():
-    return {"service": "stockbot-workers", "status": "running", "workers": list(WORKERS.keys())}
+    return {"service": "stockbot-workers", "status": "running", "version": DEPLOY_VERSION, "workers": list(WORKERS.keys())}
 
 
 @app.get("/health")
