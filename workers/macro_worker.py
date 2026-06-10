@@ -118,10 +118,23 @@ async def fetch_fred_series(client: httpx.AsyncClient, series_id: str) -> list[t
 
 
 async def check_vix(client: httpx.AsyncClient) -> None:
-    """VIX — implied volatility index."""
-    vix_close = await fetch_polygon_close(client, "I:VIX")
+    """VIX — the REAL implied-volatility index.
+
+    Source priority:
+      1. FRED VIXCLS  — the actual VIX index (free, reliable)
+      2. Polygon I:VIX — paid-tier index quote
+
+    We deliberately do NOT fall back to the VIXY/VXX/UVXY ETFs: their share price
+    (e.g. VIXY ~$26, UVXY ~$33) is NOT the VIX index value, and feeding it into
+    _latest['vix'] corrupted every "VIX > threshold" regime check — it was making
+    the sandbox skip ALL entries on normal days (real VIX ~20) because the ETF
+    price sat above the 28 limit. Use the real index only."""
+    vix_close = None
+    fred_vix = await fetch_fred_series(client, "VIXCLS")
+    if fred_vix:
+        vix_close = fred_vix[0][1]
     if vix_close is None:
-        vix_close = await fetch_polygon_close(client, "VIXY")
+        vix_close = await fetch_polygon_close(client, "I:VIX")
     if vix_close is None:
         return
     _latest["vix"] = vix_close
