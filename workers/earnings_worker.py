@@ -480,6 +480,10 @@ async def process_ticker(client: httpx.AsyncClient, ticker: str) -> None:
 
 
 async def run_once() -> dict:
+    from market_hours import is_extended_hours
+    # Rest Groq overnight + weekends — earnings analysis can wait for pre-market.
+    if not is_extended_hours():
+        return {"status": "skipped", "reason": "market closed — resting Groq keys"}
     if not POLYGON_KEY:
         return {"status": "skipped", "reason": "POLYGON_API_KEY not set"}
     _evict()

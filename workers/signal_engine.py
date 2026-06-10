@@ -107,6 +107,15 @@ Output format: 2-3 short paragraphs. No headers, no bullet points. Direct senten
 
 
 async def run_once() -> dict:
+    from market_hours import is_extended_hours
+
+    # Rest the Groq keys when the market is fully closed (overnight + weekends).
+    # Convergence synthesis is only actionable during extended hours (pre-market
+    # 4am → after-hours 8pm ET), so there's no point spending Groq calls at 2am.
+    # The 4:15pm daily recap is inside after-hours, so it still runs.
+    if not is_extended_hours():
+        return {"status": "ok", "convergences": 0, "reason": "market closed — resting Groq keys"}
+
     recent = await fetch_recent_signals(30)
     if not recent:
         return {"status": "ok", "convergences": 0}
@@ -126,8 +135,10 @@ async def run_once() -> dict:
                 continue
 
             total_score = sum(s["severity"] for s in sigs)
-            # Need at least score 14 to trigger Groq (cost control)
-            if total_score < 14:
+            # Only synthesize STRONG convergences — score >= 16 yields severity >= 8
+            # (sev = 6 + score//8). Skips the boring sev-6/7 clusters so we don't
+            # waste Groq calls on signals you'd ignore anyway.
+            if total_score < 16:
                 continue
 
             result = await synthesize_with_groq(client, ticker, sigs)

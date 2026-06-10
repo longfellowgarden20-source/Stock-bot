@@ -287,6 +287,11 @@ def _dedup_headline(title: str) -> bool:
 async def run_once() -> dict:
     global _last_run_headlines
 
+    from market_hours import is_extended_hours
+    # Rest Groq overnight + weekends — news-catalyst flagging resumes pre-market (4am ET).
+    if not is_extended_hours():
+        return {"status": "skipped", "reason": "market closed — resting Groq keys"}
+
     from groq_pool import _load_all_keys
     _load_all_keys()  # Load GROQ_API_KEY_2 and backups
 
