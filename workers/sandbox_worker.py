@@ -1878,7 +1878,7 @@ ENTRY RULES:
     # #27 — A/B test: 20% of entries use fast 8b model, tagged for WR comparison
     import random as _random
     use_fast_model = _random.random() < 0.20
-    raw = await _call_groq(prompt, max_tokens=320, fast=use_fast_model)  # 320: full JSON (11 fields + thesis) never truncates
+    raw = await _call_groq(prompt, max_tokens=250, fast=use_fast_model)  # 250: full JSON (11 fields + thesis) fits in ~150-170 tokens
     if not raw:
         return None
 
@@ -1924,7 +1924,7 @@ ENTRY RULES:
             (outlook_dir == "bullish" and proposed_direction_raw == "short")
         )
         if is_counter_trend and not is_convergence:
-            counter_threshold = max(conf_threshold, 80)
+            counter_threshold = max(conf_threshold, 65)  # was 80 — too high, silently blocked most counter-trend setups
             if parsed.get("confidence", 0) < counter_threshold:
                 log.debug(f"Filter #9: {ticker} counter-trend {proposed_direction_raw} on {outlook_dir} day — needs {counter_threshold}, got {parsed.get('confidence',0)}")
                 _scan_diag.append(f"{ticker}: REJECT counter-trend {proposed_direction_raw} on {outlook_dir} day (needs {counter_threshold})")
@@ -2008,12 +2008,12 @@ ENTRY RULES:
             _scan_diag.append(f"{ticker}: REJECT short stop too wide {stop_pct:.1f}%>{MAX_STOP_PCT}")
             return None
 
-    # #4 — Stop width category: tight stops need higher confidence (noise shakes them out)
+    # #4 — Stop width category: tight stops need slightly higher confidence (noise shakes them out)
     if stop_pct < 1.5:
         stop_category = "tight"
-        if confidence < 75:
-            log.debug(f"Filter #4: {ticker} tight stop ({stop_pct:.1f}%) requires conf>=75, got {confidence} — skip")
-            _scan_diag.append(f"{ticker}: REJECT tight stop {stop_pct:.1f}% needs conf>=75 got {confidence}")
+        if confidence < 65:  # was 75 — too high, silently blocked tight-stop day trades
+            log.debug(f"Filter #4: {ticker} tight stop ({stop_pct:.1f}%) requires conf>=65, got {confidence} — skip")
+            _scan_diag.append(f"{ticker}: REJECT tight stop {stop_pct:.1f}% needs conf>=65 got {confidence}")
             return None
     elif stop_pct > 4.5:
         stop_category = "wide"
