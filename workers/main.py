@@ -172,7 +172,7 @@ app.add_middleware(
 )
 
 
-DEPLOY_VERSION = "vix-fix-real-index"  # bump on each deploy to confirm Railway is shipping latest code
+DEPLOY_VERSION = "resilient-insert"  # bump on each deploy to confirm Railway is shipping latest code
 
 @app.get("/")
 async def root():

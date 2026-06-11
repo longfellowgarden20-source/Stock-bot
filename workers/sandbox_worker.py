@@ -2847,6 +2847,31 @@ def seed_cold_start_rules() -> None:
         log.debug(f"Cold start seed failed: {e}")
 
 
+def _insert_sandbox_trade(trade: dict) -> dict | None:
+    """Insert a trade row, resiliently. If the table is missing a column the code
+    writes (e.g. target1 / partial_exit_done before the schema migration runs),
+    Postgres returns PGRST204 'Could not find the X column'. Rather than let that
+    swallow the ENTIRE trade (which is what produced 0 trades for days), we drop the
+    offending column and retry. Once the migration adds the columns, nothing is
+    dropped. Returns the inserted row dict, or None on a genuine failure."""
+    import re as _re
+    payload = dict(trade)
+    for _ in range(8):
+        try:
+            res = supabase().table("sandbox_trades").insert(payload).execute()
+            return res.data[0] if res.data else None
+        except Exception as e:
+            m = _re.search(r"Could not find the '([^']+)' column", str(e))
+            if m and m.group(1) in payload:
+                col = m.group(1)
+                log.warning(f"sandbox_trades missing column '{col}' — dropping from insert so the trade still lands (add it via migration to keep the feature)")
+                payload.pop(col, None)
+                continue
+            log.error(f"sandbox_trades insert failed: {e}")
+            return None
+    return None
+
+
 # ─── Main run_once entry point ────────────────────────────────────────────────
 
 async def run_once() -> dict:
@@ -3060,9 +3085,8 @@ async def run_once() -> dict:
                                 log.debug(f"Idempotency: {ticker} already has an open trade — skipping insert")
                                 open_tickers.add(ticker)
                                 continue
-                            res = supabase().table("sandbox_trades").insert(trade).execute()
-                            if res.data:
-                                inserted = res.data[0]
+                            inserted = _insert_sandbox_trade(trade)
+                            if inserted:
                                 trade["id"] = inserted.get("id")  # add DB-generated id
                                 open_tickers.add(ticker)
                                 open_positions.append(trade)  # keep sector counts current
