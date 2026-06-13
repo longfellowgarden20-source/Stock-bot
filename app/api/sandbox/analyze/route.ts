@@ -125,8 +125,17 @@ export async function POST(req: NextRequest) {
         }).join('\n')
       : 'No prior trades on this ticker.'
 
+    // Entry time in Pacific time (trade.created_at is UTC from Supabase)
+    const entryTimePT = trade.created_at
+      ? new Date(trade.created_at).toLocaleString('en-US', {
+          timeZone: 'America/Los_Angeles',
+          month: 'short', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit', hour12: true,
+        }) + ' PT'
+      : trade.entry_date
+
     const tradeStatus = isOpen
-      ? `OPEN — entered ${trade.entry_date}, currently at ${currentPnl ? `${currentPnl.pnl_pct > 0 ? '+' : ''}${currentPnl.pnl_pct.toFixed(2)}% ($${currentPnl.price})` : 'unknown'}`
+      ? `OPEN — entered ${entryTimePT}, currently at ${currentPnl ? `${currentPnl.pnl_pct > 0 ? '+' : ''}${currentPnl.pnl_pct.toFixed(2)}% ($${currentPnl.price})` : 'unknown'}`
       : `CLOSED — ${trade.exit_reason} on ${trade.exit_date} at $${trade.exit_price} (${(trade.pnl_pct ?? 0) > 0 ? '+' : ''}${(trade.pnl_pct ?? 0).toFixed(2)}%)`
 
     const pnlContext = pnlCurve.length > 0
@@ -151,6 +160,7 @@ export async function POST(req: NextRequest) {
 
 CONTRACT BREAKDOWN:
 Direction: ${trade.direction.toUpperCase()} | Type: ${trade.trade_type} | Shares: ${sharesNum}
+Entered at: ${entryTimePT}
 Entry: $${entryNum.toFixed(2)} | Stop: $${stopNum.toFixed(2)} | Target: $${targetNum.toFixed(2)}
 Capital deployed: $${capitalDeployed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
 Max loss: -$${maxLossDollar.toFixed(2)} (${maxLossPct.toFixed(2)}% of position)
