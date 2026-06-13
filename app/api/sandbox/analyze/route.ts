@@ -104,13 +104,35 @@ export async function POST(req: NextRequest) {
       ? `Max gain during trade: ${maxPnl?.toFixed(2)}% | Max drawdown: ${minPnl?.toFixed(2)}% | Data points: ${pnlCurve.length}`
       : 'No price data available for this period.'
 
+    // Contract math for the breakdown section
+    const entryNum = Number(trade.entry_price)
+    const stopNum = Number(trade.stop_loss)
+    const targetNum = Number(trade.target_price)
+    const sharesNum = Number(trade.shares) || 1
+    const capitalDeployed = Math.round(entryNum * sharesNum * 100) / 100
+    const riskPerShare = Math.max(0, trade.direction === 'long' ? entryNum - stopNum : stopNum - entryNum)
+    const rewardPerShare = Math.max(0, trade.direction === 'long' ? targetNum - entryNum : entryNum - targetNum)
+    const maxLossDollar = Math.round(riskPerShare * sharesNum * 100) / 100
+    const maxGainDollar = Math.round(rewardPerShare * sharesNum * 100) / 100
+    const maxLossPct = entryNum > 0 ? Math.round(riskPerShare / entryNum * 10000) / 100 : 0
+    const maxGainPct = entryNum > 0 ? Math.round(rewardPerShare / entryNum * 10000) / 100 : 0
+    const rrRatio = riskPerShare > 0 ? Math.round(rewardPerShare / riskPerShare * 100) / 100 : 0
+
     const prompt = `You are a senior trading coach reviewing a ${trade.direction.toUpperCase()} trade on ${ticker}.
 
-TRADE DETAILS:
-Status: ${tradeStatus}
-Entry: $${trade.entry_price} | Stop: $${trade.stop_loss} | Target: $${trade.target_price}
-Trade type: ${trade.trade_type} | Shares: ${trade.shares}
-Original thesis: "${trade.groq_thesis ?? 'No thesis recorded'}"
+CONTRACT BREAKDOWN:
+Direction: ${trade.direction.toUpperCase()} | Type: ${trade.trade_type} | Shares: ${sharesNum}
+Entry: $${entryNum.toFixed(2)} | Stop: $${stopNum.toFixed(2)} | Target: $${targetNum.toFixed(2)}
+Capital deployed: $${capitalDeployed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+Max loss: -$${maxLossDollar.toFixed(2)} (${maxLossPct.toFixed(2)}% of position)
+Max gain at target: +$${maxGainDollar.toFixed(2)} (+${maxGainPct.toFixed(2)}% of position)
+Reward-to-risk: ${rrRatio}:1
+
+TRADE STATUS:
+${tradeStatus}
+
+ORIGINAL THESIS:
+"${trade.groq_thesis ?? 'No thesis recorded'}"
 
 P&L JOURNEY:
 ${pnlContext}
@@ -122,6 +144,8 @@ PAST TRADES ON ${ticker}:
 ${pastBlock}
 
 Write a detailed trade review covering:
+
+**CONTRACT BREAKDOWN**: In plain English, explain exactly what this trade was — what it cost to enter, what the maximum loss would be, and what the return at target looks like. Make it clear like a brief to a new trader.
 
 **TRADE QUALITY**: Was this a good entry? Was the setup valid based on the signals? Rate the entry quality 1-10.
 
@@ -141,7 +165,7 @@ Be direct, specific, and trader-focused. Reference actual prices and percentages
       groq.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: [{ role: 'user', content: prompt }],
-        max_tokens: 1000,
+        max_tokens: 1200,
         temperature: 0.3,
       }).then(c => c.choices[0]?.message?.content ?? 'Analysis unavailable.')
     )

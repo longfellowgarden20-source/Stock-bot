@@ -17,7 +17,7 @@ export async function GET() {
     { data: lastEval },
   ] = await Promise.all([
     supabase.from('sandbox_account').select('balance,peak_balance,total_trades,updated_at').limit(1).single(),
-    supabase.from('sandbox_trades').select('id,ticker,trade_type,entry_date').eq('status', 'open'),
+    supabase.from('sandbox_trades').select('id,ticker,trade_type,entry_date,position_size,fill_status').eq('status', 'open'),
     supabase.from('sandbox_equity').select('date,balance,win_rate').order('date', { ascending: false }).limit(1).single(),
     supabase.from('sandbox_performance').select('date,wins,losses,win_rate,gross_pnl').order('date', { ascending: false }).limit(1).single(),
     supabase.from('sandbox_trade_evals').select('evaluated_at').order('evaluated_at', { ascending: false }).limit(1).single(),
@@ -51,10 +51,19 @@ export async function GET() {
     t => t.trade_type === 'day' && t.entry_date < today
   )
 
+  // Available cash = account balance minus capital locked in FILLED open positions
+  // Pending (not yet filled) orders don't count — no capital deployed until filled
+  const deployedCapital = (openTrades ?? [])
+    .filter(t => (t as any).fill_status !== 'pending')
+    .reduce((sum, t) => sum + (Number((t as any).position_size) || 0), 0)
+  const availableCash = account ? Math.max(0, Math.round((Number(account.balance) - deployedCapital) * 100) / 100) : null
+
   return NextResponse.json({
     worker_alive: workerAlive,
     hours_since_last_activity: Math.min(hoursSinceEquity, hoursSinceAccount),
     account: account ?? null,
+    available_cash: availableCash,
+    deployed_capital: Math.round(deployedCapital * 100) / 100,
     open_positions: openTrades?.length ?? 0,
     stale_day_trades: staleDayTrades.length,
     last_equity_date: lastEquity?.date ?? null,

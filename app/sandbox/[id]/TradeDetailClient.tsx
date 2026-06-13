@@ -45,12 +45,13 @@ type AnalysisResult = {
 }
 
 const SECTION_CONFIG: Record<string, { color: string; bg: string; border: string; icon: React.ReactNode }> = {
-  'TRADE QUALITY':   { color: 'text-sky-400',     bg: 'bg-sky-500/8',     border: 'border-sky-500/20',     icon: <Activity className="w-3.5 h-3.5" /> },
-  'WHAT WENT RIGHT': { color: 'text-emerald-400',  bg: 'bg-emerald-500/8', border: 'border-emerald-500/20', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
-  'WHAT WENT WRONG': { color: 'text-red-400',      bg: 'bg-red-500/8',     border: 'border-red-500/20',     icon: <XCircle className="w-3.5 h-3.5" /> },
-  'P&L ANALYSIS':    { color: 'text-yellow-400',   bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  icon: <TrendingUp className="w-3.5 h-3.5" /> },
-  'KEY LESSON':      { color: 'text-purple-400',   bg: 'bg-purple-500/8',  border: 'border-purple-500/20',  icon: <Brain className="w-3.5 h-3.5" /> },
-  'NEXT SETUP':      { color: 'text-white',        bg: 'bg-white/4',       border: 'border-white/10',       icon: <Target className="w-3.5 h-3.5" /> },
+  'CONTRACT BREAKDOWN': { color: 'text-amber-400',   bg: 'bg-amber-500/8',   border: 'border-amber-500/20',   icon: <BookOpen className="w-3.5 h-3.5" /> },
+  'TRADE QUALITY':      { color: 'text-sky-400',     bg: 'bg-sky-500/8',     border: 'border-sky-500/20',     icon: <Activity className="w-3.5 h-3.5" /> },
+  'WHAT WENT RIGHT':    { color: 'text-emerald-400', bg: 'bg-emerald-500/8', border: 'border-emerald-500/20', icon: <CheckCircle2 className="w-3.5 h-3.5" /> },
+  'WHAT WENT WRONG':    { color: 'text-red-400',     bg: 'bg-red-500/8',     border: 'border-red-500/20',     icon: <XCircle className="w-3.5 h-3.5" /> },
+  'P&L ANALYSIS':       { color: 'text-yellow-400',  bg: 'bg-yellow-500/8',  border: 'border-yellow-500/20',  icon: <TrendingUp className="w-3.5 h-3.5" /> },
+  'KEY LESSON':         { color: 'text-purple-400',  bg: 'bg-purple-500/8',  border: 'border-purple-500/20',  icon: <Brain className="w-3.5 h-3.5" /> },
+  'NEXT SETUP':         { color: 'text-white',       bg: 'bg-white/4',       border: 'border-white/10',       icon: <Target className="w-3.5 h-3.5" /> },
 }
 
 function parseAnalysis(text: string): Array<{ header: string; body: string }> {

@@ -748,7 +748,7 @@ export default function SandboxClient({
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [resetting, setResetting] = useState(false)
   const [forceClosing, setForceClosing] = useState<string | null>(null)
-  const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number } | null>(null)
+  const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number; available_cash: number | null; deployed_capital: number } | null>(null)
   const [dataFreshness, setDataFreshness] = useState<Record<string, { age_minutes: number; is_stale_10min: boolean; is_stale_1hr: boolean }>>({}) // #7
 
   // Live P&L graph — intraday equity points (balance snapshots every 60s from open positions)
@@ -1146,6 +1146,18 @@ export default function SandboxClient({
               </span>
               <span className="text-xs text-slate-600">from $50,000 start</span>
             </div>
+            {workerStatus && workerStatus.available_cash != null && (
+              <div className="flex items-center gap-3 mt-2">
+                <span className="text-xs text-slate-500">
+                  Available: <span className="text-white font-semibold tabular-nums">${workerStatus.available_cash.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                </span>
+                {workerStatus.deployed_capital > 0 && (
+                  <span className="text-xs text-slate-500">
+                    Deployed: <span className="text-amber-400 font-semibold tabular-nums">${workerStatus.deployed_capital.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <div className="flex flex-col gap-1 text-right">
             <div className="flex items-center gap-2 justify-end">

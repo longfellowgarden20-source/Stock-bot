@@ -83,6 +83,10 @@ async def fetch_live_news(client: httpx.AsyncClient, ticker: str) -> str:
 
 log = logging.getLogger("sandbox_worker")
 
+# Module-level throttle for Groq swing re-evals — persists across scheduled calls
+# within a single process run. Initialized to None so the first run always evaluates.
+_last_swing_groq_eval_utc: datetime | None = None
+
 POLYGON_KEY = os.environ.get("POLYGON_API_KEY", "")
 POLYGON_BASE = "https://api.polygon.io"
 
@@ -772,7 +776,10 @@ def calculate_position_size(entry: float, stop: float, account_balance: float) -
 def update_account_balance(pnl_dollar: float, count_as_trade: bool = True) -> float:
     """Apply closed trade P&L to account balance. Returns new balance.
 
-    count_as_trade=False for partial exits: the P&L and peak are recorded but
+    balance = starting $50k + all closed P&L. Open positions are tracked separately
+    via position_size on sandbox_trades; available cash is computed in the UI.
+
+    count_as_trade=False for partial exits: P&L and peak are recorded but
     total_trades/winning_trades/losing_trades are NOT incremented — those counters
     only tick when the full position closes, so win-rate stays accurate.
     """
@@ -2196,8 +2203,7 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             half_shares = max(1, int(total_shares * exit_fraction))  # FIX #1: max(1, ...) prevents orphan
             # FIX #3: correct P&L sign for shorts (entry - price for shorts, not negate the long formula)
             half_pnl = half_shares * ((price - entry) if direction == "long" else (entry - price))
-            # count_as_trade=False: balance + peak update, but trade counters only tick
-            # when the remaining shares close so win-rate reflects completed trades, not fills.
+            # count_as_trade=False: win-rate counters only tick on full close
             update_account_balance(half_pnl, count_as_trade=False)
             log.info(f"Partial exit: {ticker} {direction} — closed {half_shares} shares at Target1 ${price:.2f} (${half_pnl:+.2f})")
             try:
@@ -2262,7 +2268,9 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
         await close_trade(trade, price, "max_hold", f"Max hold period reached — exited at ${price:.2f}")
         return
 
-    # Swing trade: ask Groq if thesis still valid
+    # Swing trade: ask Groq if thesis still valid (throttled — skip when flagged)
+    if trade.get('_skip_groq_swing_eval'):
+        return
     if trade_type == "swing":
         signals = await get_recent_signals(ticker, hours=24)
         sig_lines = [f"- [{s['signal_type']} sev={s['severity']}] {s['title']}" for s in signals]
@@ -2365,7 +2373,6 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
         log.error(f"close_trade failed for {ticker}: {e} — balance NOT updated to avoid inconsistency")
         return  # Don't update balance if trade update failed
 
-    # Only update balance after trade is confirmed closed
     new_balance = update_account_balance(pnl)
     log.info(f"Account balance: ${new_balance:,.2f}")
 
@@ -2951,20 +2958,24 @@ async def run_once() -> dict:
             open_positions = get_open_positions()
             open_tickers = {p["ticker"] for p in open_positions}
 
-        # #7 — Intraday stop/target checks (every 2 hours to save tokens on swing Groq calls)
-        # Only evaluate swings if it's been 120+ minutes since last eval
+        # Intraday stop/target checks — always run on every active position every cycle.
+        # The Groq swing hold/exit re-eval inside evaluate_open_trade is separately
+        # throttled to every 2 hours via _skip_groq_swing_eval to keep token costs down.
+        global _last_swing_groq_eval_utc
         from datetime import datetime, timezone, timedelta
         now_utc = datetime.now(timezone.utc)
-        last_swing_eval = getattr(evaluate_open_trade, '_last_eval_time', None)
-        should_eval_swings = (
-            last_swing_eval is None or
-            (now_utc - last_swing_eval).total_seconds() >= 7200  # 2 hours
+        should_groq_swing_eval = (
+            _last_swing_groq_eval_utc is None or
+            (now_utc - _last_swing_groq_eval_utc).total_seconds() >= 7200  # 2 hours
         )
+        if should_groq_swing_eval:
+            _last_swing_groq_eval_utc = now_utc
 
         active_positions = [p for p in open_positions if p.get("fill_status") != "pending"]
-        if active_positions and should_eval_swings:
-            evaluate_open_trade._last_eval_time = now_utc
+        if active_positions:
             for trade in active_positions:
+                # Pass flag so evaluate_open_trade skips the Groq swing re-eval when throttled
+                trade['_skip_groq_swing_eval'] = not should_groq_swing_eval
                 try:
                     await evaluate_open_trade(client, trade)
                 except Exception as e:
@@ -3214,18 +3225,19 @@ Exit if: news broke after close that breaks thesis, AH price action is alarming,
             critique_result = await run_nightly_critique()
             return {"status": "ok", "action": "nightly_critique", **critique_result}
 
-        # During market hours: re-evaluate open swing trades every 30 min
+        # During market hours: evaluate ALL open trades for stops/targets every cycle
         if is_market_hours() and open_positions:
             checked = 0
             for trade in open_positions:
-                if trade.get("trade_type") == "swing":
-                    try:
-                        await evaluate_open_trade(client, trade)
-                        checked += 1
-                    except Exception as e:
-                        log.error(f"Swing eval failed for {trade['ticker']}: {e}")
-                    await asyncio.sleep(1)
-            return {"status": "ok", "action": "swing_check", "checked": checked}
+                if trade.get("fill_status") == "pending":
+                    continue
+                try:
+                    await evaluate_open_trade(client, trade)
+                    checked += 1
+                except Exception as e:
+                    log.error(f"Trade eval failed for {trade['ticker']}: {e}")
+                await asyncio.sleep(1)
+            return {"status": "ok", "action": "market_hours_eval", "checked": checked}
 
     return {"status": "ok", "action": "idle", "open_positions": len(open_positions)}
 
