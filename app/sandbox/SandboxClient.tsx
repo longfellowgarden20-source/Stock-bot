@@ -811,6 +811,7 @@ export default function SandboxClient({
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null)
   const [resetting, setResetting] = useState(false)
   const [forceClosing, setForceClosing] = useState<string | null>(null)
+  const [cancellingPending, setCancellingPending] = useState(false)
   const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number; available_cash: number | null; deployed_capital: number } | null>(null)
   const [dataFreshness, setDataFreshness] = useState<Record<string, { age_minutes: number; is_stale_10min: boolean; is_stale_1hr: boolean }>>({}) // #7
 
@@ -961,6 +962,25 @@ export default function SandboxClient({
       alert('Force close failed — network error')
     } finally {
       setForceClosing(null)
+    }
+  }
+
+  async function handleCancelPending() {
+    const pendingCount = openTrades.filter(t => (t as any).fill_status === 'pending').length
+    if (!window.confirm(`Cancel ${pendingCount} pending order${pendingCount !== 1 ? 's' : ''} that never filled?`)) return
+    setCancellingPending(true)
+    try {
+      const r = await fetch('/api/sandbox/cancel-pending', { method: 'POST' })
+      if (r.ok) {
+        window.location.reload()
+      } else {
+        const d = await r.json()
+        alert(`Cancel failed: ${d.error}`)
+      }
+    } catch {
+      alert('Cancel failed — network error')
+    } finally {
+      setCancellingPending(false)
     }
   }
 
@@ -1173,6 +1193,29 @@ export default function SandboxClient({
           }
         </div>
       )}
+
+      {/* Pending orders banner — shown when limit orders never filled */}
+      {(() => {
+        const pendingCount = openTrades.filter(t => (t as any).fill_status === 'pending').length
+        return pendingCount > 0 ? (
+          <div className="flex items-center justify-between gap-3 px-4 py-2.5 rounded-xl border border-orange-500/30 bg-orange-500/8 text-orange-400 text-xs">
+            <div className="flex items-center gap-2.5">
+              <div className="w-2 h-2 rounded-full shrink-0 bg-orange-400" />
+              <span>
+                {pendingCount} pending order{pendingCount !== 1 ? 's' : ''} never filled — limit price not reached.
+                {!workerStatus?.worker_alive && ' Worker is offline; these will not auto-cancel.'}
+              </span>
+            </div>
+            <button
+              onClick={handleCancelPending}
+              disabled={cancellingPending}
+              className="shrink-0 px-3 py-1 rounded-lg border border-orange-500/40 bg-orange-500/15 text-orange-300 hover:bg-orange-500/25 focus-visible:ring-2 focus-visible:ring-orange-500 disabled:opacity-50 font-medium transition-opacity"
+            >
+              {cancellingPending ? 'Cancelling…' : `Cancel ${pendingCount}`}
+            </button>
+          </div>
+        ) : null
+      })()}
 
       {/* #7 — Stale data warning */}
       {Object.entries(dataFreshness).filter(([_, f]) => f.is_stale_1hr).length > 0 && (
