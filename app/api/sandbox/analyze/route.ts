@@ -41,17 +41,46 @@ export async function POST(req: NextRequest) {
       .order('created_at', { ascending: true })
       .limit(200)
 
-    // Build P&L curve from snapshots
     const entry = Number(trade.entry_price)
     const direction = trade.direction
-    const pnlCurve = (snapshots ?? []).map(s => {
-      const price = Number(s.price)
+
+    // If no snapshots (sandbox tickers aren't in watchlist/portfolio so price_worker
+    // never snapshots them), fall back to Polygon aggregate bars for the trade window.
+    let rawPricePoints: { time: string; price: number }[] = (snapshots ?? []).map(s => ({
+      time: s.created_at,
+      price: Number(s.price),
+    }))
+
+    if (rawPricePoints.length === 0 && process.env.POLYGON_API_KEY) {
+      try {
+        const fromDate = trade.entry_date
+        const toDate = trade.exit_date ?? new Date().toISOString().slice(0, 10)
+        // Use hourly bars for multi-day trades, 5-min bars for same-day trades
+        const isMultiDay = fromDate !== toDate
+        const multiplier = isMultiDay ? 1 : 5
+        const timespan = isMultiDay ? 'hour' : 'minute'
+        const polyUrl = `https://api.polygon.io/v2/aggs/ticker/${ticker}/range/${multiplier}/${timespan}/${fromDate}/${toDate}?adjusted=true&sort=asc&limit=300&apiKey=${process.env.POLYGON_API_KEY}`
+        const polyRes = await fetch(polyUrl)
+        if (polyRes.ok) {
+          const polyData = await polyRes.json()
+          rawPricePoints = (polyData.results ?? []).map((bar: { t: number; c: number }) => ({
+            time: new Date(bar.t).toISOString(),
+            price: bar.c,
+          }))
+        }
+      } catch {
+        // Polygon fetch failed — pnl_curve will be empty, Groq still runs
+      }
+    }
+
+    // Build P&L curve
+    const pnlCurve = rawPricePoints.map(p => {
       const pct = direction === 'long'
-        ? (price - entry) / entry * 100
-        : (entry - price) / entry * 100
+        ? (p.price - entry) / entry * 100
+        : (entry - p.price) / entry * 100
       return {
-        time: s.created_at,
-        price: Number(price.toFixed(2)),
+        time: p.time,
+        price: Number(p.price.toFixed(2)),
         pnl_pct: Number(pct.toFixed(3)),
         pnl_dollar: Number((pct / 100 * entry * Number(trade.shares)).toFixed(2)),
       }
