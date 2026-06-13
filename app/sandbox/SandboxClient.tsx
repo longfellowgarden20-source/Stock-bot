@@ -31,7 +31,8 @@ type SandboxTrade = {
   profit_efficiency?: number | null
   stop_category?: string | null
   account_health?: string | null
-  fill_status?: 'filled' | 'pending' | null  // FIX: Added missing field for pending order warning
+  position_size?: number | null
+  fill_status?: 'filled' | 'pending' | null
 }
 
 type Performance = {
@@ -294,8 +295,13 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
           {isClosed && <span className="hidden sm:inline"><QualityBadge score={computeTradeQuality(trade).score} /></span>}
         </div>
 
-        {/* Entry date */}
+        {/* Entry date + capital deployed */}
         <span className="text-[11px] text-slate-600 hidden sm:block">{trade.entry_date}</span>
+        {trade.position_size != null && (
+          <span className="text-[10px] text-slate-600 hidden md:block tabular-nums">
+            ${Number(trade.position_size).toLocaleString('en-US', { maximumFractionDigits: 0 })}
+          </span>
+        )}
 
         {/* FIX #12: Pending order warning — show age if pending >20min */}
         {trade.status === 'open' && trade.fill_status === 'pending' && (() => {
@@ -381,20 +387,77 @@ function TradeRow({ trade, expanded, onToggle, preloadedPrice }: {
             </div>
           </div>
 
-          {/* R:R */}
+          {/* Contract breakdown */}
           {(() => {
             const entry = Number(trade.entry_price)
             const stop = Number(trade.stop_loss)
             const target = Number(trade.target_price)
+            const shares = Number(trade.shares) || 1
             const risk = trade.direction === 'long' ? entry - stop : stop - entry
             const reward = trade.direction === 'long' ? target - entry : entry - target
             const rr = risk > 0 ? (reward / risk).toFixed(2) : null
-            return rr ? (
-              <p className="text-xs text-slate-500">
-                R:R <span className="text-white font-semibold">{rr}:1</span>
-                <span className="ml-2">· {trade.shares} shares · entry ${Number(trade.entry_price).toFixed(2)}</span>
-              </p>
-            ) : null
+            const capitalDeployed = entry * shares
+            const maxLoss = risk * shares
+            const maxGain = reward * shares
+            const stopPct = entry > 0 ? (risk / entry * 100) : 0
+            const targetPct = entry > 0 ? (reward / entry * 100) : 0
+            // Progress toward target / stop using live price
+            const currentPrice = isOpen ? livePrice : trade.exit_price ? Number(trade.exit_price) : null
+            const progressToTarget = (currentPrice && reward > 0)
+              ? Math.min(100, Math.max(0, (trade.direction === 'long'
+                  ? (currentPrice - entry) / reward * 100
+                  : (entry - currentPrice) / reward * 100)))
+              : null
+            return (
+              <div className="bg-white/[0.02] border border-white/[0.07] rounded-lg p-3 flex flex-col gap-2">
+                <p className="text-[10px] text-slate-500 uppercase tracking-wider">Contract</p>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Capital</span>
+                    <span className="text-white font-semibold tabular-nums">${capitalDeployed.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Shares</span>
+                    <span className="text-white font-semibold tabular-nums">{shares}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Max loss</span>
+                    <span className="text-red-400 font-semibold tabular-nums">-${maxLoss.toFixed(0)} ({stopPct.toFixed(1)}%)</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">At target</span>
+                    <span className="text-emerald-400 font-semibold tabular-nums">+${maxGain.toFixed(0)} ({targetPct.toFixed(1)}%)</span>
+                  </div>
+                  {rr && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">R:R</span>
+                      <span className="text-white font-semibold tabular-nums">{rr}:1</span>
+                    </div>
+                  )}
+                  {trade.confidence_used != null && (
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Confidence</span>
+                      <span className="text-purple-400 font-semibold tabular-nums">{trade.confidence_used}%</span>
+                    </div>
+                  )}
+                </div>
+                {/* Progress bar toward target */}
+                {progressToTarget !== null && (
+                  <div className="mt-1">
+                    <div className="flex justify-between text-[10px] text-slate-600 mb-0.5">
+                      <span>Progress to target</span>
+                      <span className={progressToTarget >= 100 ? 'text-emerald-400' : 'text-slate-400'}>{progressToTarget.toFixed(0)}%</span>
+                    </div>
+                    <div className="h-1.5 bg-white/[0.06] rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${progressToTarget >= 100 ? 'bg-emerald-400' : progressToTarget >= 50 ? 'bg-emerald-500/70' : progressToTarget >= 0 ? 'bg-sky-500/70' : 'bg-red-500/70'}`}
+                        style={{ width: `${Math.max(0, progressToTarget)}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
           })()}
 
           {/* View Trade button */}
