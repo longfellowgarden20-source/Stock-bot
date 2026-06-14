@@ -3,7 +3,8 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
-import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter, Copy, Check, Trophy, Flame, TrendingUp as TUp } from 'lucide-react'
+import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter, Copy, Check, Trophy, Flame, TrendingUp as TUp, Share2 } from 'lucide-react'
+import ShareCard from './ShareCard'
 
 const MAX_OPEN_POSITIONS = 20
 
@@ -812,6 +813,7 @@ export default function SandboxClient({
   const [resetting, setResetting] = useState(false)
   const [forceClosing, setForceClosing] = useState<string | null>(null)
   const [cancellingPending, setCancellingPending] = useState(false)
+  const [shareOpen, setShareOpen] = useState(false)
   const [workerStatus, setWorkerStatus] = useState<{ worker_alive: boolean; hours_since_last_activity: number; stale_day_trades: number; available_cash: number | null; deployed_capital: number } | null>(null)
   const [dataFreshness, setDataFreshness] = useState<Record<string, { age_minutes: number; is_stale_10min: boolean; is_stale_1hr: boolean }>>({}) // #7
 
@@ -1123,6 +1125,24 @@ export default function SandboxClient({
 
   return (
     <div className="max-w-4xl mx-auto flex flex-col gap-5">
+      {shareOpen && (
+        <ShareCard
+          onClose={() => setShareOpen(false)}
+          stats={{
+            balance,
+            starting,
+            totalPnl,
+            totalPnlPct,
+            peak,
+            winRate,
+            totalTrades: account?.total_trades ?? 0,
+            winningTrades: account?.winning_trades ?? 0,
+            days: equity.length >= 2
+              ? Math.max(1, Math.round((new Date(equity[equity.length - 1].date).getTime() - new Date(equity[0].date).getTime()) / 86400000))
+              : null,
+          }}
+        />
+      )}
       {/* Header */}
       <div className="flex items-center gap-3">
         <FlaskConical className="w-5 h-5 text-purple-400 shrink-0" />
@@ -1153,6 +1173,15 @@ export default function SandboxClient({
           >
             <Activity className="w-3 h-3" />
             {liveMode ? 'LIVE' : 'Live Off'}
+          </button>
+          <button
+            onClick={() => setShareOpen(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-bold border text-teal-400 border-teal-500/30 bg-teal-500/10 hover:bg-teal-500/20"
+            style={{ transition: 'background 0.1s, color 0.1s' }}
+            title="Export a shareable performance card"
+          >
+            <Share2 className="w-3 h-3" />
+            Share
           </button>
           <button
             onClick={fetchAllPrices}
