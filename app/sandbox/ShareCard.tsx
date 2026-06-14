@@ -2,7 +2,8 @@
 
 import { useRef, useState, forwardRef } from 'react'
 import { toPng } from 'html-to-image'
-import { TrendingUp, Download, Copy, Check, X } from 'lucide-react'
+import { Download, Copy, Check, X } from 'lucide-react'
+import Mascot from '../components/Mascot'
 
 type ShareStats = {
   balance: number
@@ -158,12 +159,11 @@ const CardArt = forwardRef<HTMLDivElement, {
       {/* Brand row */}
       <div style={{ display: 'flex', alignItems: 'center', gap: 18 }}>
         <div style={{
-          width: 64, height: 64, borderRadius: 18,
-          background: 'rgba(45,212,191,0.12)', border: '1.5px solid rgba(45,212,191,0.35)',
+          width: 76, height: 76,
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          boxShadow: `0 0 28px -6px ${accentGlow}`,
+          filter: `drop-shadow(0 0 22px ${accentGlow})`,
         }}>
-          <TrendingUp style={{ width: 32, height: 32, color: '#2dd4bf' }} />
+          <Mascot size={76} expression={positive ? 'excited' : 'neutral'} float={false} staticRender />
         </div>
         <div>
           <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '0.18em', textTransform: 'uppercase', color: '#fff' }}>StockBot</div>

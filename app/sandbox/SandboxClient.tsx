@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { createBrowserClient } from '@supabase/ssr'
 import { FlaskConical, TrendingUp, TrendingDown, Target, AlertTriangle, Clock, BarChart2, Brain, ChevronDown, ChevronUp, CheckCircle2, XCircle, ArrowUpRight, Crosshair, BookOpen, Activity, Zap, Search, Filter, Copy, Check, Trophy, Flame, TrendingUp as TUp, Share2 } from 'lucide-react'
 import ShareCard from './ShareCard'
+import Mascot from '../components/Mascot'
 
 const MAX_OPEN_POSITIONS = 20
 
@@ -1145,7 +1146,7 @@ export default function SandboxClient({
       )}
       {/* Header */}
       <div className="flex items-center gap-3">
-        <FlaskConical className="w-5 h-5 text-purple-400 shrink-0" />
+        <Mascot size={44} expression={totalPnl >= 0 ? 'happy' : 'neutral'} className="shrink-0" />
         <div>
           <h1 className="text-lg font-bold text-white">Groq Sandbox</h1>
           <p className="text-xs text-slate-500">$50,000 paper account — goal: 70% win rate, profitable over time</p>
