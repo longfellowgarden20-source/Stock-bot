@@ -2882,12 +2882,38 @@ def _insert_sandbox_trade(trade: dict) -> dict | None:
 # ─── Main run_once entry point ────────────────────────────────────────────────
 
 async def run_once() -> dict:
-    if not is_weekday():
-        return {"status": "skipped", "reason": "weekend"}
-
     et = now_et()
     hour = et.hour
     minute = et.minute
+
+    # Cancel stale pending limit orders 7 days a week — no reason a 4000-min-old
+    # unfilled order should survive a weekend just because the market is closed.
+    open_positions = get_open_positions()
+    pending_trades = [p for p in open_positions if p.get("fill_status") == "pending"]
+    if pending_trades:
+        now_utc = datetime.now(timezone.utc)
+        cancelled_weekend = 0
+        for trade in pending_trades:
+            try:
+                created = datetime.fromisoformat((trade.get("created_at") or "").replace("Z", "+00:00"))
+                age_min = (now_utc - created).total_seconds() / 60
+                if age_min > 30:
+                    supabase().table("sandbox_trades").update({
+                        "status": "closed",
+                        "exit_reason": "limit_expired",
+                        "pnl": 0, "pnl_pct": 0,
+                        "exit_date": date.today().isoformat(),
+                        "updated_at": now_utc.isoformat(),
+                    }).eq("id", trade["id"]).execute()
+                    log.info(f"Limit order expired for {trade['ticker']} after {age_min:.0f}min — cancelled (pre-weekday-gate)")
+                    cancelled_weekend += 1
+            except Exception as e:
+                log.debug(f"Weekend pending cancel failed for {trade.get('ticker','?')}: {e}")
+        if cancelled_weekend:
+            open_positions = get_open_positions()
+
+    if not is_weekday():
+        return {"status": "skipped", "reason": "weekend", "pending_cancelled": cancelled_weekend if pending_trades else 0}
 
     seed_cold_start_rules()  # #15 — no-op after first run
 

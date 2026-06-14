@@ -23,27 +23,40 @@ export async function GET() {
     supabase.from('sandbox_trade_evals').select('evaluated_at').order('evaluated_at', { ascending: false }).limit(1).single(),
   ])
 
-  // Determine if worker is alive — last equity snapshot should be today or yesterday on weekdays
   const now = new Date()
+  const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
+  const etDow = etDate.getDay() // 0 Sun … 6 Sat
+  const isWeekend = etDow === 0 || etDow === 6
+
+  // Primary liveness signal: sandbox_trade_evals.evaluated_at — written every worker
+  // cycle when there are open positions to re-evaluate. Most reliable heartbeat.
+  const lastEvalTime = lastEval?.evaluated_at ? new Date(lastEval.evaluated_at) : null
+  const hoursSinceEval = lastEvalTime
+    ? (now.getTime() - lastEvalTime.getTime()) / 3600000
+    : Infinity
+
+  // Secondary: equity snapshot (written once daily ~5pm ET on weekdays)
   const lastEquityDate = lastEquity?.date ? new Date(lastEquity.date) : null
   const hoursSinceEquity = lastEquityDate
     ? (now.getTime() - lastEquityDate.getTime()) / 3600000
     : Infinity
 
-  // Last account update (set on every trade close)
+  // Tertiary: account updated_at (written on every trade close)
   const lastAccountUpdate = account?.updated_at ? new Date(account.updated_at) : null
   const hoursSinceAccount = lastAccountUpdate
     ? (now.getTime() - lastAccountUpdate.getTime()) / 3600000
     : Infinity
 
-  // The equity snapshot is written once per day (~5:15pm ET) and the worker skips
-  // weekends, so the gap legitimately spans a full weekend on Monday mornings
-  // (Fri 5pm → Mon 9am ≈ 64h). Widen the alive window on weekend/Monday so a
-  // healthy worker is never falsely reported as "offline".
-  const etDate = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }))
-  const etDow = etDate.getDay() // 0 Sun … 6 Sat
-  const aliveWindow = etDow === 0 || etDow === 1 || etDow === 6 ? 74 : 28
-  const workerAlive = hoursSinceEquity < aliveWindow || hoursSinceAccount < aliveWindow
+  // Worker is alive if ANY signal is fresh:
+  //   - eval within 2h (worker ran recently with open positions)
+  //   - equity within 28h on weekdays / 74h over weekends (Mon morning)
+  //   - account updated within same window
+  const evalAlive = hoursSinceEval < 2
+  const equityWindow = isWeekend || etDow === 1 ? 74 : 28
+  const dataAlive = hoursSinceEquity < equityWindow || hoursSinceAccount < equityWindow
+  const workerAlive = evalAlive || dataAlive
+
+  const hoursSinceLastActivity = Math.min(hoursSinceEval, hoursSinceEquity, hoursSinceAccount)
 
   // Count stale open trades — use ET date to match how sandbox_worker records entry_date
   const today = `${etDate.getFullYear()}-${String(etDate.getMonth() + 1).padStart(2, '0')}-${String(etDate.getDate()).padStart(2, '0')}`
@@ -60,7 +73,7 @@ export async function GET() {
 
   return NextResponse.json({
     worker_alive: workerAlive,
-    hours_since_last_activity: Math.min(hoursSinceEquity, hoursSinceAccount),
+    hours_since_last_activity: hoursSinceLastActivity,
     account: account ?? null,
     available_cash: availableCash,
     deployed_capital: Math.round(deployedCapital * 100) / 100,
