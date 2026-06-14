@@ -69,7 +69,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
         <div className="flex items-center gap-3 flex-wrap">
           <Link
             href="/dashboard"
-            className="p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60"
+            className="p-3 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60"
             style={{ transitionProperty: 'color, background', transitionDuration: '0.15s' }}
           >
             <ArrowLeft className="w-4 h-4" />
@@ -82,7 +82,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
             {signalTypeLabel}
           </span>
           {!signal.read && (
-            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9]">
+            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#14b8a6]/15 border border-[#14b8a6]/30 text-[#14b8a6]">
               UNREAD
             </span>
           )}
@@ -149,7 +149,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
         <div className="bg-white/4 border border-white/10 rounded-2xl overflow-hidden">
           <div className="px-4 py-2.5 border-b border-white/8 flex items-center gap-2">
             <span className="text-xs font-semibold text-slate-400">Chart</span>
-            <span className="text-xs font-mono text-[#0ea5e9]">{signal.ticker}</span>
+            <span className="text-xs font-mono text-[#14b8a6]">{signal.ticker}</span>
           </div>
           <TradingViewChart ticker={signal.ticker} />
         </div>
@@ -171,7 +171,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
                   <Link
                     key={s.id}
                     href={`/signals/${s.id}`}
-                    className="flex items-start gap-3 px-4 py-3 bg-white/3 border border-white/8 rounded-xl hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/50"
+                    className="flex items-start gap-3 px-4 py-3 bg-white/3 border border-white/8 rounded-xl hover:border-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/50"
                     style={{ transitionProperty: 'border-color', transitionDuration: '0.15s' }}
                   >
                     <div className="flex-1 min-w-0">
@@ -219,7 +219,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs text-slate-500">Status</span>
-                  <span className={`text-xs font-semibold ${signal.read ? 'text-slate-500' : 'text-[#0ea5e9]'}`}>
+                  <span className={`text-xs font-semibold ${signal.read ? 'text-slate-500' : 'text-[#14b8a6]'}`}>
                     {signal.read ? 'Read' : 'Unread'}
                   </span>
                 </div>
@@ -232,7 +232,7 @@ export default async function SignalDetailPage({ params }: { params: Promise<{ i
             {/* Raw Data — collapsed by default */}
             {signal.raw_data && (
               <details className="bg-white/4 border border-white/10 rounded-2xl overflow-hidden group">
-                <summary className="flex items-center justify-between gap-2 px-5 py-3 cursor-pointer select-none list-none hover:bg-white/4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/50"
+                <summary className="flex items-center justify-between gap-2 px-5 py-3 cursor-pointer select-none list-none hover:bg-white/4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/50"
                   style={{ transitionProperty: 'background', transitionDuration: '0.15s' }}>
                   <span className="text-xs font-semibold text-slate-400 uppercase tracking-wide">Raw Data</span>
                   <ChevronDown className="w-3.5 h-3.5 text-slate-500 group-open:rotate-180"

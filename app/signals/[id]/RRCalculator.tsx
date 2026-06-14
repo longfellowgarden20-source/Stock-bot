@@ -3,7 +3,7 @@
 import { useState, useMemo } from 'react'
 import { Target } from 'lucide-react'
 
-const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60'
+const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60'
 
 export default function RRCalculator() {
   const [entry, setEntry] = useState('')

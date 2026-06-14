@@ -1,14 +1,37 @@
 @import "tailwindcss";
 
+/* ─────────────────────────────────────────────────────────────────────────
+   StockBot design system — "Emerald terminal on charcoal"
+   Premium dark trading aesthetic. Teal/emerald primary, deep charcoal base,
+   disciplined depth. Bull green / bear red reserved strictly for P&L.
+   ───────────────────────────────────────────────────────────────────────── */
+
 :root {
-  --background: #070b13;
-  --foreground: #cbd5e1;
-  --surface: #0d1220;
-  --surface-2: #0b1018;
-  --border: rgba(255,255,255,0.07);
-  --border-strong: rgba(255,255,255,0.12);
-  --accent: #38bdf8;
-  --accent-glow: rgba(56,189,248,0.35);
+  /* Base surfaces — cool charcoal with a faint green undertone */
+  --background: #080c0b;
+  --foreground: #c8d4d0;
+  --surface:    #0f1614;
+  --surface-2:  #0c1211;
+  --surface-3:  #131c19;
+
+  /* Hairlines */
+  --border:        rgba(180, 230, 215, 0.07);
+  --border-strong: rgba(180, 230, 215, 0.14);
+
+  /* Accent — teal/emerald */
+  --accent:        #2dd4bf;
+  --accent-bright: #5eead4;
+  --accent-deep:   #14b8a6;
+  --accent-glow:   rgba(45, 212, 191, 0.32);
+  --accent-soft:   rgba(45, 212, 191, 0.10);
+
+  /* Semantic P&L — never repurposed for UI chrome */
+  --bull: #4ade80;
+  --bear: #f87171;
+  --warn: #fbbf24;
+
+  --muted:  #6b7d77;
+  --muted-2: #4a5a55;
 }
 
 @theme inline {
@@ -16,94 +39,131 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Remap Tailwind's `sky` ramp → teal/emerald so every existing `sky-*`
+     utility across the app renders in the new accent with zero per-file edits.
+     Values mirror the teal scale so opacities (sky-500/10 etc.) stay coherent. */
+  --color-sky-50:  #effefb;
+  --color-sky-100: #cbfdf2;
+  --color-sky-200: #99f6e4;
+  --color-sky-300: #5eead4;
+  --color-sky-400: #2dd4bf;
+  --color-sky-500: #14b8a6;
+  --color-sky-600: #0d9488;
+  --color-sky-700: #0f766e;
+  --color-sky-800: #115e59;
+  --color-sky-900: #134e4a;
+  --color-sky-950: #042f2e;
 }
 
 html { height: 100%; }
 
 body {
-  /* Layered radial depth on top of a deep base — subtle, never distracting */
-  background-color: #070b13;
+  /* Layered radial depth — two soft teal/emerald light sources over deep charcoal */
+  background-color: var(--background);
   background-image:
-    radial-gradient(1200px 600px at 12% -8%, rgba(56,189,248,0.05), transparent 60%),
-    radial-gradient(1000px 500px at 100% 0%, rgba(99,102,241,0.045), transparent 55%);
+    radial-gradient(1200px 620px at 8% -10%, rgba(45,212,191,0.055), transparent 60%),
+    radial-gradient(1000px 520px at 102% -4%, rgba(16,185,129,0.05), transparent 56%),
+    radial-gradient(900px 900px at 50% 120%, rgba(20,184,166,0.03), transparent 60%);
   background-attachment: fixed;
-  color: #cbd5e1;
+  color: var(--foreground);
   font-family: var(--font-geist-sans), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
   font-size: 14px;
   line-height: 1.6;
+  letter-spacing: -0.006em;
 }
 
 /* Selection */
-::selection { background: rgba(56,189,248,0.25); color: #f1f5f9; }
+::selection { background: rgba(45,212,191,0.28); color: #f0fdfa; }
 
 /* Scrollbar */
-::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar { width: 7px; height: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 3px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
+::-webkit-scrollbar-thumb { background: rgba(180,230,215,0.10); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(45,212,191,0.30); }
 
 /* Consistent focus ring for keyboard users across the whole app */
 :focus-visible {
-  outline: 2px solid rgba(56,189,248,0.55);
+  outline: 2px solid rgba(45,212,191,0.6);
   outline-offset: 2px;
   border-radius: 4px;
 }
 
-/* Signal pulse animation for critical alerts */
+/* Critical-alert pulse (bear red — preserved semantics) */
 @keyframes pulse-red {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(239,68,68,0.35); }
-  50% { box-shadow: 0 0 0 6px rgba(239,68,68,0); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(248,113,113,0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(248,113,113,0); }
 }
 .pulse-red { animation: pulse-red 2s infinite; }
 
+/* Accent pulse — for hot/active intelligence */
+@keyframes pulse-accent {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(45,212,191,0.35); }
+  50% { box-shadow: 0 0 0 5px rgba(45,212,191,0); }
+}
+.pulse-accent { animation: pulse-accent 2.4s infinite; }
+
 /* Soft entrance for newly mounted content */
 @keyframes fade-in-up {
-  from { opacity: 0; transform: translateY(4px); }
+  from { opacity: 0; transform: translateY(5px); }
   to { opacity: 1; transform: translateY(0); }
 }
-.fade-in-up { animation: fade-in-up 0.22s ease-out both; }
+.fade-in-up { animation: fade-in-up 0.24s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 /* Accent glow utility — for active/hot elements */
-.glow-accent { box-shadow: 0 0 0 1px rgba(56,189,248,0.25), 0 0 18px -4px var(--accent-glow); }
+.glow-accent { box-shadow: 0 0 0 1px rgba(45,212,191,0.28), 0 0 22px -5px var(--accent-glow); }
 
 /* Number tabular figures — apply to all mono spans */
 .tabular, [class*="font-mono"] { font-variant-numeric: tabular-nums; }
 
 /* ───────────────────────── Panels / cards ─────────────────────────
-   A reusable surface with depth. Opt-in: add `panel` to any container.
-   Gives a layered background, hairline border, soft shadow, and a faint
-   top highlight that reads as a light source from above. */
+   Reusable surface with real depth. Opt-in: add `panel` to any container.
+   Layered gradient, hairline border, ambient shadow, and a top sheen that
+   reads as a light source from above. */
 .panel {
   position: relative;
   background:
-    linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0) 40%),
+    linear-gradient(180deg, rgba(94,234,212,0.025), rgba(255,255,255,0) 42%),
     var(--surface-2);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 14px;
   box-shadow:
-    0 1px 0 0 rgba(255,255,255,0.03) inset,
-    0 8px 24px -16px rgba(0,0,0,0.8);
+    0 1px 0 0 rgba(180,230,215,0.04) inset,
+    0 10px 30px -18px rgba(0,0,0,0.85),
+    0 2px 8px -6px rgba(0,0,0,0.6);
 }
-.panel-hover { transition: border-color 0.12s, box-shadow 0.12s; }
+/* Faint top edge highlight */
+.panel::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 1px;
+  border-radius: 14px 14px 0 0;
+  background: linear-gradient(90deg, transparent, rgba(94,234,212,0.18), transparent);
+  opacity: 0.6;
+  pointer-events: none;
+}
+.panel-hover { transition: border-color 0.14s ease, box-shadow 0.14s ease, transform 0.14s ease; }
 .panel-hover:hover {
   border-color: var(--border-strong);
   box-shadow:
-    0 1px 0 0 rgba(255,255,255,0.05) inset,
-    0 10px 30px -16px rgba(0,0,0,0.85);
+    0 1px 0 0 rgba(180,230,215,0.06) inset,
+    0 14px 38px -18px rgba(0,0,0,0.9),
+    0 0 0 1px rgba(45,212,191,0.06);
 }
 
 /* Terminal-style section headers */
 .section-header {
   font-size: 10px;
   font-weight: 600;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: #64748b;
+  color: var(--muted);
   border-bottom: 1px solid var(--border);
-  padding-bottom: 6px;
-  margin-bottom: 12px;
+  padding-bottom: 7px;
+  margin-bottom: 13px;
 }
 
 /* Flat terminal button */
@@ -111,51 +171,58 @@ body {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 4px 10px;
+  padding: 5px 11px;
   font-size: 11px;
   font-weight: 500;
-  color: #94a3b8;
-  border: 1px solid rgba(255,255,255,0.08);
-  border-radius: 5px;
-  background: rgba(255,255,255,0.015);
+  color: #93a8a1;
+  border: 1px solid rgba(180,230,215,0.09);
+  border-radius: 7px;
+  background: rgba(180,230,215,0.018);
   cursor: pointer;
-  transition: color 0.12s, border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  transition: color 0.13s, border-color 0.13s, background 0.13s, box-shadow 0.13s, transform 0.08s;
   white-space: nowrap;
 }
 .btn-terminal:hover {
-  color: #e2e8f0;
-  border-color: rgba(255,255,255,0.2);
-  background: rgba(255,255,255,0.05);
+  color: #e3efeb;
+  border-color: rgba(45,212,191,0.28);
+  background: rgba(45,212,191,0.06);
 }
 .btn-terminal:active { transform: translateY(0.5px); }
 .btn-terminal.active {
-  color: #38bdf8;
-  border-color: rgba(56,189,248,0.35);
-  background: rgba(56,189,248,0.1);
-  box-shadow: 0 0 14px -6px var(--accent-glow);
+  color: var(--accent-bright);
+  border-color: rgba(45,212,191,0.4);
+  background: rgba(45,212,191,0.12);
+  box-shadow: 0 0 16px -6px var(--accent-glow);
 }
 
 /* Severity left-border accent on signal rows */
 .signal-row { border-left: 2px solid transparent; }
-.signal-row-critical { border-left-color: #ef4444; }
-.signal-row-high     { border-left-color: #f97316; }
+.signal-row-critical { border-left-color: var(--bear); }
+.signal-row-high     { border-left-color: #fb923c; }
 .signal-row-medium   { border-left-color: #eab308; }
-.signal-row-low      { border-left-color: #334155; }
+.signal-row-low      { border-left-color: #2f4a44; }
 
 /* Ticker chip */
 .ticker-chip {
   font-family: var(--font-geist-mono), monospace;
   font-size: 13px;
   font-weight: 700;
-  letter-spacing: 0.04em;
-  color: #f1f5f9;
+  letter-spacing: 0.03em;
+  color: #f0fdfa;
 }
 
-/* Page title — used for big H1s, gives a subtle gradient ink */
+/* Page title — big H1s, subtle gradient ink with a cool sheen */
 .page-title {
-  background: linear-gradient(180deg, #ffffff, #c2cad6);
+  background: linear-gradient(176deg, #ffffff 8%, #b6ccc6 92%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
-  letter-spacing: -0.01em;
+  letter-spacing: -0.02em;
+  font-weight: 700;
 }
+
+/* Accent text — convenience for hot numbers/labels */
+.text-accent { color: var(--accent-bright); }
+
+/* Hairline divider that matches the system */
+.hr-soft { height: 1px; background: var(--border); border: 0; }

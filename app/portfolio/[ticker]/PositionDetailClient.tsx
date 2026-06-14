@@ -202,7 +202,7 @@ export default function PositionDetailClient({
     ? Math.abs(potentialGainDollar / maxLossDollar)
     : null
 
-  const inputCls = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60 w-full'
+  const inputCls = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60 w-full'
 
   return (
     <div className="flex flex-col gap-5 max-w-[1100px]">
@@ -211,7 +211,7 @@ export default function PositionDetailClient({
       <div className="flex items-center gap-3 flex-wrap">
         <Link
           href="/portfolio"
-          className="p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60"
+          className="p-2.5 rounded-xl text-slate-400 hover:text-white hover:bg-white/8 border border-white/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60"
           style={{ transitionProperty: 'color, background', transitionDuration: '0.15s' }}
         >
           <ArrowLeft className="w-4 h-4" />
@@ -244,9 +244,9 @@ export default function PositionDetailClient({
           <button
             key={id}
             onClick={() => setActiveTab(id)}
-            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60 ${
+            className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-semibold whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60 ${
               activeTab === id
-                ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20'
+                ? 'bg-[#14b8a6]/15 text-[#14b8a6] border border-[#14b8a6]/20'
                 : 'text-slate-400 hover:text-white hover:bg-white/5'
             }`}
             style={{ transitionProperty: 'color, background', transitionDuration: '0.15s' }}
@@ -265,7 +265,7 @@ export default function PositionDetailClient({
           <div className="bg-white/4 border border-white/10 rounded-2xl overflow-hidden">
             <div className="px-4 py-2.5 border-b border-white/8 flex items-center gap-2">
               <span className="text-xs font-semibold text-slate-400">Chart</span>
-              <span className="text-xs font-mono text-[#0ea5e9]">{ticker}</span>
+              <span className="text-xs font-mono text-[#14b8a6]">{ticker}</span>
             </div>
             <TradingViewChart ticker={ticker} />
           </div>
@@ -308,7 +308,7 @@ export default function PositionDetailClient({
                     href={profile.weburl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="flex items-center gap-1 text-xs text-[#0ea5e9] hover:text-[#38bdf8]"
+                    className="flex items-center gap-1 text-xs text-[#14b8a6] hover:text-[#2dd4bf]"
                     style={{ transitionProperty: 'color', transitionDuration: '0.15s' }}
                   >
                     <ExternalLink className="w-3 h-3" /> Website
@@ -339,7 +339,7 @@ export default function PositionDetailClient({
                   </p>
                   <button
                     onClick={() => setDescExpanded(x => !x)}
-                    className="mt-1 flex items-center gap-1 text-xs text-[#0ea5e9] hover:text-[#38bdf8]"
+                    className="mt-1 flex items-center gap-1 text-xs text-[#14b8a6] hover:text-[#2dd4bf]"
                     style={{ transitionProperty: 'color', transitionDuration: '0.15s' }}
                   >
                     {descExpanded
@@ -386,11 +386,11 @@ export default function PositionDetailClient({
             <select
               value={signalTypeFilter}
               onChange={e => setSignalTypeFilter(e.target.value)}
-              className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-[#0ea5e9]/60"
+              className="px-3 py-2 bg-white/5 border border-white/10 rounded-xl text-sm text-white focus:outline-none focus:border-[#14b8a6]/60"
               style={{ fontSize: 16 }}
             >
               {SIGNAL_TYPES.map(t => (
-                <option key={t} value={t} className="bg-[#0a0f1a]">
+                <option key={t} value={t} className="bg-[#0c1211]">
                   {t === 'all' ? 'All types' : t.replace(/_/g, ' ')}
                 </option>
               ))}
@@ -442,7 +442,7 @@ export default function PositionDetailClient({
                   href={article.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="block bg-white/4 border border-white/10 rounded-xl p-4 hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60"
+                  className="block bg-white/4 border border-white/10 rounded-xl p-4 hover:border-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60"
                   style={{ transitionProperty: 'border-color', transitionDuration: '0.15s' }}
                 >
                   <div className="flex items-start justify-between gap-3">

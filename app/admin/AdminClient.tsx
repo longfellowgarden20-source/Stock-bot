@@ -155,7 +155,7 @@ export default function AdminClient({
       <div className="flex items-start justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold page-title flex items-center gap-2">
-            <Activity className="w-5 h-5 text-[#0ea5e9]" />
+            <Activity className="w-5 h-5 text-[#14b8a6]" />
             Worker Admin
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
@@ -166,7 +166,7 @@ export default function AdminClient({
         <button
           onClick={triggerAll}
           disabled={triggeringAll}
-          className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#0ea5e9] rounded-xl disabled:opacity-50 hover:bg-[#38bdf8] active:scale-[0.98]"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#14b8a6] rounded-xl disabled:opacity-50 hover:bg-[#2dd4bf] active:scale-[0.98]"
           style={{ transition: 'background 0.15s, transform 0.1s' }}
         >
           {triggeringAll ? <Loader2 className="w-4 h-4 animate-spin" /> : <Zap className="w-4 h-4" />}
@@ -247,7 +247,7 @@ export default function AdminClient({
             return (
               <div key={name} className="panel panel-hover flex items-center gap-3 px-4 py-3">
                 <div className="shrink-0">
-                  {status === 'triggering' ? <Loader2 className="w-5 h-5 text-[#0ea5e9] animate-spin" />
+                  {status === 'triggering' ? <Loader2 className="w-5 h-5 text-[#14b8a6] animate-spin" />
                     : status === 'alive' ? <CheckCircle className="w-5 h-5 text-emerald-400" />
                     : status === 'dead' ? <XCircle className="w-5 h-5 text-red-400" />
                     : <div className="w-5 h-5 rounded-full border-2 border-slate-600" />}

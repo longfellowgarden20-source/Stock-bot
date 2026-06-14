@@ -16,18 +16,18 @@ export type Signal = {
 }
 
 const TYPE_META: Record<string, { label: string; icon: React.ElementType; color: string; accent: string }> = {
-  price_move:        { label: 'PRICE',     icon: TrendingUp,    color: 'text-sky-400',    accent: '#0ea5e9' },
+  price_move:        { label: 'PRICE',     icon: TrendingUp,    color: 'text-sky-400',    accent: '#14b8a6' },
   volume_spike:      { label: 'VOLUME',    icon: BarChart2,     color: 'text-violet-400', accent: '#8b5cf6' },
   options_unusual:   { label: 'OPTIONS',   icon: Zap,           color: 'text-yellow-400', accent: '#eab308' },
   dark_pool:         { label: 'DARKPOOL',  icon: DollarSign,    color: 'text-orange-400', accent: '#f97316' },
   insider_buy:       { label: 'INSIDER ▲', icon: TrendingUp,    color: 'text-emerald-400',accent: '#10b981' },
   insider_sell:      { label: 'INSIDER ▼', icon: TrendingDown,  color: 'text-red-400',    accent: '#ef4444' },
-  news_breaking:     { label: 'NEWS',      icon: Newspaper,     color: 'text-sky-400',    accent: '#0ea5e9' },
+  news_breaking:     { label: 'NEWS',      icon: Newspaper,     color: 'text-sky-400',    accent: '#14b8a6' },
   sec_filing:        { label: 'SEC',       icon: FileText,      color: 'text-slate-400',  accent: '#64748b' },
   sentiment_spike:   { label: 'SENTIMENT', icon: MessageSquare, color: 'text-pink-400',   accent: '#ec4899' },
   short_squeeze:     { label: 'SQUEEZE',   icon: AlertTriangle, color: 'text-orange-400', accent: '#f97316' },
   earnings_upcoming: { label: 'EARNINGS',  icon: Calendar,      color: 'text-yellow-400', accent: '#eab308' },
-  analyst_change:    { label: 'ANALYST',   icon: Users,         color: 'text-sky-400',    accent: '#0ea5e9' },
+  analyst_change:    { label: 'ANALYST',   icon: Users,         color: 'text-sky-400',    accent: '#14b8a6' },
   congress_trade:    { label: 'CONGRESS',  icon: DollarSign,    color: 'text-emerald-400',accent: '#10b981' },
   technical:         { label: 'TECHNICAL', icon: Activity,      color: 'text-cyan-400',   accent: '#06b6d4' },
   macro:             { label: 'MACRO',     icon: Globe,         color: 'text-indigo-400', accent: '#6366f1' },
@@ -124,7 +124,7 @@ export default function SignalCard({
           <button
             onClick={(e) => { stop(e); onSelect?.(signal.id, e) }}
             className="mt-0.5 w-3.5 h-3.5 rounded-[2px] border border-white/20 hover:border-sky-400 flex items-center justify-center shrink-0"
-            style={{ background: selected ? '#0ea5e9' : 'transparent', transition: 'border-color 0.1s, background 0.1s' }}
+            style={{ background: selected ? '#14b8a6' : 'transparent', transition: 'border-color 0.1s, background 0.1s' }}
             aria-label="Select signal"
           >
             {selected && <span className="text-[8px] font-bold text-white leading-none">✓</span>}

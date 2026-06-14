@@ -1516,7 +1516,7 @@ export default function SandboxClient({
               <select
                 value={historyExit}
                 onChange={e => setHistoryExit(e.target.value as typeof historyExit)}
-                className="border border-white/[0.07] bg-[#0a0f1a] text-slate-400 text-[10px] rounded-lg px-2 py-1.5 outline-none"
+                className="border border-white/[0.07] bg-[#0c1211] text-slate-400 text-[10px] rounded-lg px-2 py-1.5 outline-none"
               >
                 <option value="all">All exits</option>
                 <option value="target_hit">🎯 Target hit</option>

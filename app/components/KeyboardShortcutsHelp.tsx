@@ -30,7 +30,7 @@ export default function KeyboardShortcutsHelp({ onClose }: { onClose: () => void
       aria-modal="true"
     >
       <div
-        className="bg-[#0a0f1a] border border-white/10 rounded-2xl p-5 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto"
+        className="bg-[#0c1211] border border-white/10 rounded-2xl p-5 max-w-md w-full mx-4 max-h-[80vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between mb-4">

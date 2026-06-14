@@ -165,7 +165,7 @@ export default function TickerSentiment() {
                 onChange={(e) => setTicker(e.target.value.toUpperCase())}
                 placeholder="NVDA"
                 maxLength={10}
-                className="w-full pl-6 pr-3 py-2 bg-white/6 border border-white/12 rounded-xl text-sm font-mono font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60"
+                className="w-full pl-6 pr-3 py-2 bg-white/6 border border-white/12 rounded-xl text-sm font-mono font-bold text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60"
                 style={{ transition: 'border-color 0.15s', fontSize: '16px' }}
                 aria-label="Ticker symbol"
                 disabled={loading}
@@ -174,7 +174,7 @@ export default function TickerSentiment() {
             <button
               type="submit"
               disabled={loading || !ticker.trim()}
-              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] rounded-xl hover:bg-[#0ea5e9]/25 disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-1.5 px-3 py-2 text-xs font-bold bg-[#14b8a6]/15 border border-[#14b8a6]/30 text-[#14b8a6] rounded-xl hover:bg-[#14b8a6]/25 disabled:opacity-40 disabled:cursor-not-allowed"
               style={{ transition: 'background 0.15s' }}
               aria-label="Analyze ticker"
             >

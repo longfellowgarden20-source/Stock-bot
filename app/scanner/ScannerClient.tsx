@@ -99,7 +99,7 @@ export default function ScannerClient({ signals }: { signals: Signal[] }) {
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search ticker..."
-            className="w-full pl-9 pr-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60 font-mono"
+            className="w-full pl-9 pr-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60 font-mono"
             style={{ fontSize: 16 }}
           />
         </div>
@@ -109,7 +109,7 @@ export default function ScannerClient({ signals }: { signals: Signal[] }) {
           <span className="text-xs text-slate-500 whitespace-nowrap">Sev</span>
           {[5, 7, 9].map(v => (
             <button key={v} onClick={() => setMinSeverity(v)}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border ${minSeverity === v ? 'bg-[#0ea5e9]/15 border-[#0ea5e9]/40 text-[#0ea5e9]' : 'border-white/10 text-slate-500 hover:text-white'}`}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-bold border ${minSeverity === v ? 'bg-[#14b8a6]/15 border-[#14b8a6]/40 text-[#14b8a6]' : 'border-white/10 text-slate-500 hover:text-white'}`}
               style={{ transition: 'color 0.15s, background 0.15s' }}
             >{v}+</button>
           ))}

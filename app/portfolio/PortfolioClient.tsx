@@ -13,7 +13,7 @@ type Position = {
   added_at: string
 }
 
-const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60'
+const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60'
 
 export default function PortfolioClient({ portfolio: initial, snapshots }: { portfolio: Position[]; snapshots: Record<string, { price: number; change_pct: number }> }) {
   const [portfolio, setPortfolio] = useState(initial)
@@ -119,7 +119,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
             <div className="flex bg-white/5 border border-white/10 rounded-xl overflow-hidden">
               <button
                 onClick={() => setViewMode('list')}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'list' ? 'bg-[#0ea5e9]/15 text-[#0ea5e9]' : 'text-slate-400 hover:text-white'}`}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'list' ? 'bg-[#14b8a6]/15 text-[#14b8a6]' : 'text-slate-400 hover:text-white'}`}
                 style={{ transition: 'color 0.15s, background 0.15s' }}
                 title="List view"
               >
@@ -128,7 +128,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
               </button>
               <button
                 onClick={() => setViewMode('heatmap')}
-                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'heatmap' ? 'bg-[#0ea5e9]/15 text-[#0ea5e9]' : 'text-slate-400 hover:text-white'}`}
+                className={`flex items-center gap-1.5 px-3 py-2 text-xs font-semibold ${viewMode === 'heatmap' ? 'bg-[#14b8a6]/15 text-[#14b8a6]' : 'text-slate-400 hover:text-white'}`}
                 style={{ transition: 'color 0.15s, background 0.15s' }}
                 title="Heat Map view"
               >
@@ -139,7 +139,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
           )}
           <button
             onClick={() => setCalcOpen(o => !o)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-xl ${calcOpen ? 'text-[#0ea5e9] border-[#0ea5e9]/30 bg-[#0ea5e9]/10' : 'text-slate-300 border-white/10 hover:bg-white/5 hover:text-white'}`}
+            className={`flex items-center gap-2 px-4 py-2 text-sm font-semibold border rounded-xl ${calcOpen ? 'text-[#14b8a6] border-[#14b8a6]/30 bg-[#14b8a6]/10' : 'text-slate-300 border-white/10 hover:bg-white/5 hover:text-white'}`}
             style={{ transition: 'color 0.15s, background 0.15s' }}
           >
             <Calculator className="w-4 h-4" />
@@ -161,9 +161,9 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
 
       {/* Size Calculator Panel */}
       {calcOpen && (
-        <div className="bg-[#0ea5e9]/5 border border-[#0ea5e9]/20 rounded-2xl p-5 flex flex-col gap-4">
+        <div className="bg-[#14b8a6]/5 border border-[#14b8a6]/20 rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
-            <p className="text-sm font-bold text-[#0ea5e9] flex items-center gap-2"><Calculator className="w-4 h-4" /> Position Size Calculator</p>
+            <p className="text-sm font-bold text-[#14b8a6] flex items-center gap-2"><Calculator className="w-4 h-4" /> Position Size Calculator</p>
             <button onClick={() => setCalcOpen(false)} className="text-slate-500 hover:text-white" style={{ transition: 'color 0.15s' }}><X className="w-4 h-4" /></button>
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -221,7 +221,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
         <button
           onClick={add}
           disabled={adding || !ticker.trim() || !shares || !avgCost}
-          className="self-start flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#0ea5e9] rounded-xl disabled:opacity-40 hover:bg-[#38bdf8] active:scale-[0.98]"
+          className="self-start flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#14b8a6] rounded-xl disabled:opacity-40 hover:bg-[#2dd4bf] active:scale-[0.98]"
           style={{ transition: 'background 0.15s, transform 0.1s' }}
         >
           {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
@@ -263,7 +263,7 @@ export default function PortfolioClient({ portfolio: initial, snapshots }: { por
 
           return (
             <div key={pos.id} className="relative flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
-              <Link href={`/portfolio/${pos.ticker}`} className="absolute inset-0 rounded-2xl z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60" aria-label={`View ${pos.ticker} detail`} />
+              <Link href={`/portfolio/${pos.ticker}`} className="absolute inset-0 rounded-2xl z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60" aria-label={`View ${pos.ticker} detail`} />
               <div className={`relative z-10 w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${isUp ? 'bg-green-500/10 border border-green-500/20' : 'bg-red-500/10 border border-red-500/20'}`}>
                 {isUp ? <TrendingUp className="w-4 h-4 text-green-400" /> : <TrendingDown className="w-4 h-4 text-red-400" />}
               </div>
@@ -381,7 +381,7 @@ function HeatMapView({
             <Link
               key={pos.id}
               href={`/portfolio/${pos.ticker}`}
-              className={`relative border rounded-xl p-3 flex flex-col justify-between overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#0ea5e9]/60 ${colorClasses} ${spanClasses}`}
+              className={`relative border rounded-xl p-3 flex flex-col justify-between overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#14b8a6]/60 ${colorClasses} ${spanClasses}`}
               style={{ transitionProperty: 'filter', transitionDuration: '0.15s' }}
             >
               <div>

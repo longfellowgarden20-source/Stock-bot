@@ -194,7 +194,7 @@ export default function PlaysClient() {
               style={{ fontSize: '13px' }}
             >
               {TIMEFRAMES.map(t => (
-                <option key={t} value={t} className="bg-[#0d1220]">{t}</option>
+                <option key={t} value={t} className="bg-[#0f1614]">{t}</option>
               ))}
             </select>
           </div>

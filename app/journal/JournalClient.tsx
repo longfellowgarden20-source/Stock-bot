@@ -119,7 +119,7 @@ function formatPnl(pnl: number | null) {
 function gradeColor(grade: string | null) {
   if (!grade) return 'text-slate-500'
   if (grade.startsWith('A')) return 'text-[#22c55e]'
-  if (grade.startsWith('B')) return 'text-[#0ea5e9]'
+  if (grade.startsWith('B')) return 'text-[#14b8a6]'
   if (grade === 'C') return 'text-[#f59e0b]'
   return 'text-[#ef4444]'
 }
@@ -373,19 +373,19 @@ function RobinhoodImportModal({ onClose, onImported }: {
   const matchedCount = preview?.filter((r) => r.status === 'Matched').length ?? 0
   const openCount = preview?.filter((r) => r.status === 'Open').length ?? 0
 
-  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+  const inputCls = 'w-full bg-[#0f1614] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/50 focus:ring-1 focus:ring-[#14b8a6]/20'
 
   return (
     <div
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60"
       onClick={(e) => { if (e.target === e.currentTarget) onClose() }}
     >
-      <div className="bg-[#0d1420] border border-white/10 rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 sm:gap-5 sm:mx-4">
+      <div className="bg-[#0f1614] border border-white/10 rounded-t-2xl sm:rounded-2xl p-4 sm:p-6 w-full sm:max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col gap-4 sm:gap-5 sm:mx-4">
         {/* Header */}
         <div className="flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 flex items-center justify-center">
-              <FileText className="w-4 h-4 text-[#0ea5e9]" />
+            <div className="w-8 h-8 rounded-xl bg-[#14b8a6]/15 border border-[#14b8a6]/30 flex items-center justify-center">
+              <FileText className="w-4 h-4 text-[#14b8a6]" />
             </div>
             <div>
               <h2 className="text-sm font-bold text-white">Import from Robinhood</h2>
@@ -405,23 +405,23 @@ function RobinhoodImportModal({ onClose, onImported }: {
         {!importResult ? (
           <>
             {/* Instructions */}
-            <div className="bg-[#0ea5e9]/5 border border-[#0ea5e9]/15 rounded-xl p-3 text-xs text-slate-400 leading-relaxed">
+            <div className="bg-[#14b8a6]/5 border border-[#14b8a6]/15 rounded-xl p-3 text-xs text-slate-400 leading-relaxed">
               Download your trade history from Robinhood: <span className="text-white font-medium">Account → Statements → Export CSV</span>. The importer will match buys to sells using FIFO and calculate P&L automatically.
             </div>
 
             {/* Drop zone */}
             {!preview && (
               <div
-                className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer ${dragOver ? 'border-[#0ea5e9]/60 bg-[#0ea5e9]/5' : 'border-white/10 hover:border-white/20 hover:bg-white/2'}`}
+                className={`border-2 border-dashed rounded-2xl p-8 flex flex-col items-center justify-center gap-3 cursor-pointer ${dragOver ? 'border-[#14b8a6]/60 bg-[#14b8a6]/5' : 'border-white/10 hover:border-white/20 hover:bg-white/2'}`}
                 style={{ transition: 'border-color 0.15s, background 0.15s' }}
                 onDragOver={(e) => { e.preventDefault(); setDragOver(true) }}
                 onDragLeave={() => setDragOver(false)}
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current?.click()}
               >
-                <Upload className={`w-8 h-8 ${dragOver ? 'text-[#0ea5e9]' : 'text-slate-600'}`} />
+                <Upload className={`w-8 h-8 ${dragOver ? 'text-[#14b8a6]' : 'text-slate-600'}`} />
                 <div className="text-center">
-                  <p className="text-sm text-slate-300">Drop your CSV here or <span className="text-[#0ea5e9]">click to browse</span></p>
+                  <p className="text-sm text-slate-300">Drop your CSV here or <span className="text-[#14b8a6]">click to browse</span></p>
                   <p className="text-xs text-slate-600 mt-1">Supports Robinhood CSV export format</p>
                 </div>
                 <input
@@ -490,7 +490,7 @@ function RobinhoodImportModal({ onClose, onImported }: {
                               {row.pnl == null ? '—' : (row.pnl >= 0 ? '+' : '') + '$' + Math.abs(row.pnl).toFixed(2)}
                             </td>
                             <td className="px-3 py-2">
-                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${row.status === 'Matched' ? 'bg-[#0ea5e9]/10 border-[#0ea5e9]/20 text-[#0ea5e9]' : 'bg-white/5 border-white/10 text-slate-500'}`}>
+                              <span className={`px-2 py-0.5 rounded-full text-[10px] font-medium border ${row.status === 'Matched' ? 'bg-[#14b8a6]/10 border-[#14b8a6]/20 text-[#14b8a6]' : 'bg-white/5 border-white/10 text-slate-500'}`}>
                                 {row.status}
                               </span>
                             </td>
@@ -511,7 +511,7 @@ function RobinhoodImportModal({ onClose, onImported }: {
                   type="button"
                   onClick={handleImport}
                   disabled={importing}
-                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25 disabled:opacity-50 flex items-center justify-center gap-2"
+                  className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#14b8a6]/15 border border-[#14b8a6]/30 text-[#14b8a6] hover:bg-[#14b8a6]/25 disabled:opacity-50 flex items-center justify-center gap-2"
                   style={{ transition: 'background 0.15s' }}
                 >
                   {importing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -537,7 +537,7 @@ function RobinhoodImportModal({ onClose, onImported }: {
             <button
               type="button"
               onClick={onClose}
-              className="px-6 py-2 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25"
+              className="px-6 py-2 rounded-xl text-sm font-semibold bg-[#14b8a6]/15 border border-[#14b8a6]/30 text-[#14b8a6] hover:bg-[#14b8a6]/25"
               style={{ transition: 'background 0.15s' }}
             >
               Done
@@ -617,7 +617,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
     }
   }
 
-  const inputCls = 'w-full bg-[#0d1424] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/50 focus:ring-1 focus:ring-[#0ea5e9]/20'
+  const inputCls = 'w-full bg-[#0f1614] border border-white/10 rounded-xl px-3 py-2 text-base sm:text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/50 focus:ring-1 focus:ring-[#14b8a6]/20'
 
   return (
     <div className="flex flex-col gap-6">
@@ -634,7 +634,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
       <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Plus className="w-4 h-4 text-[#0ea5e9]" /> Log a Trade
+            <Plus className="w-4 h-4 text-[#14b8a6]" /> Log a Trade
           </h2>
           <div className="flex flex-col items-end gap-0.5">
             <button
@@ -709,7 +709,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
             <div>
               <label className="block text-xs text-slate-500 mb-1">Grade</label>
               <select
-                className={inputCls + ' bg-[#0d1424]'}
+                className={inputCls + ' bg-[#0f1614]'}
                 value={grade}
                 onChange={(e) => setGrade(e.target.value)}
               >
@@ -788,7 +788,7 @@ function TodayEntry({ trades, onTradeAdded }: { trades: Trade[]; onTradeAdded: (
           <button
             type="submit"
             disabled={submitting}
-            className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 text-[#0ea5e9] hover:bg-[#0ea5e9]/25 disabled:opacity-50 flex items-center justify-center gap-2"
+            className="w-full py-2.5 rounded-xl text-sm font-semibold bg-[#14b8a6]/15 border border-[#14b8a6]/30 text-[#14b8a6] hover:bg-[#14b8a6]/25 disabled:opacity-50 flex items-center justify-center gap-2"
             style={{ transition: 'background 0.15s' }}
           >
             {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : success ? <CheckCircle className="w-4 h-4 text-[#22c55e]" /> : <Plus className="w-4 h-4" />}
@@ -927,7 +927,7 @@ function Performance({ trades }: { trades: Trade[] }) {
       {byPattern.length > 0 && (
         <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-            <BarChart2 className="w-3.5 h-3.5 text-[#0ea5e9]" /> P&L by Pattern
+            <BarChart2 className="w-3.5 h-3.5 text-[#14b8a6]" /> P&L by Pattern
           </h3>
           <div className="flex flex-col gap-2">
             {byPattern.map(([pattern, stats]) => {
@@ -953,7 +953,7 @@ function Performance({ trades }: { trades: Trade[] }) {
         <div className="flex flex-col gap-3">
           {byGrade.map((bucket) => (
             <div key={bucket.label} className="flex items-center gap-3">
-              <span className={`text-sm font-semibold w-16 ${bucket.label.startsWith('A') ? 'text-[#22c55e]' : bucket.label.startsWith('B') ? 'text-[#0ea5e9]' : 'text-[#ef4444]'}`}>{bucket.label}</span>
+              <span className={`text-sm font-semibold w-16 ${bucket.label.startsWith('A') ? 'text-[#22c55e]' : bucket.label.startsWith('B') ? 'text-[#14b8a6]' : 'text-[#ef4444]'}`}>{bucket.label}</span>
               <span className="text-xs text-slate-500 w-16 tabular-nums">{bucket.total} trades</span>
               {bucket.total > 0 && <span className={`text-xs w-14 tabular-nums ${bucket.wr >= 50 ? 'text-[#22c55e]' : 'text-[#ef4444]'}`}>{bucket.wr.toFixed(0)}% WR</span>}
               {bucket.total > 0 && <span className={`text-sm font-bold tabular-nums ml-auto ${pnlColor(bucket.pnl)}`}>{formatPnl(bucket.pnl)}</span>}
@@ -1035,7 +1035,7 @@ function Performance({ trades }: { trades: Trade[] }) {
         return (
           <div className="bg-white/2 border border-white/8 rounded-2xl p-4">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3 flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-[#0ea5e9]" /> Monthly P&L — {monthName}
+              <Calendar className="w-3.5 h-3.5 text-[#14b8a6]" /> Monthly P&L — {monthName}
             </h3>
             <div className="grid grid-cols-7 gap-1 text-center">
               {['S', 'M', 'T', 'W', 'T', 'F', 'S'].map((d, i) => (
@@ -1179,12 +1179,12 @@ function Tendencies({ trades, latestNote, onNoteGenerated }: {
       <div className="bg-white/2 border border-white/8 rounded-2xl p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Sparkles className="w-4 h-4 text-[#0ea5e9]" /> AI Performance Coach
+            <Sparkles className="w-4 h-4 text-[#14b8a6]" /> AI Performance Coach
           </h2>
           <button
             onClick={generate}
             disabled={generating || trades.length === 0}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 text-[#0ea5e9] hover:bg-[#0ea5e9]/20 disabled:opacity-50"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl text-xs font-medium bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#14b8a6] hover:bg-[#14b8a6]/20 disabled:opacity-50"
             style={{ transition: 'background 0.15s' }}
           >
             {generating ? <Loader2 className="w-3 h-3 animate-spin" /> : <Brain className="w-3 h-3" />}
@@ -1353,16 +1353,16 @@ function CalendarTab({ trades }: { trades: Trade[] }) {
             if (data) {
               bgClass = data.pnl > 0 ? 'bg-[#22c55e]/15 border-[#22c55e]/20' : data.pnl < 0 ? 'bg-[#ef4444]/15 border-[#ef4444]/20' : 'bg-slate-500/15 border-slate-500/20'
             }
-            if (isSelected) bgClass = 'bg-[#0ea5e9]/20 border-[#0ea5e9]/40'
+            if (isSelected) bgClass = 'bg-[#14b8a6]/20 border-[#14b8a6]/40'
             return (
               <button
                 key={key}
                 type="button"
                 onClick={() => setSelectedDay(key === selectedDay ? null : key)}
-                className={`relative aspect-square flex flex-col items-center justify-center rounded-xl border text-xs font-medium ${bgClass} ${isToday ? 'ring-1 ring-[#0ea5e9]/40' : ''} ${data ? 'cursor-pointer hover:opacity-80' : 'cursor-default opacity-60'}`}
+                className={`relative aspect-square flex flex-col items-center justify-center rounded-xl border text-xs font-medium ${bgClass} ${isToday ? 'ring-1 ring-[#14b8a6]/40' : ''} ${data ? 'cursor-pointer hover:opacity-80' : 'cursor-default opacity-60'}`}
                 style={{ transition: 'opacity 0.15s' }}
               >
-                <span className={isToday ? 'text-[#0ea5e9]' : data ? 'text-white' : 'text-slate-600'}>{dayNum}</span>
+                <span className={isToday ? 'text-[#14b8a6]' : data ? 'text-white' : 'text-slate-600'}>{dayNum}</span>
                 {data && (
                   <span className={`text-[9px] tabular-nums ${data.pnl > 0 ? 'text-[#22c55e]' : data.pnl < 0 ? 'text-[#ef4444]' : 'text-slate-400'}`}>
                     {data.pnl > 0 ? '+' : ''}{data.pnl.toFixed(0)}
@@ -1427,7 +1427,7 @@ function MorningBriefs({ briefs }: { briefs: BriefSignal[] }) {
     <div className="flex flex-col gap-6">
       <div>
         <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-          <Sparkles className="w-4 h-4 text-[#0ea5e9]" /> Reddit Intelligence Briefs
+          <Sparkles className="w-4 h-4 text-[#14b8a6]" /> Reddit Intelligence Briefs
         </h2>
         <p className="text-xs text-slate-500 mt-0.5">
           Groq synthesis of Reddit sentiment — runs every 2 hours during market hours.
@@ -1451,7 +1451,7 @@ function MorningBriefs({ briefs }: { briefs: BriefSignal[] }) {
               <div key={b.id} className="bg-white/2 border border-white/8 rounded-2xl overflow-hidden">
                 <div className="px-4 py-3 border-b border-white/5 flex items-center justify-between">
                   <div className="flex items-center gap-2">
-                    <Sparkles className="w-3.5 h-3.5 text-[#0ea5e9]" />
+                    <Sparkles className="w-3.5 h-3.5 text-[#14b8a6]" />
                     <span className="text-sm font-semibold text-white">{b.title}</span>
                   </div>
                   <span className="text-xs text-slate-500">{formatTime(b.created_at)}</span>
@@ -1460,7 +1460,7 @@ function MorningBriefs({ briefs }: { briefs: BriefSignal[] }) {
                 {tickers.length > 0 && (
                   <div className="px-4 py-2 flex flex-wrap gap-2 border-b border-white/5">
                     {tickers.slice(0, 10).map((t) => (
-                      <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 text-[#0ea5e9]">
+                      <span key={t} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-mono font-bold bg-[#14b8a6]/10 border border-[#14b8a6]/20 text-[#14b8a6]">
                         {t}
                         {counts[t] != null && (
                           <span className="text-slate-500 font-normal">{counts[t]}×</span>
@@ -1623,7 +1623,7 @@ function PredictionBrief({ predictions, lessons, today }: { predictions: EodPred
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-            <Target className="w-4 h-4 text-[#0ea5e9]" /> EOD Price Predictions
+            <Target className="w-4 h-4 text-[#14b8a6]" /> EOD Price Predictions
           </h2>
           <p className="text-xs text-slate-500 mt-0.5">
             Groq synthesis of signals → directional bias + price range at open. Updated each market day.
@@ -1643,7 +1643,7 @@ function PredictionBrief({ predictions, lessons, today }: { predictions: EodPred
       {todayPreds.length > 0 ? (
         <div className="flex flex-col gap-3">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider flex items-center gap-2">
-            <Zap className="w-3 h-3 text-[#0ea5e9]" /> Today&apos;s Calls
+            <Zap className="w-3 h-3 text-[#14b8a6]" /> Today&apos;s Calls
           </h3>
           {todayPreds.map(p => <PredictionCard key={p.id} pred={p} />)}
         </div>
@@ -1736,8 +1736,8 @@ export default function JournalClient({
     <div className="max-w-4xl mx-auto flex flex-col gap-6">
       {/* Page header */}
       <div className="flex items-center gap-3">
-        <div className="w-9 h-9 rounded-xl bg-[#0ea5e9]/15 border border-[#0ea5e9]/30 flex items-center justify-center shrink-0">
-          <BookOpen className="w-4 h-4 text-[#0ea5e9]" />
+        <div className="w-9 h-9 rounded-xl bg-[#14b8a6]/15 border border-[#14b8a6]/30 flex items-center justify-center shrink-0">
+          <BookOpen className="w-4 h-4 text-[#14b8a6]" />
         </div>
         <div>
           <h1 className="text-lg font-bold text-white">Trade Journal</h1>
@@ -1754,7 +1754,7 @@ export default function JournalClient({
               type="button"
               onClick={() => setActiveTab(tab)}
               className={`flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-xs font-medium min-w-[44px] sm:flex-1 ${activeTab === tab
-                ? 'bg-[#0ea5e9]/15 text-[#0ea5e9] border border-[#0ea5e9]/20'
+                ? 'bg-[#14b8a6]/15 text-[#14b8a6] border border-[#14b8a6]/20'
                 : 'text-slate-500 hover:text-white hover:bg-white/5'
                 }`}
               style={{ transition: 'background 0.15s, color 0.15s' }}

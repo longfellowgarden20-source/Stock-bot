@@ -25,7 +25,7 @@ export default function TradingViewChart({ ticker }: { ticker: string }) {
       theme: 'dark',
       style: '1',
       locale: 'en',
-      backgroundColor: '#0a0f1a',
+      backgroundColor: '#0c1211',
       gridColor: 'rgba(255,255,255,0.04)',
       hide_top_toolbar: false,
       hide_legend: false,
@@ -54,7 +54,7 @@ export default function TradingViewChart({ ticker }: { ticker: string }) {
       </div>
       <button
         onClick={() => setHeightIdx((i) => (i + 1) % HEIGHTS.length)}
-        className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 bg-[#0a0f1a]/80 border border-white/10 hover:border-white/25 hover:text-white backdrop-blur-sm"
+        className="absolute bottom-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-slate-300 bg-[#0c1211]/80 border border-white/10 hover:border-white/25 hover:text-white backdrop-blur-sm"
         style={{ transition: 'border-color 0.15s, color 0.15s' }}
         title={expanded ? 'Shrink chart' : 'Expand chart'}
       >

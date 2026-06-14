@@ -35,7 +35,7 @@ const CATEGORIES = [
 
 // Each region corresponds to a <path> in the brain SVG below
 const REGIONS = [
-  { id: 'lessons',   label: 'Trade Memory',   sub: 'Ticker lessons',    color: '#38bdf8', textX: 168, textY: 118 },
+  { id: 'lessons',   label: 'Trade Memory',   sub: 'Ticker lessons',    color: '#2dd4bf', textX: 168, textY: 118 },
   { id: 'critiques', label: 'Self Review',     sub: 'Daily critiques',   color: '#c084fc', textX: 310, textY: 118 },
   { id: 'outlooks',  label: 'Market Sense',    sub: 'Morning outlooks',  color: '#fbbf24', textX: 120, textY: 230 },
   { id: 'feed',      label: 'Your Rules',      sub: 'Fed by you',        color: '#34d399', textX: 355, textY: 230 },
@@ -67,7 +67,7 @@ function RegionPanel({ regionId, data, onClose, onAdd, onDelete, saving }: {
       <div className="absolute inset-0 bg-black/70 backdrop-blur-sm" />
       <div
         className="relative w-full max-w-lg max-h-[82vh] flex flex-col rounded-2xl overflow-hidden shadow-2xl"
-        style={{ background: '#0b1120', border: `1px solid ${region.color}35` }}
+        style={{ background: '#0c1211', border: `1px solid ${region.color}35` }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
@@ -94,7 +94,7 @@ function RegionPanel({ regionId, data, onClose, onAdd, onDelete, saving }: {
                   className="px-2.5 py-2 bg-white/[0.05] border border-white/[0.08] rounded-lg text-white placeholder:text-slate-600 font-mono font-bold text-xs w-24 focus:outline-none focus:border-emerald-500/40" />
                 <select value={noteCategory} onChange={e => setNoteCategory(e.target.value)}
                   className="flex-1 px-2.5 py-2 bg-white/[0.05] border border-white/[0.08] rounded-lg text-slate-300 text-xs focus:outline-none cursor-pointer" style={{ fontSize: '12px' }}>
-                  {CATEGORIES.map(c => <option key={c.value} value={c.value} className="bg-[#0b1120]">{c.label}</option>)}
+                  {CATEGORIES.map(c => <option key={c.value} value={c.value} className="bg-[#0c1211]">{c.label}</option>)}
                 </select>
               </div>
               <textarea value={noteContent} onChange={e => setNoteContent(e.target.value)} rows={3}
@@ -276,16 +276,16 @@ export default function BrainClient() {
         <svg viewBox="0 0 480 360" className="w-full max-w-[560px]" style={{ filter: 'drop-shadow(0 8px 40px rgba(14,165,233,0.15))' }}>
           <defs>
             <radialGradient id="bgGrad" cx="50%" cy="45%" r="55%">
-              <stop offset="0%" stopColor="#0f1e35" />
-              <stop offset="100%" stopColor="#060d18" />
+              <stop offset="0%" stopColor="#131c19" />
+              <stop offset="100%" stopColor="#080c0b" />
             </radialGradient>
             <radialGradient id="glowL" cx="35%" cy="40%" r="60%">
               <stop offset="0%" stopColor="#1e3a52" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#060d18" stopOpacity="0" />
+              <stop offset="100%" stopColor="#080c0b" stopOpacity="0" />
             </radialGradient>
             <radialGradient id="glowR" cx="65%" cy="40%" r="60%">
               <stop offset="0%" stopColor="#1e3a52" stopOpacity="0.8" />
-              <stop offset="100%" stopColor="#060d18" stopOpacity="0" />
+              <stop offset="100%" stopColor="#080c0b" stopOpacity="0" />
             </radialGradient>
             <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
               <feGaussianBlur stdDeviation="4" result="blur" />
@@ -319,7 +319,7 @@ export default function BrainClient() {
               C 168 344 188 346 208 344
               C 220 344 232 342 238 338
               L 238 28 Z
-            " fill="url(#bgGrad)" stroke="rgba(56,189,248,0.18)" strokeWidth="1.5" />
+            " fill="url(#bgGrad)" stroke="rgba(45, 212, 191,0.18)" strokeWidth="1.5" />
 
             {/* Left gyri — the folds that make it look like a brain */}
             <path d="M 238 65 C 210 58 185 62 168 72 C 150 58 128 62 112 76" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="2.5" strokeLinecap="round" />
@@ -349,7 +349,7 @@ export default function BrainClient() {
               C 312 344 292 346 272 344
               C 260 344 248 342 242 338
               L 242 28 Z
-            " fill="url(#bgGrad)" stroke="rgba(56,189,248,0.18)" strokeWidth="1.5" />
+            " fill="url(#bgGrad)" stroke="rgba(45, 212, 191,0.18)" strokeWidth="1.5" />
 
             {/* Right gyri */}
             <path d="M 242 65 C 270 58 295 62 312 72 C 330 58 352 62 368 76" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="2.5" strokeLinecap="round" />
@@ -364,13 +364,13 @@ export default function BrainClient() {
           </g>
 
           {/* ── CORPUS CALLOSUM (center division) ── */}
-          <path d="M 240 22 L 240 342" stroke="rgba(56,189,248,0.22)" strokeWidth="1.5" strokeDasharray="4 3" />
+          <path d="M 240 22 L 240 342" stroke="rgba(45, 212, 191,0.22)" strokeWidth="1.5" strokeDasharray="4 3" />
           <ellipse cx="240" cy="182" rx="12" ry="60" fill="rgba(14,165,233,0.04)" stroke="rgba(14,165,233,0.1)" strokeWidth="1" />
 
           {/* ── BRAIN STEM ── */}
           <path d="M 218 338 C 214 348 213 358 216 365 C 219 372 221 372 224 365 C 226 358 226 348 224 338 Z
                    M 224 338 C 228 348 230 358 228 365 C 226 372 224 372 222 365 C 222 358 222 348 224 338 Z"
-            fill="#0a1422" stroke="rgba(56,189,248,0.15)" strokeWidth="1" />
+            fill="#0c1211" stroke="rgba(45, 212, 191,0.15)" strokeWidth="1" />
 
           {/* ── CLICKABLE REGION OVERLAYS ── */}
           {/* Trade Memory — left frontal */}
@@ -459,7 +459,7 @@ export default function BrainClient() {
           })}
 
           {/* Center label */}
-          <text x="240" y="192" textAnchor="middle" fontSize="7" fill="rgba(56,189,248,0.25)"
+          <text x="240" y="192" textAnchor="middle" fontSize="7" fill="rgba(45, 212, 191,0.25)"
             style={{ fontFamily: 'var(--font-geist-sans)', letterSpacing: '0.12em' }}>
             GROQ NEURAL CORE
           </text>

@@ -68,10 +68,10 @@ export default function QuickAddTicker({ open, onClose, onAdded }: { open: boole
 
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/70 backdrop-blur-sm p-4 pt-20 sm:pt-4" onClick={onClose} role="dialog" aria-modal="true">
-      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="bg-[#0a0f1a] border border-white/10 rounded-2xl p-5 w-full max-w-md">
+      <form onSubmit={submit} onClick={(e) => e.stopPropagation()} className="bg-[#0c1211] border border-white/10 rounded-2xl p-5 w-full max-w-md">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
-            <Bookmark className="w-4 h-4 text-[#0ea5e9]" />
+            <Bookmark className="w-4 h-4 text-[#14b8a6]" />
             <h2 className="text-base font-bold text-white">Add ticker</h2>
           </div>
           <button type="button" onClick={onClose} className="p-1 rounded-lg text-slate-400 hover:text-white hover:bg-white/5" aria-label="Close" style={{ transition: 'color 0.15s, background 0.15s' }}>
@@ -89,7 +89,7 @@ export default function QuickAddTicker({ open, onClose, onAdded }: { open: boole
               onChange={(e) => setTicker(e.target.value.toUpperCase())}
               placeholder="AAPL"
               maxLength={6}
-              className="mt-1 w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white font-mono font-bold tracking-wider placeholder:text-slate-600 placeholder:font-normal focus:outline-none focus:border-[#0ea5e9]/60"
+              className="mt-1 w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white font-mono font-bold tracking-wider placeholder:text-slate-600 placeholder:font-normal focus:outline-none focus:border-[#14b8a6]/60"
               style={{ transition: 'border-color 0.15s', fontSize: '16px' }}
               autoComplete="off"
               spellCheck={false}
@@ -109,7 +109,7 @@ export default function QuickAddTicker({ open, onClose, onAdded }: { open: boole
               value={threshold}
               onChange={(e) => setThreshold(e.target.value)}
               placeholder="5.0"
-              className="mt-1 w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60"
+              className="mt-1 w-full px-3 py-2.5 bg-white/5 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60"
               style={{ transition: 'border-color 0.15s', fontSize: '16px' }}
             />
             <p className="text-xs text-slate-600 mt-1">Fire a signal when price moves more than this % from open</p>
@@ -118,7 +118,7 @@ export default function QuickAddTicker({ open, onClose, onAdded }: { open: boole
           <button
             type="submit"
             disabled={busy || !ticker}
-            className="mt-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#0ea5e9] hover:bg-[#0284c7] text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
+            className="mt-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-[#14b8a6] hover:bg-[#0d9488] text-white text-sm font-bold rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ transition: 'background 0.15s' }}
           >
             {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}

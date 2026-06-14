@@ -686,7 +686,7 @@ export default function DashboardClient({
       )}
 
       {/* Search + filters (sticky) */}
-      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#070b13]/90 backdrop-blur-md py-2 -my-2">
+      <div className="sticky top-0 z-20 -mx-3 px-3 sm:mx-0 sm:px-0 bg-[#080c0b]/90 backdrop-blur-md py-2 -my-2">
         {/* Search */}
         <div className="relative mb-2">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
@@ -735,7 +735,7 @@ export default function DashboardClient({
             style={{ fontSize: '12px', lineHeight: '1.4' }}
           >
             {SIGNAL_TYPES.map(t => (
-              <option key={t} value={t} className="bg-[#0d1220] text-slate-200">
+              <option key={t} value={t} className="bg-[#0f1614] text-slate-200">
                 {t === 'all' ? 'All types' : getTypeMeta(t).label}
               </option>
             ))}
@@ -748,10 +748,10 @@ export default function DashboardClient({
             className="px-2 py-1 bg-white/[0.04] border border-white/[0.08] rounded text-slate-300 focus:outline-none focus:border-sky-500/50 cursor-pointer"
             style={{ fontSize: '12px', lineHeight: '1.4' }}
           >
-            <option value="all" className="bg-[#0d1220]">All severity</option>
-            <option value="critical" className="bg-[#0d1220]">Critical 9+</option>
-            <option value="high" className="bg-[#0d1220]">High 7+</option>
-            <option value="medium" className="bg-[#0d1220]">Medium 5+</option>
+            <option value="all" className="bg-[#0f1614]">All severity</option>
+            <option value="critical" className="bg-[#0f1614]">Critical 9+</option>
+            <option value="high" className="bg-[#0f1614]">High 7+</option>
+            <option value="medium" className="bg-[#0f1614]">Medium 5+</option>
           </select>
 
           {/* Sort */}
@@ -763,11 +763,11 @@ export default function DashboardClient({
               className="pl-6 pr-2 py-1 bg-white/[0.04] border border-white/[0.08] rounded text-slate-300 focus:outline-none focus:border-sky-500/50 cursor-pointer"
               style={{ fontSize: '12px', lineHeight: '1.4' }}
             >
-              <option value="newest" className="bg-[#0d1220]">Newest</option>
-              <option value="oldest" className="bg-[#0d1220]">Oldest</option>
-              <option value="severity_desc" className="bg-[#0d1220]">Severity ↓</option>
-              <option value="severity_asc" className="bg-[#0d1220]">Severity ↑</option>
-              <option value="ticker" className="bg-[#0d1220]">Ticker A–Z</option>
+              <option value="newest" className="bg-[#0f1614]">Newest</option>
+              <option value="oldest" className="bg-[#0f1614]">Oldest</option>
+              <option value="severity_desc" className="bg-[#0f1614]">Severity ↓</option>
+              <option value="severity_asc" className="bg-[#0f1614]">Severity ↑</option>
+              <option value="ticker" className="bg-[#0f1614]">Ticker A–Z</option>
             </select>
           </div>
 
@@ -806,11 +806,11 @@ export default function DashboardClient({
 
         {/* Selection actions row */}
         {selected.size > 0 && (
-          <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-[#0ea5e9]/10 border border-[#0ea5e9]/30 rounded-xl">
-            <span className="text-xs font-semibold text-[#0ea5e9]">{selected.size} selected</span>
+          <div className="mt-2 flex items-center gap-2 px-3 py-2 bg-[#14b8a6]/10 border border-[#14b8a6]/30 rounded-xl">
+            <span className="text-xs font-semibold text-[#14b8a6]">{selected.size} selected</span>
             <button
               onClick={markSelectedRead}
-              className="ml-auto px-2.5 py-1 text-xs font-semibold text-[#0ea5e9] hover:text-white border border-[#0ea5e9]/30 rounded-lg hover:bg-[#0ea5e9]/10"
+              className="ml-auto px-2.5 py-1 text-xs font-semibold text-[#14b8a6] hover:text-white border border-[#14b8a6]/30 rounded-lg hover:bg-[#14b8a6]/10"
               style={{ transition: 'color 0.15s, background 0.15s' }}
             >
               Mark read
@@ -1091,13 +1091,13 @@ function MorningBriefBanner({
     .filter(Boolean)
 
   return (
-    <div className="rounded-2xl border border-[#0ea5e9]/20 bg-[#0ea5e9]/8 p-4">
+    <div className="rounded-2xl border border-[#14b8a6]/20 bg-[#14b8a6]/8 p-4">
       {/* Header row */}
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2">
-          <Newspaper className="w-4 h-4 text-[#0ea5e9] shrink-0" />
+          <Newspaper className="w-4 h-4 text-[#14b8a6] shrink-0" />
           <div>
-            <p className="text-sm font-bold text-[#0ea5e9] leading-tight">{brief.title}</p>
+            <p className="text-sm font-bold text-[#14b8a6] leading-tight">{brief.title}</p>
             <p className="text-xs text-slate-500 mt-0.5">Reddit scan · {timeStr} ET</p>
           </div>
         </div>
@@ -1117,7 +1117,7 @@ function MorningBriefBanner({
           {tickers.map(ticker => (
             <span
               key={ticker}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#0ea5e9]/15 border border-[#0ea5e9]/25 text-xs font-bold text-[#0ea5e9] font-mono"
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#14b8a6]/15 border border-[#14b8a6]/25 text-xs font-bold text-[#14b8a6] font-mono"
             >
               ${ticker}
               {mentionCounts[ticker] != null && (
@@ -1160,7 +1160,7 @@ function EmptyState({ hasFilters, onClear }: { hasFilters: boolean; onClear: () 
           <p className="text-sm text-center">No signals match your filters</p>
           <button
             onClick={onClear}
-            className="px-3 py-1.5 text-xs font-semibold text-[#0ea5e9] border border-[#0ea5e9]/30 rounded-lg hover:bg-[#0ea5e9]/10"
+            className="px-3 py-1.5 text-xs font-semibold text-[#14b8a6] border border-[#14b8a6]/30 rounded-lg hover:bg-[#14b8a6]/10"
             style={{ transition: 'background 0.15s' }}
           >
             Clear filters
@@ -1206,7 +1206,7 @@ function TickerGroup({
         <span className="text-sm font-bold font-mono text-white">{ticker}</span>
         {isPinned && <Pin className="w-3 h-3 text-yellow-400 fill-yellow-400" />}
         <span className="text-xs text-slate-500">{signals.length} signal{signals.length === 1 ? '' : 's'}</span>
-        {unreadCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#0ea5e9]/20 text-[#0ea5e9]">{unreadCount} new</span>}
+        {unreadCount > 0 && <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-[#14b8a6]/20 text-[#14b8a6]">{unreadCount} new</span>}
         <span className={`ml-auto text-xs font-bold ${maxSev >= 9 ? 'text-red-400' : maxSev >= 7 ? 'text-orange-400' : maxSev >= 5 ? 'text-yellow-400' : 'text-slate-400'}`}>max {Number(maxSev).toFixed(1)}/10</span>
       </button>
       {open && (

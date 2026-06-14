@@ -13,14 +13,14 @@ type WatchlistItem = {
   added_at: string
 }
 
-const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60'
+const input = 'px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60'
 
 // Feature 15+16: reusable row for grouped + ungrouped views
 function WatchlistRow({ item, onRemove }: { item: WatchlistItem; onRemove: (id: string) => void }) {
   return (
     <div className="flex items-center gap-3 sm:gap-4 px-3 sm:px-5 py-4 bg-white/4 border border-white/10 rounded-2xl hover:border-white/20" style={{ transition: 'border-color 0.15s' }}>
-      <div className="w-10 h-10 rounded-xl bg-[#0ea5e9]/10 border border-[#0ea5e9]/20 flex items-center justify-center shrink-0">
-        <span className="text-xs font-bold text-[#0ea5e9] font-mono">{item.ticker.slice(0, 4)}</span>
+      <div className="w-10 h-10 rounded-xl bg-[#14b8a6]/10 border border-[#14b8a6]/20 flex items-center justify-center shrink-0">
+        <span className="text-xs font-bold text-[#14b8a6] font-mono">{item.ticker.slice(0, 4)}</span>
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-sm font-bold text-white font-mono">{item.ticker}</p>
@@ -210,7 +210,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
       {/* Bulk Add Modal */}
       {bulkOpen && (
         <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm" onClick={e => { if (e.target === e.currentTarget) { setBulkOpen(false); setBulkResult(null) } }}>
-          <div className="bg-[#0d1520] border border-white/15 rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 w-full sm:max-w-md flex flex-col gap-4">
+          <div className="bg-[#0f1614] border border-white/15 rounded-t-2xl sm:rounded-2xl p-5 sm:p-6 w-full sm:max-w-md flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h2 className="text-base font-bold text-white">Bulk Add Tickers</h2>
               <button onClick={() => { setBulkOpen(false); setBulkResult(null) }} className="text-slate-500 hover:text-white" style={{ transition: 'color 0.15s' }}>
@@ -224,14 +224,14 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
               placeholder="AAPL, NVDA, TSLA, AMD, MSFT"
               rows={4}
               disabled={bulkRunning}
-              className="w-full px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#0ea5e9]/60 resize-none font-mono uppercase disabled:opacity-50"
+              className="w-full px-3 py-2 text-sm bg-white/5 border border-white/10 rounded-lg text-white placeholder:text-slate-600 focus:outline-none focus:border-[#14b8a6]/60 resize-none font-mono uppercase disabled:opacity-50"
               style={{ fontSize: 16 }}
             />
             {bulkProgress && (
               <div className="flex items-center gap-3">
                 <div className="flex-1 bg-white/5 rounded-full h-1.5 overflow-hidden">
                   <div
-                    className="h-full bg-[#0ea5e9] rounded-full"
+                    className="h-full bg-[#14b8a6] rounded-full"
                     style={{ width: `${(bulkProgress.current / bulkProgress.total) * 100}%`, transition: 'width 0.2s' }}
                   />
                 </div>
@@ -272,7 +272,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
                 <button
                   onClick={runBulkAdd}
                   disabled={bulkRunning || !bulkText.trim()}
-                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#0ea5e9] rounded-xl disabled:opacity-40 hover:bg-[#38bdf8] active:scale-[0.98]"
+                  className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#14b8a6] rounded-xl disabled:opacity-40 hover:bg-[#2dd4bf] active:scale-[0.98]"
                   style={{ transition: 'background 0.15s, transform 0.1s' }}
                 >
                   {bulkRunning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
@@ -331,7 +331,7 @@ export default function WatchlistClient({ watchlist: initial }: { watchlist: Wat
         <button
           onClick={add}
           disabled={adding || !ticker.trim()}
-          className="self-start flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#0ea5e9] rounded-xl disabled:opacity-40 hover:bg-[#38bdf8] active:scale-[0.98]"
+          className="self-start flex items-center gap-2 px-4 py-2 text-sm font-bold text-black bg-[#14b8a6] rounded-xl disabled:opacity-40 hover:bg-[#2dd4bf] active:scale-[0.98]"
           style={{ transition: 'background 0.15s, transform 0.1s' }}
         >
           {adding ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
