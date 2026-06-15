@@ -2004,7 +2004,7 @@ ENTRY RULES:
     # a 2.0 floor rejected nearly every otherwise-valid setup (the real reason the
     # sandbox sat at 0 trades). 1.5:1 at a 55%+ win rate is clearly profitable and
     # keeps the engine active so it can actually learn.
-    min_rr = 2.5 if is_convergence else 1.5
+    min_rr = 1.5  # test run — lowered to get more entries
 
     # #13 — Reject negative or zero stop/target (Groq parse error)
     if stop <= 0 or target <= 0:
