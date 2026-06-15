@@ -172,7 +172,7 @@ app.add_middleware(
 )
 
 
-DEPLOY_VERSION = "datetime-fix-2026-06-16"  # bump on each deploy to confirm Railway is shipping latest code
+DEPLOY_VERSION = "skip-entries-flag-2026-06-15"  # bump on each deploy to confirm Railway is shipping latest code
 
 @app.get("/")
 async def root():

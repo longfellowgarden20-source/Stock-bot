@@ -3065,109 +3065,119 @@ async def run_once() -> dict:
             except Exception:
                 pass  # Silent fail on gap detection
 
+        skip_entries = False
+        skip_reason = None
+
         if in_entry_window:
 
             # #1 — Regime detection: skip all entries if market is choppy
             if is_choppy_market():
-                return {"status": "skipped", "reason": "choppy market regime — VIX too high"}
+                skip_entries = True
+                skip_reason = "choppy market regime — VIX too high"
 
             # #3 — Dead zone: block 12pm-2pm ET (temporarily disabled)
             # if is_in_dead_zone():
-            #     return {"status": "skipped", "reason": "dead zone 12-2pm ET"}
+            #     skip_entries = True; skip_reason = "dead zone 12-2pm ET"
 
-            # #9 — Daily loss limit: stop trading if realized P&L today is down 2%
-            # Unrealized is excluded — sandbox_trades has no current_price column so
-            # any attempt to read it returns 0 and produces a false loss signal.
-            daily_pnl = get_daily_pnl()
-            account_balance = get_account_balance()
-            daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
-            if daily_loss_pct <= -2.0:
-                log.info(f"Daily loss limit hit (realized): {daily_loss_pct:.1f}% — stopping entries for today")
-                return {"status": "skipped", "reason": f"daily loss limit hit ({daily_loss_pct:.1f}%)"}
+            if not skip_entries:
+                # #9 — Daily loss limit: stop new entries if realized P&L today is down 2%
+                daily_pnl = get_daily_pnl()
+                account_balance = get_account_balance()
+                daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
+                if daily_loss_pct <= -2.0:
+                    log.info(f"Daily loss limit hit (realized): {daily_loss_pct:.1f}% — stopping entries for today")
+                    skip_entries = True
+                    skip_reason = f"daily loss limit hit ({daily_loss_pct:.1f}%)"
 
-            # #4 — Consecutive loss circuit breaker: halt after 5 straight losses
-            consec_losses = get_consecutive_losses()
-            if consec_losses >= MAX_CONSECUTIVE_LOSSES:
-                log.info(f"Circuit breaker: {consec_losses} consecutive losses — halting entries for today")
-                return {"status": "skipped", "reason": f"circuit breaker: {consec_losses} consecutive losses"}
+            if not skip_entries:
+                # #4 — Consecutive loss circuit breaker: halt after 5 straight losses
+                consec_losses = get_consecutive_losses()
+                if consec_losses >= MAX_CONSECUTIVE_LOSSES:
+                    log.info(f"Circuit breaker: {consec_losses} consecutive losses — halting entries for today")
+                    skip_entries = True
+                    skip_reason = f"circuit breaker: {consec_losses} consecutive losses"
 
-            # #15 — Max drawdown halt: stop all entries if account is down 20%+ from peak
-            _, _, drawdown_pct = get_account_streak()
-            if drawdown_pct >= MAX_DRAWDOWN_HALT_PCT:
-                log.warning(f"Max drawdown halt: {drawdown_pct:.1f}% drawdown — halting all entries")
-                send_push_notification(
-                    f"⚠️ Sandbox Drawdown Alert: {drawdown_pct:.1f}%",
-                    f"Account is {drawdown_pct:.1f}% below peak. All new entries halted until drawdown recovers below {MAX_DRAWDOWN_HALT_PCT}%.",
-                    severity=9.0
-                )
-                return {"status": "skipped", "reason": f"max drawdown halt ({drawdown_pct:.1f}%)"}
+            if not skip_entries:
+                # #15 — Max drawdown halt: stop all entries if account is down 20%+ from peak
+                _, _, drawdown_pct = get_account_streak()
+                if drawdown_pct >= MAX_DRAWDOWN_HALT_PCT:
+                    log.warning(f"Max drawdown halt: {drawdown_pct:.1f}% drawdown — halting all entries")
+                    send_push_notification(
+                        f"⚠️ Sandbox Drawdown Alert: {drawdown_pct:.1f}%",
+                        f"Account is {drawdown_pct:.1f}% below peak. All new entries halted until drawdown recovers below {MAX_DRAWDOWN_HALT_PCT}%.",
+                        severity=9.0
+                    )
+                    skip_entries = True
+                    skip_reason = f"max drawdown halt ({drawdown_pct:.1f}%)"
 
-            # Count how many trades already entered today
-            today_str = date.today().isoformat()
-            try:
-                today_entries_res = supabase().table("sandbox_trades").select("id").eq("entry_date", today_str).execute()
-                today_entry_count = len(today_entries_res.data or [])
-            except Exception:
-                today_entry_count = 0
+            if not skip_entries:
+                # Count how many trades already entered today
+                today_str = date.today().isoformat()
+                try:
+                    today_entries_res = supabase().table("sandbox_trades").select("id").eq("entry_date", today_str).execute()
+                    today_entry_count = len(today_entries_res.data or [])
+                except Exception:
+                    today_entry_count = 0
 
-            # #22 — pending trades count at 50% weight against the position cap
-            pending_count = sum(1 for p in open_positions if p.get("fill_status") == "pending")
-            effective_open = len(open_positions) - pending_count + (pending_count * 0.5)
-            if today_entry_count < MAX_DAILY_ENTRIES and effective_open < MAX_OPEN_POSITIONS:
-                _scan_diag.clear()  # fresh diagnostics for this scan
-                # Use pre-market game plan if available — Groq already picked the best setups
-                premarket_plan = get_premarket_plan()
-                if premarket_plan:
-                    # Put pre-market picks first (by conviction), then fill with scan universe
-                    plan_tickers = [p["ticker"] for p in premarket_plan]
-                    scan_tickers = await get_scan_universe(client)
-                    # Deduplicate — plan tickers take priority
-                    extra = [t for t in scan_tickers if t not in set(plan_tickers)]
-                    tickers = plan_tickers + extra
-                    log.info(f"Using pre-market game plan: {plan_tickers} + {len(extra)} from scan")
-                else:
-                    tickers = await get_scan_universe(client)
-                    log.info("No pre-market plan — using scan universe")
+                # #22 — pending trades count at 50% weight against the position cap
+                pending_count = sum(1 for p in open_positions if p.get("fill_status") == "pending")
+                effective_open = len(open_positions) - pending_count + (pending_count * 0.5)
+                if today_entry_count < MAX_DAILY_ENTRIES and effective_open < MAX_OPEN_POSITIONS:
+                    _scan_diag.clear()  # fresh diagnostics for this scan
+                    # Use pre-market game plan if available — Groq already picked the best setups
+                    premarket_plan = get_premarket_plan()
+                    if premarket_plan:
+                        # Put pre-market picks first (by conviction), then fill with scan universe
+                        plan_tickers = [p["ticker"] for p in premarket_plan]
+                        scan_tickers = await get_scan_universe(client)
+                        # Deduplicate — plan tickers take priority
+                        extra = [t for t in scan_tickers if t not in set(plan_tickers)]
+                        tickers = plan_tickers + extra
+                        log.info(f"Using pre-market game plan: {plan_tickers} + {len(extra)} from scan")
+                    else:
+                        tickers = await get_scan_universe(client)
+                        log.info("No pre-market plan — using scan universe")
 
-                entries = 0
-                slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
+                    entries = 0
+                    slots_left = min(MAX_DAILY_ENTRIES - today_entry_count, MAX_OPEN_POSITIONS - len(open_positions))
 
+                    for ticker_idx, ticker in enumerate(tickers):
+                        if entries >= slots_left:
+                            break
+                        if ticker in open_tickers:
+                            continue
+                        # #5 — Re-check VIX every 3 entries (catches mid-session spikes)
+                        if entries > 0 and entries % 3 == 0 and is_choppy_market():
+                            log.info("VIX spiked mid-session — halting further entries")
+                            break
+                        try:
+                            trade = await decide_entry(client, ticker, open_tickers, open_positions)
+                            if trade:
+                                # #19 — Skip non-convergence entries in first 10 min (9:30-9:40 ET)
+                                if in_open_block and not trade.get("is_convergence", False):
+                                    log.debug(f"Open block: skipping non-convergence {ticker} entry (9:30-9:40 window)")
+                                    continue
+                                # #17 — Idempotency: check no open trade already exists for this ticker today
+                                existing = supabase().table("sandbox_trades").select("id").eq("ticker", ticker).eq("status", "open").limit(1).execute()
+                                if existing.data:
+                                    log.debug(f"Idempotency: {ticker} already has an open trade — skipping insert")
+                                    open_tickers.add(ticker)
+                                    continue
+                                inserted = _insert_sandbox_trade(trade)
+                                if inserted:
+                                    trade["id"] = inserted.get("id")  # add DB-generated id
+                                    open_tickers.add(ticker)
+                                    open_positions.append(trade)  # keep sector counts current
+                                    entries += 1
+                                    conviction = trade.get("conviction_label", "standard")
+                                    log.info(f"Sandbox entered {trade['direction']} {ticker} @ ${trade['entry_price']:.2f} ({trade['trade_type']}) | {conviction} | risk=${trade.get('risk_amount', 0):.0f}")
+                        except Exception as e:
+                            log.error(f"Entry decision failed for {ticker}: {e}")
+                        await asyncio.sleep(2)
 
-                for ticker_idx, ticker in enumerate(tickers):
-                    if entries >= slots_left:
-                        break
-                    if ticker in open_tickers:
-                        continue
-                    # #5 — Re-check VIX every 3 entries (catches mid-session spikes)
-                    if entries > 0 and entries % 3 == 0 and is_choppy_market():
-                        log.info("VIX spiked mid-session — halting further entries")
-                        break
-                    try:
-                        trade = await decide_entry(client, ticker, open_tickers, open_positions)
-                        if trade:
-                            # #19 — Skip non-convergence entries in first 10 min (9:30-9:40 ET)
-                            if in_open_block and not trade.get("is_convergence", False):
-                                log.debug(f"Open block: skipping non-convergence {ticker} entry (9:30-9:40 window)")
-                                continue
-                            # #17 — Idempotency: check no open trade already exists for this ticker today
-                            existing = supabase().table("sandbox_trades").select("id").eq("ticker", ticker).eq("status", "open").limit(1).execute()
-                            if existing.data:
-                                log.debug(f"Idempotency: {ticker} already has an open trade — skipping insert")
-                                open_tickers.add(ticker)
-                                continue
-                            inserted = _insert_sandbox_trade(trade)
-                            if inserted:
-                                trade["id"] = inserted.get("id")  # add DB-generated id
-                                open_tickers.add(ticker)
-                                open_positions.append(trade)  # keep sector counts current
-                                entries += 1
-                                conviction = trade.get("conviction_label", "standard")
-                                log.info(f"Sandbox entered {trade['direction']} {ticker} @ ${trade['entry_price']:.2f} ({trade['trade_type']}) | {conviction} | risk=${trade.get('risk_amount', 0):.0f}")
-                    except Exception as e:
-                        log.error(f"Entry decision failed for {ticker}: {e}")
-                    await asyncio.sleep(2)
-
-                return {"status": "ok", "action": "entry_scan", "entries": entries, "today_total": today_entry_count + entries, "open": len(open_tickers), "diag": _scan_diag[:30]}
+                    return {"status": "ok", "action": "entry_scan", "entries": entries, "today_total": today_entry_count + entries, "open": len(open_tickers), "diag": _scan_diag[:30]}
+            else:
+                log.info(f"Entries skipped ({skip_reason}) — continuing to evaluate open positions")
 
         # 4:00–4:15 ET: close all day trades + evaluate swings + record performance
         if hour == 16 and minute < 15:
