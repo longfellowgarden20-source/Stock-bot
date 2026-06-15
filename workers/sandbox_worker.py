@@ -3028,10 +3028,8 @@ async def run_once() -> dict:
         # throttled to every 2 hours via _skip_groq_swing_eval to keep token costs down.
         global _last_swing_groq_eval_utc
         now_utc = datetime.now(timezone.utc)
-        should_groq_swing_eval = (
-            _last_swing_groq_eval_utc is None or
-            (now_utc - _last_swing_groq_eval_utc).total_seconds() >= 7200  # 2 hours
-        )
+        # TEST RUN: never let Groq close trades — only mechanical stop/target/EOD
+        should_groq_swing_eval = False
         if should_groq_swing_eval:
             _last_swing_groq_eval_utc = now_utc
 
