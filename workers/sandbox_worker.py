@@ -1885,6 +1885,8 @@ WIN RATE: {win_rate:.1f}% overall | {recent_wr:.0f}% last 10 trades ({wins}/{tot
 {f"SIGNAL DURATION HINT: {duration_hint}" if duration_hint else ""}
 {f"TIME OF DAY: {hour_context}" if hour_context else ""}
 
+TRADE TYPE RULE: Default to "day" unless the PRIMARY catalyst is explicitly multi-day (insider buy, congress trade, analyst upgrade, earnings in 1-3 days, SEC filing). Intraday signals (volume spike, dark pool, options flow, technical breakout, momentum) = day trade. When in doubt, use "day".
+
 Respond ONLY with valid JSON:
 {{
   "trade": true | false,
