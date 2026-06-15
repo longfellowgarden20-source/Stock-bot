@@ -2308,6 +2308,8 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
     # Swing trade: ask Groq if thesis still valid (throttled — skip when flagged)
     if trade.get('_skip_groq_swing_eval'):
         return
+    # TEST RUN: Groq swing exits fully disabled — only stops/targets/EOD close trades
+    return
     if trade_type == "swing":
         signals = await get_recent_signals(ticker, hours=24)
         sig_lines = [f"- [{s['signal_type']} sev={s['severity']}] {s['title']}" for s in signals]
