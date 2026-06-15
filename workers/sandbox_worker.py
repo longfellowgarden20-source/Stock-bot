@@ -446,6 +446,36 @@ async def get_current_price(client: httpx.AsyncClient, ticker: str) -> float | N
                 return float(results[0].get("c") or 0) or None
     except Exception as e:
         log.debug(f"Price fetch failed for {ticker}: {e}")
+
+    # Finnhub fallback
+    finnhub_key = os.environ.get("FINNHUB_API_KEY")
+    if finnhub_key:
+        try:
+            r = await client.get(
+                f"https://finnhub.io/api/v1/quote",
+                params={"symbol": ticker, "token": finnhub_key}, timeout=8,
+            )
+            if r.status_code == 200:
+                p = r.json().get("c")
+                if p and float(p) > 0:
+                    log.debug(f"Price fallback: Finnhub for {ticker} = ${p}")
+                    return float(p)
+        except Exception as e:
+            log.debug(f"Finnhub price fallback failed for {ticker}: {e}")
+
+    # Yahoo Finance last resort
+    try:
+        import yfinance as yf
+        t = yf.Ticker(ticker)
+        hist = t.history(period="1d")
+        if not hist.empty:
+            p = float(hist["Close"].iloc[-1])
+            if p > 0:
+                log.debug(f"Price fallback: Yahoo for {ticker} = ${p}")
+                return p
+    except Exception as e:
+        log.debug(f"Yahoo price fallback failed for {ticker}: {e}")
+
     return None
 
 
