@@ -2182,7 +2182,10 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
 
     # #10 — Tiered trailing stop: escalate as trade moves in our favour
     # Tier 1: +2% → breakeven  Tier 2: +4% → +1.5%  Tier 3: +6% → +3%
+    # Day trades skip trailing stops entirely — let them run to original stop/target or EOD
     def _calc_tiered_stop(pnl: float, ent: float, dir: str) -> float | None:
+        if trade_type == "day":
+            return None
         if pnl >= 6.0:
             locked = 3.0
         elif pnl >= 4.0:
@@ -2211,9 +2214,11 @@ async def evaluate_open_trade(client: httpx.AsyncClient, trade: dict) -> None:
             except Exception as e:
                 log.debug(f"Trailing stop update failed for {ticker}: {e}")
 
-    # #11 — Partial exit at Target 1 (conviction-based sizing, not always 50%)
+    # #11 — Partial exit at Target 1 (swing trades only — day trades run full size to EOD)
     target1 = float(trade.get("target1") or 0)
     partial_done = trade.get("partial_exit_done", False)
+    if trade_type == "day":
+        partial_done = True  # treat as already done — skip partial logic for day trades
     if target1 > 0 and not partial_done:
         t1_hit = (direction == "long" and price >= target1) or (direction == "short" and price <= target1)
         if t1_hit:
