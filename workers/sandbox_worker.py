@@ -100,7 +100,7 @@ MAX_STOP_PCT       = 9.0        # volatile names need room; $ risk is already ca
 MAX_POSITIONS_PER_SECTOR = 2    # max 2 per sector — avoid concentration
 COOLDOWN_DAYS      = 5          # ban ticker N days after 2 consecutive losses
 BREAKEVEN_TRIGGER  = 2.0        # move stop to breakeven after +2% gain
-VIX_REGIME_LIMIT   = 28.0       # skip entries when VIX above this
+VIX_REGIME_LIMIT   = 999.0      # effectively disabled for test run
 
 # ── Sniper position sizing — scales with signal conviction ──────────────────
 RISK_PCT_BASE        = 1.0   # 1 qualifying signal  → 1% risk  ($500)
