@@ -132,7 +132,6 @@ def insert_snapshot(ticker: str, price: float, volume: int | None, change_pct: f
             "price": price,
             "volume": volume,
             "change_pct": change_pct,
-            "data_freshness": now_iso,
         }).execute()
     except Exception as e:
         log.debug(f"insert_snapshot failed for {ticker}: {e}")

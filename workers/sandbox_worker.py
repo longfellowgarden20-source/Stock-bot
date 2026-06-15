@@ -2355,8 +2355,9 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
     efficiency = round(pnl_pct / peak_pnl, 3) if peak_pnl > 0 and pnl_pct > 0 else None
 
     # #18 — Trade update FIRST, balance SECOND. If trade update fails, we don't touch balance.
+    # Guard: only update if still open — prevents double-close race condition from corrupting balance.
     try:
-        supabase().table("sandbox_trades").update({
+        res = supabase().table("sandbox_trades").update({
             "status": "closed",
             "exit_price": round(exit_price, 4),
             "exit_date": date.today().isoformat(),
@@ -2366,7 +2367,10 @@ async def close_trade(trade: dict, exit_price: float, exit_reason: str, exit_not
             "groq_exit_note": exit_note[:500] if exit_reason == "groq_exit" else None,
             "profit_efficiency": efficiency,
             "updated_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", trade["id"]).execute()
+        }).eq("id", trade["id"]).eq("status", "open").execute()  # .eq("status","open") = idempotency guard
+        if not res.data:
+            log.warning(f"close_trade skipped for {ticker} — already closed (race condition avoided)")
+            return
         outcome = "WIN" if pnl > 0 else "LOSS"
         log.info(f"Sandbox closed {direction} {ticker}: {outcome} {pnl_pct:+.1f}% (${pnl:+.2f}) reason={exit_reason}")
     except Exception as e:
