@@ -93,8 +93,8 @@ POLYGON_BASE = "https://api.polygon.io"
 # Paper trading config
 STARTING_BALANCE   = 50_000.00  # $50k paper account
 MAX_POSITION_PCT   = 15.0       # never put more than 15% of account in one trade
-MAX_OPEN_POSITIONS = 10         # sniper mode — fewer, better positions
-MAX_DAILY_ENTRIES  = 8          # max 8 trades/day — only the best setups
+MAX_OPEN_POSITIONS = 20         # test run — allow more concurrent positions
+MAX_DAILY_ENTRIES  = 20         # test run — force 20 trades today
 MAX_SWING_DAYS     = 20         # force-close swing trades after 20 trading days
 MAX_STOP_PCT       = 9.0        # volatile names need room; $ risk is already capped at 1%/trade by position sizing (wider stop -> fewer shares -> same risk), so 6% just blocked good high-conviction setups
 MAX_POSITIONS_PER_SECTOR = 2    # max 2 per sector — avoid concentration
@@ -1163,7 +1163,7 @@ def get_signal_freshness(ticker: str) -> tuple[bool, int]:
         return False, 99
 
 
-MAX_CONSECUTIVE_LOSSES = 5   # halt all entries for the day after N consecutive losses
+MAX_CONSECUTIVE_LOSSES = 999  # effectively disabled for test runs
 
 # US market holidays — these don't count as trading days (#4)
 US_MARKET_HOLIDAYS: set[date] = {
@@ -3089,7 +3089,7 @@ async def run_once() -> dict:
                 daily_pnl = get_daily_pnl()
                 account_balance = get_account_balance()
                 daily_loss_pct = (daily_pnl / account_balance * 100) if account_balance > 0 else 0
-                if daily_loss_pct <= -2.0:
+                if daily_loss_pct <= -50.0:  # effectively disabled for test run
                     log.info(f"Daily loss limit hit (realized): {daily_loss_pct:.1f}% — stopping entries for today")
                     skip_entries = True
                     skip_reason = f"daily loss limit hit ({daily_loss_pct:.1f}%)"
