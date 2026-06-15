@@ -2988,7 +2988,6 @@ async def run_once() -> dict:
         # The Groq swing hold/exit re-eval inside evaluate_open_trade is separately
         # throttled to every 2 hours via _skip_groq_swing_eval to keep token costs down.
         global _last_swing_groq_eval_utc
-        from datetime import datetime, timezone, timedelta
         now_utc = datetime.now(timezone.utc)
         should_groq_swing_eval = (
             _last_swing_groq_eval_utc is None or
