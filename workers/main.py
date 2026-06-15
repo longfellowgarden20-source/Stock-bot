@@ -63,7 +63,7 @@ WORKER_INTERVALS = {
     'squeeze': 3600, 'technical': 900, 'earnings': 3600,
     'analyst': 3600, 'macro': 1800, 'sector': 3600,
     'reddit': 1800, 'engine': 300, 'prediction': 1800,
-    'intelligence': 1800, 'sandbox': 1800, 'morning_outlook': 1800, 'weekly_review': 3600,
+    'intelligence': 1800, 'sandbox': 300, 'morning_outlook': 1800, 'weekly_review': 3600,
     'premarket_scan': 1800,
 }
 
