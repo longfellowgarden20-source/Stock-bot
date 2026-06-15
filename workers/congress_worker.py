@@ -1,15 +1,10 @@
 """
-Congressional Trades Worker — tracks senator/rep stock trades via Capitol Trades.
+Congressional Trades Worker — tracks senator/rep stock trades via Quiver Quantitative.
 
-Capitol Trades provides free access to STOCK Act disclosures with no API key required.
-Docs: https://www.capitoltrades.com (scrape-friendly public data)
-
-Strategy:
-- Polls every 6h (trades are reported within 45 days of execution under STOCK Act)
-- Fetches latest congressional trades from Capitol Trades public API
-- Filters for tickers in watchlist/portfolio
-- Emits congress_trade signals for any buy/sell by elected officials
+Quiver provides clean congressional trade data from STOCK Act disclosures.
+Requires QUIVER_API_KEY env var (free tier available at quiverquant.com).
 """
+import os
 import logging
 import httpx
 import asyncio
@@ -18,61 +13,52 @@ from db import supabase, get_watchlist_tickers, insert_signal
 
 log = logging.getLogger("congress_worker")
 
-CT_BASE = "https://api.capitoltrades.com/v1"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; StockBot/1.0; personal research tool)",
-    "Accept": "application/json",
-    "Referer": "https://www.capitoltrades.com/trades",
-}
+QUIVER_KEY = os.environ.get("QUIVER_API_KEY", "")
+QUIVER_BASE = "https://api.quiverquant.com/beta"
 
 _seen: set[str] = set()
 
 
-async def fetch_recent_trades(client: httpx.AsyncClient, page: int = 1) -> list[dict]:
-    """Fetch most recent congressional trades from Capitol Trades."""
+async def fetch_recent_trades(client: httpx.AsyncClient) -> list[dict]:
+    """Fetch most recent congressional trades from Quiver Quantitative."""
+    if not QUIVER_KEY:
+        log.warning("QUIVER_API_KEY not set — congress worker skipped")
+        return []
     try:
         r = await client.get(
-            f"{CT_BASE}/trades",
-            headers=HEADERS,
-            params={
-                "pageSize": 100,
-                "page": page,
-                "sortBy": "txDate",
-                "sortDir": "desc",
-            },
+            f"{QUIVER_BASE}/live/congresstrading",
+            headers={"Authorization": f"Token {QUIVER_KEY}", "Accept": "application/json"},
             timeout=20,
         )
+        if r.status_code == 401:
+            log.warning("Quiver API key unauthorized — check QUIVER_API_KEY")
+            return []
         if r.status_code != 200:
-            log.warning(f"Capitol Trades status {r.status_code}: {r.text[:200]}")
+            log.warning(f"Quiver congress status {r.status_code}: {r.text[:200]}")
             return []
         data = r.json()
-        # Capitol Trades returns {data: [...], meta: {...}}
-        return data.get("data", data) if isinstance(data, dict) else data
+        return data if isinstance(data, list) else data.get("data", [])
     except Exception as e:
-        log.error(f"Capitol Trades fetch failed: {e}")
+        log.error(f"Quiver congress fetch failed: {e}")
         return []
 
 
 async def fetch_ticker_trades(client: httpx.AsyncClient, ticker: str) -> list[dict]:
-    """Fetch trades for a specific ticker."""
+    """Fetch trades for a specific ticker from Quiver."""
+    if not QUIVER_KEY:
+        return []
     try:
         r = await client.get(
-            f"{CT_BASE}/trades",
-            headers=HEADERS,
-            params={
-                "ticker": ticker.upper(),
-                "pageSize": 50,
-                "sortBy": "txDate",
-                "sortDir": "desc",
-            },
+            f"{QUIVER_BASE}/historical/congresstrading/{ticker.upper()}",
+            headers={"Authorization": f"Token {QUIVER_KEY}", "Accept": "application/json"},
             timeout=15,
         )
         if r.status_code != 200:
             return []
         data = r.json()
-        return data.get("data", data) if isinstance(data, dict) else data
+        return data if isinstance(data, list) else data.get("data", [])
     except Exception as e:
-        log.error(f"Capitol Trades ticker fetch failed for {ticker}: {e}")
+        log.error(f"Quiver ticker fetch failed for {ticker}: {e}")
         return []
 
 
@@ -91,25 +77,35 @@ def parse_trade_amount(amount_str: str | None) -> tuple[str, float]:
         "Over $5,000,000": ("$5M+", 5_000_000),
     }
     for key, (label, mid) in ranges.items():
-        if key.lower() in amount_str.lower():
+        if key.lower() in str(amount_str).lower():
             return (label, mid)
-    return (amount_str[:30], 0)
+    # Quiver sometimes gives numeric ranges like "1001-15000"
+    try:
+        clean = str(amount_str).replace("$", "").replace(",", "").strip()
+        if "-" in clean:
+            parts = clean.split("-")
+            lo, hi = float(parts[0].strip()), float(parts[1].strip())
+            mid = (lo + hi) / 2
+            if mid >= 1_000_000:
+                return (f"${mid/1_000_000:.1f}M", mid)
+            elif mid >= 1000:
+                return (f"${mid/1000:.0f}K", mid)
+            return (str(amount_str)[:30], mid)
+    except Exception:
+        pass
+    return (str(amount_str)[:30], 0)
 
 
-def normalize_trade(raw: dict) -> dict:
-    """Normalize Capitol Trades response fields to internal format."""
-    # Capitol Trades field names
-    politician = raw.get("politician", {}) or {}
-    asset = raw.get("asset", {}) or {}
-
-    ticker = str(raw.get("ticker") or asset.get("ticker") or "").upper()
-    rep = raw.get("politicianName") or f"{politician.get('firstName', '')} {politician.get('lastName', '')}".strip() or "Unknown"
-    party = raw.get("party") or politician.get("party") or ""
-    state = raw.get("state") or politician.get("state") or ""
-    chamber = raw.get("chamber") or politician.get("chamber") or ""
-    tx_type = str(raw.get("type") or raw.get("txType") or raw.get("transactionType") or "").lower()
-    tx_date = raw.get("txDate") or raw.get("transactionDate") or ""
-    amount = raw.get("range") or raw.get("amount") or raw.get("sizeRange") or ""
+def normalize_quiver_trade(raw: dict) -> dict:
+    """Normalize Quiver Quantitative response fields to internal format."""
+    ticker = str(raw.get("Ticker") or raw.get("ticker") or "").upper()
+    rep = raw.get("Representative") or raw.get("representative") or "Unknown"
+    party = raw.get("Party") or raw.get("party") or ""
+    tx_type = str(raw.get("Transaction") or raw.get("transaction") or "").lower()
+    tx_date = raw.get("TransactionDate") or raw.get("Date") or raw.get("date") or ""
+    amount = raw.get("Range") or raw.get("Amount") or raw.get("amount") or ""
+    chamber = raw.get("Chamber") or raw.get("chamber") or ""
+    state = raw.get("State") or raw.get("state") or ""
 
     return {
         "Ticker": ticker,
@@ -118,7 +114,7 @@ def normalize_trade(raw: dict) -> dict:
         "State": state,
         "Chamber": chamber,
         "Transaction": tx_type,
-        "TransactionDate": tx_date,
+        "TransactionDate": str(tx_date)[:10] if tx_date else "",
         "Amount": amount,
     }
 
@@ -129,7 +125,7 @@ def process_trades(trades: list[dict], watched: set[str]) -> int:
     cutoff = datetime.now(timezone.utc) - timedelta(days=45)
 
     for raw in trades:
-        trade = normalize_trade(raw)
+        trade = normalize_quiver_trade(raw)
 
         ticker = trade["Ticker"]
         if not ticker:
@@ -218,19 +214,21 @@ def process_trades(trades: list[dict], watched: set[str]) -> int:
 
 
 async def run_once() -> dict:
+    if not QUIVER_KEY:
+        return {"status": "skipped", "reason": "QUIVER_API_KEY not set"}
+
     tickers = get_watchlist_tickers()
     watched = set(tickers)
 
     async with httpx.AsyncClient() as client:
-        # Fetch broad recent feed first
         trades = await fetch_recent_trades(client)
         count = process_trades(trades, watched)
 
-        # If broad feed had nothing for watched tickers, query per-ticker
-        watched_hits = {normalize_trade(t)["Ticker"] for t in trades} & watched
+        # Per-ticker fallback for watched tickers not in the broad feed
+        watched_hits = {normalize_quiver_trade(t)["Ticker"] for t in trades} & watched
         missing = watched - watched_hits
         if missing:
-            log.info(f"Querying Capitol Trades per-ticker for: {missing}")
+            log.info(f"Querying Quiver per-ticker for: {missing}")
             for ticker in list(missing)[:15]:
                 ticker_trades = await fetch_ticker_trades(client, ticker)
                 if ticker_trades:
@@ -241,7 +239,7 @@ async def run_once() -> dict:
 
 
 async def main_loop():
-    log.info("Congress trade worker started (Capitol Trades — no API key required)")
+    log.info("Congress trade worker started (Quiver Quantitative)")
     while True:
         try:
             result = await run_once()

@@ -6,7 +6,7 @@ import logging
 import httpx
 import asyncio
 from datetime import datetime, timezone
-from db import get_watchlist_tickers, insert_news, insert_signal
+from db import get_watchlist_tickers, insert_news, insert_signal, polygon_get
 
 log = logging.getLogger("news_worker")
 
@@ -86,8 +86,9 @@ async def fetch_polygon_news(client: httpx.AsyncClient, ticker: str) -> list[dic
     if not POLYGON_KEY:
         return []
     try:
-        r = await client.get(
-            f"https://api.polygon.io/v2/reference/news",
+        r = await polygon_get(
+            client,
+            "https://api.polygon.io/v2/reference/news",
             params={"ticker": ticker, "limit": 10, "apiKey": POLYGON_KEY},
             timeout=10,
         )

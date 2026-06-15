@@ -49,6 +49,8 @@ import weekly_review_worker
 import premarket_scan_worker
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 log = logging.getLogger("main")
 
 _tasks: list[asyncio.Task] = []

@@ -17,7 +17,7 @@ import logging
 import httpx
 import asyncio
 from datetime import datetime, timezone, timedelta, date
-from db import get_watchlist_tickers, insert_signal
+from db import get_watchlist_tickers, insert_signal, polygon_get
 from market_hours import is_market_hours
 
 log = logging.getLogger("technical_worker")
@@ -49,7 +49,7 @@ async def fetch_daily_bars(client: httpx.AsyncClient, ticker: str, days: int = 3
     end = today.isoformat()
     url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/1/day/{start}/{end}"
     try:
-        r = await client.get(url, params={"apiKey": POLYGON_KEY, "limit": 500, "sort": "asc"}, timeout=15)
+        r = await polygon_get(client, url, params={"apiKey": POLYGON_KEY, "limit": 500, "sort": "asc"}, timeout=15)
         if r.status_code != 200:
             return []
         return r.json().get("results", []) or []
@@ -65,7 +65,7 @@ async def fetch_intraday_bars(client: httpx.AsyncClient, ticker: str) -> list[di
     today = date.today().isoformat()
     url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/5/minute/{today}/{today}"
     try:
-        r = await client.get(url, params={"apiKey": POLYGON_KEY, "limit": 200, "sort": "asc"}, timeout=15)
+        r = await polygon_get(client, url, params={"apiKey": POLYGON_KEY, "limit": 200, "sort": "asc"}, timeout=15)
         if r.status_code != 200:
             return []
         return r.json().get("results", []) or []
@@ -201,7 +201,7 @@ async def fetch_weekly_bars(client: httpx.AsyncClient, ticker: str, weeks: int =
     end = today.isoformat()
     url = f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/1/week/{start}/{end}"
     try:
-        r = await client.get(url, params={"apiKey": POLYGON_KEY, "limit": 100, "sort": "asc"}, timeout=15)
+        r = await polygon_get(client, url, params={"apiKey": POLYGON_KEY, "limit": 100, "sort": "asc"}, timeout=15)
         if r.status_code != 200:
             return []
         return r.json().get("results", []) or []

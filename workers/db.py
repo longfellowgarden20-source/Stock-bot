@@ -2,9 +2,28 @@
 import os
 import logging
 import threading
+import asyncio
 import httpx
 from supabase import create_client, Client
 from typing import Any, Optional
+
+# Global semaphore — caps concurrent Polygon API calls across all workers.
+# Polygon free tier allows 5 req/min; with 20 workers hitting it simultaneously
+# every cycle we saturate it immediately. This limits concurrent in-flight calls.
+_polygon_sem: asyncio.Semaphore | None = None
+
+
+def polygon_semaphore() -> asyncio.Semaphore:
+    global _polygon_sem
+    if _polygon_sem is None:
+        _polygon_sem = asyncio.Semaphore(3)
+    return _polygon_sem
+
+
+async def polygon_get(client: httpx.AsyncClient, url: str, **kwargs) -> httpx.Response:
+    """Rate-limited Polygon GET — max 3 concurrent requests across all workers."""
+    async with polygon_semaphore():
+        return await client.get(url, **kwargs)
 
 log = logging.getLogger("db")
 

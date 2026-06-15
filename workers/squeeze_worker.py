@@ -21,7 +21,7 @@ import asyncio
 import csv
 import io
 from datetime import datetime, timezone, timedelta, date
-from db import get_watchlist_tickers, insert_signal
+from db import get_watchlist_tickers, insert_signal, polygon_get
 
 log = logging.getLogger("squeeze_worker")
 
@@ -46,8 +46,7 @@ async def fetch_ticker_details(client: httpx.AsyncClient, ticker: str) -> dict |
     if cached and (datetime.now(timezone.utc).timestamp() - cached[1]) < _SI_TTL:
         return cached[0]
     try:
-        r = await client.get(
-            f"{POLYGON_BASE}/v3/reference/tickers/{ticker.upper()}",
+        r = await polygon_get(client, f"{POLYGON_BASE}/v3/reference/tickers/{ticker.upper()}",
             params={"apiKey": POLYGON_KEY},
             timeout=10,
         )
@@ -163,8 +162,7 @@ async def fetch_avg_volume(client: httpx.AsyncClient, ticker: str) -> float | No
     start = (today - timedelta(days=60)).isoformat()
     end = (today - timedelta(days=1)).isoformat()
     try:
-        r = await client.get(
-            f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}",
+        r = await polygon_get(client, f"{POLYGON_BASE}/v2/aggs/ticker/{ticker}/range/1/day/{start}/{end}",
             params={"apiKey": POLYGON_KEY, "limit": 60, "sort": "desc"},
             timeout=10,
         )

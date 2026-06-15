@@ -16,7 +16,7 @@ import httpx
 import asyncio
 import json
 from datetime import datetime, timezone, timedelta, date
-from db import get_watchlist_tickers, insert_signal, supabase
+from db import get_watchlist_tickers, insert_signal, supabase, polygon_get
 
 log = logging.getLogger("earnings_worker")
 
@@ -44,8 +44,7 @@ async def fetch_earnings_date(client: httpx.AsyncClient, ticker: str) -> str | N
         return None
     try:
         # Polygon doesn't expose future earnings dates directly on free tier — try the events endpoint
-        r = await client.get(
-            f"{POLYGON_BASE}/v3/reference/tickers/{ticker.upper()}/events",
+        r = await polygon_get(client, f"{POLYGON_BASE}/v3/reference/tickers/{ticker.upper()}/events",
             params={"apiKey": POLYGON_KEY, "types": "ticker_change"},
             timeout=10,
         )
@@ -55,8 +54,7 @@ async def fetch_earnings_date(client: httpx.AsyncClient, ticker: str) -> str | N
 
     # Use financial filings — average gap between filings predicts the next one
     try:
-        r = await client.get(
-            f"{POLYGON_BASE}/vX/reference/financials",
+        r = await polygon_get(client, f"{POLYGON_BASE}/vX/reference/financials",
             params={"apiKey": POLYGON_KEY, "ticker": ticker.upper(), "limit": 4, "order": "desc", "sort": "filing_date"},
             timeout=15,
         )
@@ -91,8 +89,7 @@ async def fetch_historical_move(client: httpx.AsyncClient, ticker: str) -> float
     today = date.today()
     start = (today - timedelta(days=730)).isoformat()
     try:
-        r = await client.get(
-            f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/1/day/{start}/{today.isoformat()}",
+        r = await polygon_get(client, f"{POLYGON_BASE}/v2/aggs/ticker/{ticker.upper()}/range/1/day/{start}/{today.isoformat()}",
             params={"apiKey": POLYGON_KEY, "limit": 500, "sort": "asc"},
             timeout=15,
         )
